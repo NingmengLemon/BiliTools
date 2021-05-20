@@ -1,15 +1,16 @@
-# BiliDownloader
+# BiliTools
 
-## Bilibili视频下载器
+## Bilibili工具箱
 
-### 感谢以下项目的开发者：
+**此项目仍在开发中……**
 
-#### https://github.com/m13253/danmaku2ass
+***（关于本项目的上一代BiliDownloader详见[release](https://github.com/NingmengLemon/BiliTools/releases/tag/v.1.0.3)）***
 
-#### https://github.com/soimort/you-get/
+感谢[danmaku2ass](https://github.com/m13253/danmaku2ass)项目的开发者提供的弹幕转换器
 
-## 我只是为以上两个项目写了个GUI而已，真正需要感谢的还是他们φ(゜▽゜*)♪
+### 现有以下功能：
 
-### 注意：需要ffmpeg的支持！
-
-#### ↑把这个程序和ffmpeg放在一起，或将ffmpeg添加到PATH都是可以的哦
+功能 | 备注
+------------ | -------------
+Cookie登录 | 目前仅支持Firefox
+音频抽取 | 支持音频区的音频下载，普通视频区、番剧区以及影视区的视频的音轨抽取
