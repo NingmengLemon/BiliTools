@@ -6,24 +6,50 @@ import os
 import sys
 import re
 import time
+import random
 import _thread
+import queue
+from io import BytesIO
+import traceback
+#第三方库
+from PIL import Image,ImageTk
+import qrcode
 #自制库
 import clipboard
 import biliapis
 import bilicodes
 
-version = '2.0.0_Dev01'
+version = '2.0.0_Dev02'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 config_path = f'C:\\Users\\{user_name}\\bilitools_config.json'
 devmode = True
 config = {
     'topmost':True,
-    'audio':{
-        'dash_quality':30280,
-        'common_quality':3
-        }
+    'login_method':'qrcode',# qrcode / cookies / no
+    'autologin':True
     }
+
+tips = [
+        '欢迎使用基于Bug开发的BiliTools（',
+        '最简单的方法就是直接在这里粘贴网址',
+        '不管怎样，你得先告诉我你要去哪儿啊',
+        'Bug是此程序的核心部分',
+        '鸽子是此程序的作者的本体（咕',
+        '想要反馈Bug？那你得先找到作者再说'
+        ]
+
+about_info = '\n'.join([
+    'BiliTools v.%s'%version,
+    '一些功能需要 FFmpeg 的支持.',
+    '感谢 @m13253 的弹幕转换程序的支持',
+    '如你所见, 此程序还没有完工.',
+    'Made by: @NingmengLemon（GitHub）',
+    '---------------------------',
+    '此程序严禁用于任何商业用途.',
+    '此程序的作者不会为任何因使用此程序所造成的后果负责.',
+    '感谢您的使用.'
+    ])
 
 def print(*text,end='\n',sep=' '):
     tmp = []
@@ -33,169 +59,246 @@ def print(*text,end='\n',sep=' '):
     sys.stdout.flush()
 
 def replaceChr(text):
-    repChr = {'/':'／',
-              '*':'＊',
-              ':':'：',
-              '\\':'＼',
-              '>':'＞',
-              '<':'＜',
-              '|':'｜',
-              '?':'？',
-              '"':'＂'}
+    repChr = {'/':'／','*':'＊',':':'：','\\':'＼','>':'＞',
+              '<':'＜','|':'｜','?':'？','"':'＂'}
     for t in list(repChr.keys()):
         text = text.replace(t,repChr[t])
     return text
 
+def tkImg(file=None,scale=1,size=()):
+    try:
+        with Image.open(file) as f:
+            width = f.size[0]
+            height = f.size[1]
+            if size == ():
+                tmp = f.resize((int(width*scale),int(height*scale)),Image.ANTIALIAS)
+            else:
+                tmp = f.resize((int(size[0]),int(size[1])),Image.ANTIALIAS)
+        img = ImageTk.PhotoImage(tmp)
+    except Exception as e:
+        if size == ():
+            f = Image.new('RGB',(300,300),(255,255,255))
+        else:
+            f = Image.new('RGB',size,(255,255,255))
+        return ImageTk.PhotoImage(f)
+    return img
+
+def makeQrcode(data):
+    qr = qrcode.QRCode()
+    qr.add_data(data)
+    img = qr.make_image()
+    a = BytesIO()
+    img.save(a,'png')
+    return a #返回一个BytesIO对象
+
+class Timer(object):
+    def __init__(self,start=False):
+        self.init_time = time.time()
+        self.start_time = 0
+        self._status = 0
+        if start:
+            self.start()
+
+    def start(self):
+        if self._status == 0:
+            self._status = 1
+            self.start_time = time.time()
+
+    def get(self):
+        if self._status == 0:
+            return 0
+        else:
+            return time.time() - self.start_time
+
 class MainWindow(object):
     def __init__(self):
+        self.task_queue = queue.Queue() #此队列用于储存来自子线程的lambda函数
+        self.image_library = [] #将tkimage存在这里
+        
         self.window = tk.Tk()
         self.window.title('BiliTools - Main')
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
-        self.window.wm_attributes('-topmost',config['topmost'])
-        
-        self.frames = {
-            'login_info':tk.LabelFrame(self.window,text='登录信息')
-            }
+        self.setTopmost()
 
-        #定义组件
-        self.widgets = {
-            'user_name':tk.Label(self.frames['login_info'],text='--'),
-            'uid':tk.Label(self.frames['login_info'],text='UID --'),
-            'viptype':tk.Label(self.frames['login_info'],text='--'),
-            'level':tk.Label(self.frames['login_info'],text='Lv --'),
-            'exp':tk.Label(self.frames['login_info'],text='Exp --/--'),
-            'button_refresh':tk.Button(self.frames['login_info'],text='刷新',command=self.fresh_login_info),
-            'button_load_cookies':tk.Button(self.frames['login_info'],text='加载Cookies',command=self.load_cookies),
-            'button_clear_cookies':tk.Button(self.frames['login_info'],text='清除Cookies',command=self.clear_cookies),
+        self.frame_main = tk.Frame(self.window)
+        tk.Label(self.frame_main,text='随便输入点什么吧~').grid(column=0,row=0,sticky='w')
+        #主输入框
+        self.entry_source = tk.Entry(self.frame_main,width=50,exportselection=0,selectbackground='#66CCFF')
+        self.entry_source.grid(column=0,row=1)
+        self.entry_source.bind('<Return>',lambda x=0:self.start())
+        tk.Button(self.frame_main,text='粘贴',command=lambda x=0:self.setEntry(self.entry_source,text=clipboard.getText())).grid(column=1,row=1)
+        tk.Button(self.frame_main,text='清空',command=lambda x=0:self.entry_source.delete(0,'end')).grid(column=2,row=1)
+        tk.Button(self.frame_main,text='开始',command=self.start,width=9).grid(column=1,row=2,columnspan=2)
+        #Tips Shower
+        self.label_tips = tk.Label(self.frame_main,text='Tips: -')
+        self.label_tips.grid(column=0,row=2,sticky='w')
+        self.label_tips.bind('<Button-1>',lambda x=0:self.changeTips())
+        self.frame_main.grid(column=0,row=0,columnspan=2)
 
-            'button_audio_window':tk.Button(self.window,text='音频抽取',command=lambda x=0:self.goto(AudioWindow)),
+        self.frame_userinfo = tk.LabelFrame(self.window,text='用户信息')
+        #用户头像
+        self.img_user_face_empty = tkImg(size=(100,100))
+        self.label_face = tk.Label(self.frame_userinfo,text='',image=self.img_user_face_empty)
+        self.label_face.grid(column=0,row=0,rowspan=4)
+        self.label_face_text = tk.Label(self.frame_userinfo,text='未加载',bg='#ffffff',font=('',8))#图片上的提示文本
+        self.label_face_text.grid(column=0,row=0,rowspan=4)
+        #用户名
+        self.label_username = tk.Label(self.frame_userinfo,text='-')
+        self.label_username.grid(column=1,row=0,sticky='w',columnspan=2)
+        #UID
+        self.label_uid = tk.Label(self.frame_userinfo,text='UID0')
+        self.label_uid.grid(column=1,row=1,sticky='w')
+        #Level
+        self.label_level = tk.Label(self.frame_userinfo,text='Lv.0')
+        self.label_level.grid(column=1,row=2,sticky='w')
+        #VIP
+        self.label_vip = tk.Label(self.frame_userinfo,text='非大会员')
+        self.label_vip.grid(column=1,row=3,sticky='w')
+        #Login Operation
+        self.button_login = tk.Button(self.frame_userinfo,text='登录',command=self.login)
+        self.button_login.grid(column=0,row=4,sticky='w')
+        tk.Button(self.frame_userinfo,text='刷新',command=self.refreshUserinfo).grid(column=1,row=4,sticky='w')
+        tk.Button(self.frame_userinfo,text='清除登录痕迹',command=self.clearLoginData).grid(column=0,row=5,columnspan=2)
+        self.frame_userinfo.grid(column=0,row=1,sticky='w',columnspan=2)
 
-            '_grid_table':[
-                ('user_name',0,0),('uid',1,0),
-                ('viptype',0,1),
-                ('level',0,2),('exp',1,2),
-                ('button_refresh',0,3),('button_load_cookies',1,3),('button_clear_cookies',2,3),
-                ('button_audio_window',0,4)
-                ]
-            }
+        self.frame_console = tk.LabelFrame(self.window,text='操作')
+        self.frame_console.grid(column=1,row=1,sticky='e')
 
-        #放置框架
-        self.frames['login_info'].grid(column=0,row=0)
-        
-        #放置组件
-        
-        for coor in self.widgets['_grid_table']:
-            self.widgets[coor[0]].grid(column=coor[1],row=coor[2],sticky='w')
+        self.frame_config = tk.LabelFrame(self.window,text='全局设置')
+        #置顶
+        self.boolvar_topmost = tk.BooleanVar(value=config['topmost'])
+        tk.Checkbutton(self.frame_config,variable=self.boolvar_topmost,onvalue=True,offvalue=False,text='置顶',command=self.applyConfig).grid(column=0,row=0,sticky='w')
+        #登录方式
+        self.frame_config_login_method = tk.LabelFrame(self.frame_config,text='登录方式')
+        self.strvar_login_method = tk.StringVar(value=config['login_method'])
+        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='qrcode',text='扫描二维码',command=self.applyConfig).grid(column=0,row=0,sticky='w')
+        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='cookies',text='加载现有的Cookies',command=self.applyConfig).grid(column=0,row=1,sticky='w')
+        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='no',text='不登录',command=self.applyConfig).grid(column=0,row=2,sticky='w')
+        self.frame_config_login_method.grid(column=0,row=1)
+        #启动时自动尝试登录
+        self.boolvar_autologin = tk.BooleanVar(value=config['autologin'])
+        tk.Checkbutton(self.frame_config,variable=self.boolvar_autologin,onvalue=True,offvalue=False,text='启动时自动尝试登录',command=self.applyConfig).grid(column=1,row=0,sticky='w')
+        self.frame_config.grid(column=0,row=2,columnspan=2)
 
-        self.window.mainloop()
+        self.changeTips()
+        if config['autologin']:
+            self.login()
+        self.listen_task()
+        #self.window.mainloop()
 
-    def goto(self,windowobj):
-        self.close()
-        w = windowobj(back_window=MainWindow)
+    def listen_task(self):
+        if not self.task_queue.empty():
+            func = self.task_queue.get_nowait()
+            func()
+        self.window.after(10,self.listen_task)
 
-    def fresh_login_info(self):
-        try:
-            data = biliapis.get_login_info()
-        except Exception as e:
-            msgbox.showerror('(っ °Д °;)っ','Error '+str(e))
-            self.widgets['user_name']['text'] = '--'
-            self.widgets['uid']['text'] = 'UID --'
-            self.widgets['viptype']['text'] = '--'
-            self.widgets['level']['text'] = 'Lv --'
-            self.widgets['exp']['text'] = 'Exp --/--'
+    def setTopmost(self,mode=None):
+        if mode == False:
+            self.window.wm_attributes('-topmost',False)
+            print('已取消置顶')
+        elif mode == True:
+            self.window.wm_attributes('-topmost',True)
+            print('已置顶')
         else:
-            self.widgets['user_name']['text'] = data['name']
-            self.widgets['uid']['text'] = 'UID %s'%data['uid']
-            self.widgets['viptype']['text'] = data['vip_type']
-            self.widgets['level']['text'] = 'Lv %s'%data['level']
-            self.widgets['exp']['text'] = 'Exp %s'%data['exp']
-
-    def clear_cookies(self):
-        biliapis.clear_cookies()
-        msgbox.showinfo('φ(゜▽゜*)♪','Cookies已清除')
-        self.widgets['user_name']['text'] = '--'
-        self.widgets['uid']['text'] = 'UID --'
-        self.widgets['viptype']['text'] = '--'
-        self.widgets['level']['text'] = 'Lv --'
-        self.widgets['exp']['text'] = 'Exp --/--'
-
-    def load_cookies(self):
-        r = biliapis.load_cookies()
-        if r == 0:
-            msgbox.showinfo('φ(゜▽゜*)♪','加载成功')
-        else:
-            msgbox.showerror('（；´д｀）ゞ','加载失败')
-
-    def close(self):
-        self.window.quit()
-        self.window.destroy()
-
-class AudioWindow(object):
-    def __init__(self,back_window=None):
-        self.back_window = back_window
-        self.window = tk.Tk()
-        self.window.title('BiliTools - Audio')
-        self.window.resizable(height=False,width=False)
-        self.window.protocol('WM_DELETE_WINDOW',self.close)
-        self.window.wm_attributes('-topmost',config['topmost'])
-        
-        self.frame_config_quality = tk.LabelFrame(self.window,text='首选音频质量设定')
-        self.frame_config_quality.grid(column=0,row=3,columnspan=4,sticky='w')
-        self.var_dash_audio_quality = tk.IntVar(value=config['audio']['dash_quality'])
-        self.var_audio_quality = tk.IntVar(value=config['audio']['common_quality'])
-        
-        self.lock = False
-
-        self.widgets = {
-            'text1':tk.Label(self.window,text='源:'),
-            'entry_url':tk.Entry(self.window,width=40,exportselection=0,selectbackground='#66CCFF'),
-            'button_paste':tk.Button(self.window,text='粘贴',command=lambda x=0:self.setEntry(self.widgets['entry_url'],text=clipboard.getText())),
-            'button_clear_url':tk.Button(self.window,text='清空',command=lambda x=0:self.widgets['entry_url'].delete(0,'end')),
-            'text2':tk.Label(self.window,text='保存至:'),
-            'entry_path':tk.Entry(self.window,width=40,exportselection=0,selectbackground='#66CCFF',state='disabled'),
-            'button_explore_path':tk.Button(self.window,text='浏览',command=lambda x=0:self.explore_folder(self.widgets['entry_path'])),
-            'button_clear_path':tk.Button(self.window,text='清空',command=lambda x=0:self.setEntry(self.widgets['entry_path'],True)),
-            'button_start':tk.Button(self.window,text='走你',command=self.handle_process),
-            'button_help':tk.Button(self.window,text=' ？ ',command=self.show_help),
-
-            'text3':tk.Label(self.frame_config_quality,text='若来源为音频区  - '),
-            'radiobtn_128k':tk.Radiobutton(self.frame_config_quality,text='128K',variable=self.var_audio_quality,value=0,command=self.apply_config),
-            'radiobtn_192k':tk.Radiobutton(self.frame_config_quality,text='192K',variable=self.var_audio_quality,value=1,command=self.apply_config),
-            'radiobtn_320k':tk.Radiobutton(self.frame_config_quality,text='320K',variable=self.var_audio_quality,value=2,command=self.apply_config),
-            'radiobtn_flac':tk.Radiobutton(self.frame_config_quality,text='FLAC',variable=self.var_audio_quality,value=3,command=self.apply_config),
-
-            'text4':tk.Label(self.frame_config_quality,text='若来源为视频区'),
-            'radiobtn_dash_64k':tk.Radiobutton(self.frame_config_quality,text='64K',variable=self.var_dash_audio_quality,value=30216,command=self.apply_config),
-            'radiobtn_dash_132k':tk.Radiobutton(self.frame_config_quality,text='132K',variable=self.var_dash_audio_quality,value=30232,command=self.apply_config),
-            'radiobtn_dash_192k':tk.Radiobutton(self.frame_config_quality,text='192K',variable=self.var_dash_audio_quality,value=30280,command=self.apply_config),
+            self.window.wm_attributes('-topmost',config['topmost'])
+            print('已将置顶选项与设置同步')
             
-            '_grid_table':[#(name,column,row)
-                ('text1',0,0),('entry_url',1,0),('button_paste',2,0),('button_clear_url',3,0),
-                ('text2',0,1),('entry_path',1,1),('button_explore_path',2,1),('button_clear_path',3,1),
-                ('button_help',0,2),#('button_start',2,2),
+    def quitLogin(self):
+        biliapis.quit_login()
+        self.label_face.configure(image=self.img_user_face_empty)
+        self.label_face.image = self.img_user_face
+        self.label_face_text['text'] = '未加载'
+        self.label_username['text'] = '-'
+        self.label_uid['text'] = 'UID0'
+        self.label_level['text'] = 'Lv.0'
+        self.label_vip['text'] = '非大会员'
+        print('已退出登录')
+        self.button_login['text'] = '登录'
+        self.button_login['command'] = self.login
 
-                ('text3',0,0),('radiobtn_128k',0,1),('radiobtn_192k',0,2),('radiobtn_320k',0,3),('radiobtn_flac',0,4),
-                ('text4',1,0),('radiobtn_dash_64k',1,1),('radiobtn_dash_132k',1,2),('radiobtn_dash_192k',1,3)
-                ]
-            }
+    def clearLoginData(self):
+        if msgbox.askyesno('','这将会删除保存在程序中的登录数据.\n确认？'):
+            biliapis.clear_cookies()
+            self.quitLogin()
+            print('已清除登录数据')
 
-        for coor in self.widgets['_grid_table']:
-            self.widgets[coor[0]].grid(column=coor[1],row=coor[2],sticky='w')
-        #有特殊需要的组件放在这里
-        self.widgets['button_start'].grid(column=2,row=2,columnspan=2)
+    def login(self):
+        flag = 0
+        if config['login_method'] == 'qrcode':
+            print('正在通过QRCODE方式登录')
+            biliapis.load_local_cookies()
+            if biliapis.is_cookiejar_usable():
+                self.refreshUserinfo()
+                print('登录成功')
+                flag = 1
+            else:
+                self.setTopmost(False)
+                w = LoginWindow(True)
+                if w.status:
+                    biliapis.load_local_cookies()
+                    self.refreshUserinfo()
+                    print('登录成功')
+                    flag = 1
+                else:
+                    msgbox.showwarning('','登录未完成.')
+                    print('登录取消')
+                self.setTopmost()
+        elif config['login_method'] == 'cookies':
+            print('正在通过COOKIES方式登录')
+            biliapis.load_explorer_cookies()
+            if biliapis.is_cookiejar_usable():
+                self.refreshUserinfo()
+                print('登录成功')
+                flag = 1
+            else:
+                msgbox.showwarning('','无法从浏览器中加载现成的Cookies.')
+                print('登录失败')
+        else:
+            msgbox.showwarning('','你已将登录方式设为不登录.')
+        if flag != 0:
+            self.button_login['text'] = '退出登录'
+            self.button_login['command'] = self.quitLogin
+        return
 
-        self.window.mainloop()
-        
-    def show_help(self):
-        help_text = '\n'.join([
-            '音频抽取',
-            '抽取视频的音轨或者下载音频区的音频.',
-            '将网址复制到“源”输入框内, 选择输出地址, 再点击“走你”即可.',
-            '首选音频质量在下方选取, 若没有匹配的质量则默认下载最高音质.'
-            ])
-        msgbox.showinfo('φ(゜▽゜*)♪',help_text)
-        
+    def config_widget(self,widget,option,value):#不要往这里面传image参数
+        if option == 'image':
+            return
+        widget[option] = value
+
+    def set_image(self,widget,image_bytesio,size=()):
+        self.image_library.append(tkImg(image_bytesio,size=size))
+        index = len(self.image_library)-1
+        widget.configure(image=self.image_library[index])
+        widget.image = self.image_library[index]
+             
+    def refreshUserinfo(self):
+        def tmp():
+            tmp = biliapis.get_login_info()
+            #Face
+            face = biliapis.get_content_bytes(biliapis.format_img(tmp['face'],w=100,h=100))
+            face = BytesIO(face)
+            self.task_queue.put_nowait(lambda x=0:self.set_image(self.label_face,face,(100,100)))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_face_text,'text',''))
+            #Info
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_username,'text',tmp['name']))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_uid,'text','UID%s'%tmp['uid']))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_level,'text','Lv.%s'%tmp['level']))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_vip,'text',tmp['vip_type']))
+        _thread.start_new(tmp,())
+
+    def applyConfig(self):
+        global config
+        config['topmost'] = self.boolvar_topmost.get()
+        config['login_method'] = self.strvar_login_method.get()
+        config['autologin'] = self.boolvar_autologin.get()
+        self.setTopmost()
+
+    def changeTips(self,index=None):
+        if index == None:
+            self.label_tips['text'] = 'Tips: '+random.choice(tips)
+        else:
+            self.label_tips['text'] = 'Tips: '+tips[index]
 
     def setEntry(self,entry,lock=False,text=''):
         entry['state'] = 'normal'
@@ -211,167 +314,108 @@ class AudioWindow(object):
         else:
             pass
 
-    def apply_config(self):
-        global config
-        config['audio']['dash_quality'] = self.var_dash_audio_quality.get()
-        config['audio']['common_quality'] = self.var_audio_quality.get()
-        #print('Applied Audio Quality Config.')
-        
-    def handle_process(self,source=None,topath=None):
-        #Get
+    def start(self,source=None):
         if source == None:
-            source = self.widgets['entry_url'].get()
-        if topath == None:
-            topath = self.widgets['entry_path'].get()
-        source = source.strip()
-        topath = topath.strip()
-        #Check
+            source = self.entry_source.get().strip()
         if not source:
-            msgbox.showwarning('(っ °Д °;)っ','你没有输入来源.')
+            msgbox.showinfo('','你似乎没有输入任何内容......')
             return
-        if not topath:
-            msgbox.showwarning('(っ °Д °;)っ','你没有输入保存地址.')
+        source,flag = biliapis.parse_url(source)
+        if flag == 'unknown':
+            msgbox.showinfo('','无法解析......')
             return
-        try:
-            #Parse & Lock
-            self.lock = True
-            self.widgets['button_start']['state'] = 'disabled'
-            source,flag = biliapis.parse_url(source)
-            if flag == 'unknown':
-                msgbox.showerror('(。﹏。*)','未知的来源...')
-            #auID
-            elif flag == 'auid':
-                stream = biliapis.get_audio_stream(int(source),config['audio']['common_quality'])
-                if stream:
-                    if stream['quality'] == 'FLAC':
-                        filetype = 'flac'
-                    else:
-                        filetype = 'aac'
-                    filename = replaceChr('%s(id%s)(%s).%s'%(stream['title'],stream['auid'],stream['quality'],filetype))
-                    w = biliapis.DownloadWindow(stream['url'],topath,filename)
-            #avID / bvID
-            elif flag == 'avid' or flag == 'bvid':
-                abvid = source
-                if flag == 'avid':
-                    source = biliapis.get_video_detail(avid=source)
-                else:
-                    source = biliapis.get_video_detail(bvid=source)
-                if source:
-                    title = source['title']
-                    source = source['parts']
-                    multi_part = bool(len(source)-1)
-                    if multi_part:
-                        pnamelist = []
-                        for item in source:
-                            pnamelist.append(item['title'])
-                        w = PartsChooser(pnamelist)
-                        if w.return_indexs:
-                            callback = w.return_indexs
-                            for index in callback:
-                                item = source[index]
-                                if flag == 'avid':
-                                    stream = biliapis.get_video_stream_dash(item['cid'],avid=abvid)
-                                else:
-                                    stream = biliapis.get_video_stream_dash(item['cid'],bvid=abvid)
-                                stream = stream['audio']
-                                qualities = []
-                                for i in stream:
-                                    qualities.append(i['quality'])
-                                if bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']] in qualities:
-                                    quality_index = qualities.index(bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']])
-                                else:
-                                    quality_index = -1
-                                stream = stream[quality_index]
-                                filename = replaceChr('%s(P%s.%s)(%s)(%s)'%(title,index+1,item['title'],abvid,stream['quality']))+'.aac'
-                                w = biliapis.DownloadWindow(stream['url'],topath,filename,False)
-                            msgbox.showinfo('(⑅˃◡˂⑅)','任务完成！\nTips：因为是批处理所以请手动打开......')
-                        else:
-                            return
-                        
-                    else:
-                        index = 0
-                        item = source[index]
-                        if flag == 'avid':
-                            stream = biliapis.get_video_stream_dash(item['cid'],avid=abvid)
-                        else:
-                            stream = biliapis.get_video_stream_dash(item['cid'],bvid=abvid)
-                        stream = stream['audio']
-                        qualities = []
-                        for i in stream:
-                            qualities.append(i['quality'])
-                        if bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']] in qualities:
-                            quality_index = qualities.index(bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']])
-                        else:
-                            quality_index = -1
-                        stream = stream[quality_index]
-                        filename = replaceChr('%s(P%s.%s)(%s)(%s)'%(title,index+1,item['title'],abvid,stream['quality']))+'.aac'
-                        w = biliapis.DownloadWindow(stream['url'],topath,filename)
-            #ssID & mdID & epID
-            elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
-                if flag == 'ssid':
-                    data = biliapis.get_media_detail(ssid=source)
-                elif flag == 'mdid':
-                    data = biliapis.get_media_detail(mdid=source)
-                else:#flag == 'epid'
-                    data = biliapis.get_media_detail(epid=source)
-                title = data['title']
-                cids = []
-                bvids = []
-                pnames = []
-                for ep in data['episodes']:
-                    cids.append(ep['cid'])
-                    pnames.append(ep['title_completed'])
-                    bvids.append(ep['bvid'])
-                for sec in data['sections']:
-                    for ep in sec['episodes']:
-                        cids.append(ep['cid'])
-                        pnames.append(ep['title'])
-                        bvids.append(ep['bvid'])
-                w = PartsChooser(pnames)
-                callback = w.return_indexs
-                if callback:
-                    for index in callback:
-                        cid = cids[index]
-                        pname = pnames[index]
-                        bvid = bvids[index]
-                        #Get Stream
-                        stream = biliapis.get_video_stream_dash(cid,bvid=bvid)
-                        stream = stream['audio']
-                        qualities = []
-                        for i in stream:
-                            qualities.append(i['quality'])
-                        if bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']] in qualities:
-                            quality_index = qualities.index(bilicodes.stream_dash_audio_quality[config['audio']['dash_quality']])
-                        else:
-                            quality_index = -1
-                        stream = stream[quality_index]
-                        #Make Filename
-                        filename = replaceChr('%s(P%s.%s)(%s)(%s)'%(title,index+1,pname,bvid,stream['quality']))+'.aac'
-                        w = biliapis.DownloadWindow(stream['url'],topath,filename,False)
-                    msgbox.showinfo('(⑅˃◡˂⑅)','任务完成！\nTips：因为是批处理所以请手动打开......')
-                else:
-                    return
-                
-            else:
-                msgbox.showwarning('(。﹏。*)','暂不支持%s的解析.'%flag)
-            
-        except Exception as e:
-            msgbox.showerror('ERROR发生',str(e))
-            #raise e
-        finally:
-            #Unlock
-            self.lock = False
-            self.widgets['button_start']['state'] = 'normal'
-        
+        elif flag == 'auid':
+            pass
+        elif flag == 'avid' or flag == 'bvid':
+            pass
+        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
+            pass
+        elif flag == 'cvid':
+            pass
+        elif flag == 'uid':
+            pass
+        else:
+            msgbox.showinfo('','暂不支持%s的解析'%flag)
+            return
         
     def close(self):
-        if self.lock:
-            msgbox.showwarning('(⑅˃◡˂⑅)','请先关闭所有弹出的子窗口再退出.')
-            return
         self.window.quit()
         self.window.destroy()
-        if self.back_window:
-            w = self.back_window()
+
+class LoginWindow(object):
+    def __init__(self,topmode=False):
+        if topmode:
+            self.window = tk.Toplevel()
+        else:
+            self.window = tk.Tk()
+        self.window.title('BiliTools - Login')
+        self.window.resizable(height=False,width=False)
+        self.window.protocol('WM_DELETE_WINDOW',self.close)
+        self.window.wm_attributes('-topmost',config['topmost'])
+        #窗口居中
+        ww,wh = (310,390)
+        sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
+        self.window.geometry('%dx%d+%d+%d'%(ww,wh,(sw-ww)/2,(sh-wh)/2))
+
+        self.login_url = None
+        self.oauthkey = None
+        self.qrcode_img = tkImg(size=(300,300))
+        self.status = False
+        self.condition = None
+        self.final_url = None
+        
+        self.label_imgshower = tk.Label(self.window,text='',image=self.qrcode_img)
+        self.label_imgshower.pack()
+        self.label_text = tk.Label(self.window,text='未获取',font=(15))
+        self.label_text.pack(pady=10)
+        self.button_refresh = tk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
+        self.button_refresh.pack()
+
+        self.fresh()
+        print('LoginWindow初始化完成')
+        self.window.mainloop()
+
+    def fresh(self):
+        self.button_refresh['state'] = 'disabled'
+        self.label_text['text'] = '正在刷新'
+        self.login_url,self.oauthkey = biliapis.get_login_url()
+        tmp = makeQrcode(self.login_url)
+        self.qrcode_img = tkImg(tmp,size=(300,300))
+        self.label_imgshower.configure(image=self.qrcode_img)
+        self.label_imgshower.image = self.qrcode_img
+        self.start_autocheck()
+
+    def start_autocheck(self):
+        if not self.oauthkey:
+            return
+        res = biliapis.check_scan(self.oauthkey)
+        self.status,self.final_url,self.condition = res
+        self.label_text['text'] = {0:'登录成功',-1:'密钥错误',-2:'二维码已超时',-4:'使用B站手机客户端扫描此二维码',-5:'在手机上确认登录'}[self.condition]
+        if self.condition == 0:
+            print('已确认登录')
+            cookiejar = biliapis.make_cookiejar(self.final_url)
+            if os.path.exists(os.path.abspath('./cookies.txt')):
+                os.remove(os.path.abspath('./cookies.txt'))
+            cookiejar.save(os.path.abspath('./cookies.txt'))
+            print('COOKIEJAR已生成')
+            self.window.after(1000,self.close)
+            return
+        elif self.condition == -2:
+            self.button_refresh['state'] = 'normal'
+            self.qrcode_img = tkImg(size=(300,300))
+            self.label_imgshower.configure(image=self.qrcode_img)
+            self.label_imgshower.image = self.qrcode_img
+            print('二维码已失效')
+            return
+        elif self.condition == -4 or self.condition == -5:
+            self.window.after(2000,self.start_autocheck)
+            print('已检查')
+            return
+            
+    def close(self):
+        self.window.quit()
+        self.window.destroy()
+        print('LOGINWINDOW已关闭')
 
 class Inputer(object):
     def __init__(self,text,title='Inputer',topmost=True,accept_type=str):
@@ -395,7 +439,7 @@ class Inputer(object):
         try:
             self.accept_type(self.entry.get())
         except:
-            msgbox.showwarning('（；´д｀）ゞ','你所输入的内容无法转换为程序要求的类型.\n需要: '+str(self.accept_type))
+            msgbox.showwarning('（；´д｀）ゞ','你所输入的内容无法转换为程序要求的类型.\n需要: '+type(self.accept_type))
             return
         self.return_value = self.entry.get()
         self.close()
@@ -406,76 +450,6 @@ class Inputer(object):
     def close(self):
         self.window.quit()
         self.window.destroy()
-
-class PartsChooser(object):
-    def __init__(self,parts_list,title='PartsChooser',text='选择分P',topmost=True):
-        self.return_indexs = []
-        self.return_pnames = []
-        if not parts_list:
-            raise RuntimeError('No Parts to Choose.')
-        self.window = tk.Tk()
-        self.window.title(title)
-        self.window.resizable(height=False,width=False)
-        self.window.protocol('WM_DELETE_WINDOW',self.close)
-        self.window.wm_attributes('-topmost',topmost)
-
-        tk.Label(self.window,text=text).grid(column=0,row=0,sticky='w',columnspan=2)
-        
-        self.bar_tvbar = tk.Scrollbar(self.window,orient='vertical')
-        self.table = ttk.Treeview(self.window,show="headings",columns=("number","title"),yscrollcommand=self.bar_tvbar.set,height=15)
-        self.bar_tvbar['command'] = self.table.yview
-        self.table.column("number", width=40)
-        self.table.column("title", width=300)
-        self.table.heading("number", text="序号")
-        self.table.heading("title", text="标题")
-
-        self.table.grid(column=0,row=1,sticky='e')
-        self.bar_tvbar.grid(column=1,row=1,sticky='nw',ipady=135)
-
-        tk.Label(self.window,text='Tips：按住Ctrl可多选，按住Shift可批量勾选').grid(column=0,row=2,sticky='w')
-
-        tk.Button(self.window,text='获取全部',command=self.return_all).grid(column=0,row=3,sticky='e')
-        tk.Button(self.window,text='获取选中',command=self.return_selected).grid(column=0,row=3,sticky='w')
-
-        for i in range(0,len(parts_list)):
-            self.table.insert("","end",values=(str(i+1),parts_list[i]))
-
-        self.window.mainloop()
-
-    def return_selected(self):
-        tmp = []
-        for i in self.table.get_children():
-            tmp.append(self.table.item(i,'values')[1])
-        if self.table.selection() == ():
-            return
-        sel = []
-        for item in self.table.selection():
-            sel.append(self.table.item(item,"values")[1])
-        self.return_pnames = sel
-        self.return_indexs = []
-        for pname in sel:
-            self.return_indexs.append(tmp.index(pname))
-        self.close()
-
-    def return_all(self):
-        tmp = []
-        for i in self.table.get_children():
-            tmp.append(self.table.item(i,'values')[1])
-        if tmp == []:
-            return
-        self.return_pnames = tmp
-        self.return_indexs = []
-        for pname in tmp:
-            self.return_indexs.append(tmp.index(pname))
-        self.close()
-
-    def close(self):
-        self.window.quit()
-        self.window.destroy()
-
-class VideoWindow(object):
-    def __init__(self,back_window=None):
-        pass
 
 if __name__ == '__main__' and not devmode:
     print('Program Running.')
