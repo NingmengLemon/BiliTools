@@ -1,19 +1,21 @@
 from http import cookiejar
 from urllib import request, parse, error
+import requests #
 import os
 import re
 import sys
 import time
 import json
 import zlib,gzip
-import requests
 import _thread
 import hashlib
+import math
+from io import BytesIO
 #GUI
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.ttk as ttk
-
+#My
 import bilicodes
 #av号统称为avid, bv号统称为bvid.
 #音频id统称为auid
@@ -29,7 +31,7 @@ _add = 8728348608
 
 #requester's pre-data
 cookies = None
-fake_headers = {
+fake_headers_get = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
     'Accept-Charset': 'UTF-8,*;q=0.5',
     'Accept-Encoding': 'gzip,deflate,sdch',
@@ -38,11 +40,16 @@ fake_headers = {
     'Referer':'https://www.bilibili.com/'
 }
 
+fake_headers_post = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43'
+    }
+
+local_cookiejar_path = os.path.abspath('./cookies.txt')
+
 #requester
 def _ungzip(data):
     """Decompresses data for Content-Encoding: gzip.
     """
-    from io import BytesIO
     buffer = BytesIO(data)
     f = gzip.GzipFile(fileobj=buffer)
     return f.read()
@@ -62,7 +69,7 @@ def _dict_to_headers(dict_to_conv):
         res.append((keys[i],values[i]))
     return res
 
-def _get_response(url, headers=fake_headers):
+def _get_response(url, headers=fake_headers_get):
     # install cookies
     if cookies:
         opener = request.build_opener(request.HTTPCookieProcessor(cookies))
@@ -84,19 +91,69 @@ def _get_response(url, headers=fake_headers):
     response.data = data
     return response
 
-def get_content_str(url, encoding='utf-8', headers=fake_headers):
+def get_cookies(url):
+    tmpcookiejar = cookiejar.MozillaCookieJar()
+    handler = request.HTTPCookieProcessor(tmpcookiejar)
+    opener = request.build_opener(handler)
+    opener.open(url)
+    return tmpcookiejar
+
+def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return str(content, encoding, 'ignore')
 
-def get_content_bytes(url, headers=fake_headers):
+def get_content_bytes(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return content
 
+def post_data_json(url,data,headers=fake_headers_post,cookiejar=None):
+    if cookiejar:
+        req = requests.post(url=url,data=data,headers=headers,cookies=cookiejar)
+    else:
+        req = requests.post(url=url,data=data,headers=headers)
+    return req.json()
+
+def get_redirect_url(url,headers=fake_headers_get):
+    return request.urlopen(request.Request(url,headers=headers),None).geturl()
+
+#Cookie Operation
 def clear_cookies():
     global cookies
     cookies = None
+    if os.path.exists(local_cookiejar_path):
+        os.remove(local_cookiejar_path)
 
-def load_cookies(cookiefile):
+def quit_login():
+    global cookies
+    cookies = None
+
+def find_explorer_cookies():
+    #find cookies
+    username = os.getlogin()
+    chromeCookie = os.getenv('LOCALAPPDATA')+"\\Google\\Chrome\\User Data\\Default\\Cookies"#Chrome的Cookie加密了，暂不支持
+    firefoxCookie = os.getenv('APPDATA')+"\\Mozilla\\Firefox\\Profiles\\"
+    #if os.path.exists(chromeCookie):
+    #    cookie = chromeCookie
+    cookie = None
+    if os.path.exists(firefoxCookie):
+        for f in os.listdir(firefoxCookie):
+            if f.endswith('.default-release'):
+                firefoxCookie += f+'\\cookies.sqlite'
+                break
+        cookie = firefoxCookie
+        return cookie
+    return None
+
+def load_local_cookies():
+    global cookies
+    if not os.path.exists(local_cookiejar_path):
+        f = open(local_cookiejar_path,'w+',encoding='utf-8')
+        f.write('# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.')
+        f.close()
+    cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
+    cookies.load()
+
+def load_explorer_cookies(cookiefile=find_explorer_cookies()):
     global cookies
     if not cookiefile:
         return 1
@@ -190,40 +247,19 @@ def load_cookies(cookiefile):
         # http://n8henrie.com/2013/11/use-chromes-cookies-for-easier-downloading-with-python-requests/
         return 1
 
-def find_cookies():
-    #find cookies
-    username = os.getlogin()
-    chromeCookie = os.getenv('LOCALAPPDATA')+"\\Google\\Chrome\\User Data\\Default\\Cookies"#Chrome的Cookie加密了，暂不支持
-    firefoxCookie = os.getenv('APPDATA')+"\\Mozilla\\Firefox\\Profiles\\"
-    #if os.path.exists(chromeCookie):
-    #    cookie = chromeCookie
-    #    print('Chrome Cookies Loaded.')
-    cookie = None
-    if os.path.exists(firefoxCookie):
-        for f in os.listdir(firefoxCookie):
-            if f.endswith('.default-release'):
-                firefoxCookie += f+'\\cookies.sqlite'
-                break
-        cookie = firefoxCookie
-        return cookie
-    else:
-        return None
-
-def download(url,tofile,progressfunc=None,headers=fake_headers):
+#Download Operation
+def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
     opener = request.build_opener()
     opener.addheaders = _dict_to_headers(headers)
     request.install_opener(opener)
     request.urlretrieve(url,tofile,progressfunc)
 
-def get_redirect_url(url,headers=fake_headers):
-    return request.urlopen(request.Request(url,headers=headers),None).geturl()
-
-def download_with_requests(url,tofile,callbackfunc=None,use_cookies=True,headers=fake_headers):
+def download_with_requests(url,tofile,callbackfunc=None,use_cookies=True,headers=fake_headers_get):
     if os.path.exists(tofile):
         raise RuntimeError('File already exists.')
     tmp_file = tofile+'.download'
     #Load Header
-    #headers = fake_headers
+    #headers = fake_headers_get
     if cookies and use_cookies:
         cookies_dict = requests.utils.dict_from_cookiejar(cookies)
     else:
@@ -256,10 +292,18 @@ def download_with_requests(url,tofile,callbackfunc=None,use_cookies=True,headers
     os.rename(tmp_file,tofile)
     return 0
     
-    
 #Download GUI
 class DownloadWindow(object):
-    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_fakeheaders=True,use_cookies=True,topmost=True):
+    '''topmost:窗口置顶
+releaseprog:释放进程
+askopen:完成后询问是否打开文件夹
+showwarning:显示警告(关闭此选项也会关闭askopen)
+use_fakeheaders:使用伪装请求头
+use_cookies:使用Cookies进行下载
+'''
+    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_fakeheaders=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True):
+        if not showwarning:
+            askopen = False
         self.data = {
             'url':url,
             'topath':os.path.abspath(topath)+'\\',
@@ -275,8 +319,9 @@ class DownloadWindow(object):
 
         self.options = {
             'askopen':askopen,
-            'fake_headers':use_fakeheaders,
-            'cookies':use_cookies
+            'fake_headers_get':use_fakeheaders,
+            'cookies':use_cookies,
+            'showwarning':showwarning
             }
         
         #定义窗口
@@ -323,7 +368,8 @@ class DownloadWindow(object):
         self.widgets['label_topath']['text'] = self._cut(self.data['topath'])
         self._autofresh()
         _thread.start_new(self._download_thread,())
-        self.window.mainloop()
+        if not releaseprog:
+            self.window.mainloop()
 
     def _cut(self,string,max_length=75):
         if len(string) > max_length:
@@ -363,12 +409,14 @@ class DownloadWindow(object):
             self.data['condition'] = 2
             self.data['condition_str'] = 'Error'
             error = self.data['error_info']
-            msgbox.showerror('','发生错误：\n'+str(error))
+            if self.options['showwarning']:
+                msgbox.showerror('','发生错误：\n'+str(error))
             self.close(True)
         elif reason == 3:
             self.data['condition'] = 3
             self.data['user_stop'] = True
-            msgbox.showinfo('','用户终止了操作。\n当前已下载字节数：'+str(self.data['donesize']))
+            if self.options['showwarning']:
+                msgbox.showinfo('','用户终止了操作。\n当前已下载字节数：'+str(self.data['donesize']))
             self.close(True)
 
     def _download_thread(self):
@@ -383,8 +431,8 @@ class DownloadWindow(object):
             self.data['condition'] = -1
             #Load Header
             self.data['condition_str'] = 'Loading Headers & Cookies...'
-            if self.options['fake_headers']:
-                headers = fake_headers
+            if self.options['fake_headers_get']:
+                headers = fake_headers_get
             if cookies and self.options['cookies']:
                 cookies_dict = requests.utils.dict_from_cookiejar(cookies)
             else:
@@ -464,8 +512,7 @@ class DownloadWindow(object):
         except:
             pass
 
-#APIs
-    
+#APIs    
 def _replaceChr(text):
     repChr = {'/':'／',
               '*':'＊',
@@ -718,6 +765,7 @@ def get_emotions(business='reply'):
     return res
 
 def download_emotions(path='./emotions/',pause_time=1,show_process=False):
+    path = os.path.abspath(path)+'\\'
     def print_(text,end='\n'):
         if show_process:
             print(text,end=end)
@@ -727,13 +775,13 @@ def download_emotions(path='./emotions/',pause_time=1,show_process=False):
         os.mkdir(path)
     emotions = get_emotions()
     for pkg in emotions:
-        path_ = path+pkg['text']+'/'
+        path_ = path+pkg['text']+'\\'
         print_('表情包 %s id%s'%(pkg['text'],pkg['id']))
         if not os.path.exists(path_):
             os.mkdir(path_)
         for i in pkg['emote']:
             if _is_url(i['url']):
-                _thread.start_new(download,(i['url'],path_+i['text']+'.png'))
+                _thread.start_new(download_common,(i['url'],path_+i['text']+'.png'))
             else:
                 with open(path_+'data.txt','a+',encoding='utf-8') as f:
                     f.write('%s\t%s\n'%(i['id'],i['text']))
@@ -994,40 +1042,42 @@ def get_redirect_url(url):
 
 def parse_url(url):
     if 'b23.tv' in url:#短链接重定向
-        url = requester.get_redirect_url(url)
-        
-    res = re.findall(r'au[0-9]+',url,re.I)#音频id
+        url = get_redirect_url(url)
+    res = re.findall(r'au([0-9]+)',url,re.I)#音频id
     if res:
-        return int(res[0][2:]),'auid'
-    
-    res = re.findall(r'av[0-9]+',url,re.I)#av号
+        return int(res[0]),'auid'
+    res = re.findall(r'av([0-9]+)',url,re.I)#av号
     if res:
-        return int(res[0][2:]),'avid'
-    
+        return int(res[0]),'avid'
     res = re.findall(r'BV[a-zA-Z0-9]{10}',url,re.I)#bv号
     if res:
         return res[0],'bvid'
-    
-    res = re.findall(r'cv[0-9]+',url,re.I)#专栏号
+    res = re.findall(r'cv([0-9]+)',url,re.I)#专栏号
     if res:
-        return int(res[0][2:]),'cvid'
-    
-    res = re.findall(r'md[0-9]+',url,re.I)#单剧集id
+        return int(res[0]),'cvid'
+    res = re.findall(r'md([0-9]+)',url,re.I)#单剧集id
     if res:
-        return res[0][2:],'mdid'
-    
-    res = re.findall(r'ss[0-9]+',url,re.I)#整个剧集的id
+        return int(res[0]),'mdid'
+    res = re.findall(r'ss([0-9]+)',url,re.I)#整个剧集的id
     if res:
-        return res[0][2:],'ssid'
-    
-    res = re.findall(r'ep[0-9]+',url,re.I)#整个剧集的id
+        return int(res[0]),'ssid'
+    res = re.findall(r'ep([0-9]+)',url,re.I)#整个剧集的id
     if res:
-        return res[0][2:],'epid'
-    
+        return int(res[0]),'epid'
+    res = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)#UID
+    if res:
+        return int(res[0]),'uid'
+    res = re.findall(r'uid([0-9]+)',url,re.I)#UID
+    if res:
+        return int(res[0]),'uid'
     return None,'unknown'
 
 def filter_danmaku_xml(xmlstr,regulars=None,keywords=None,users=None):
-    xmlstr = xmlstr.replace('><','>\n<')
+    #切分
+    sps = list(set(re.findall('[a-zA-Z]><[a-zA-Z]',xmlstr)))
+    for sp in sps:
+        xmlstr = xmlstr.replace(sp,sp.replace('><','>\n<'))
+    #过滤
     res = []
     for item in xmlstr.split('\n'):
         tmp = item
@@ -1071,3 +1121,115 @@ def load_danmaku_filter(file):
     for i in range(0,len(users)):
         users[i] = users[i][23:-7]
     return regulars,keywords,users
+
+def get_bcc(bvid):
+    url = 'https://www.bilibili.com/video/'+bvid
+    source = get_content_str(url)
+    t = re.findall(r"subtitle_url\":\"(.*?json)",source)
+    res = []
+    for u in t:
+        res += [json.loads(get_content_str(u.replace("\\u002F", "/")))]
+    return res
+
+def bcc_to_srt(jsondata):
+     srt_file = ''
+     bccdata = jsondata['body']
+     i = 1
+     for data in bccdata:
+         start = data['from']  # 获取开始时间
+         stop = data['to']  # 获取结束时间
+         content = data['content']  # 获取字幕内容
+         srt_file += '{}\n'.format(i)  # 加入序号
+         hour = math.floor(start) // 3600
+         minute = (math.floor(start) - hour * 3600) // 60
+         sec = math.floor(start) - hour * 3600 - minute * 60
+         minisec = int(math.modf(start)[0] * 100)  # 处理开始时间
+         srt_file += str(hour).zfill(2) + ':' + str(minute).zfill(2) + ':' + str(sec).zfill(2) + ',' + str(minisec).zfill(2)  # 将数字填充0并按照格式写入
+         srt_file += ' --> '
+         hour = math.floor(stop) // 3600
+         minute = (math.floor(stop) - hour * 3600) // 60
+         sec = math.floor(stop) - hour * 3600 - minute * 60
+         minisec = abs(int(math.modf(stop)[0] * 100 - 1))  # 此处减1是为了防止两个字幕同时出现
+         srt_file += str(hour).zfill(2) + ':' + str(minute).zfill(2) + ':' + str(sec).zfill(2) + ',' + str(minisec).zfill(2)
+         srt_file += '\n' + content + '\n\n'  # 加入字幕文字
+         i += 1
+     return srt_file
+
+def download_subtitle(bvid,topath='./'):
+    topath = os.path.abspath(topath)+'\\'
+    bccs = get_bcc(bvid)
+    srts = []
+    for bcc in bccs:
+        srts += [bcc_to_srt(bcc)]
+    counter = 0
+    for srt in srts:
+        counter += 1
+        with open(topath+f'{bvid}[{counter}].srt','w+',encoding='utf-8') as f:
+            f.write(srt)
+
+def get_login_url():
+    api = 'https://passport.bilibili.com/qrcode/getLoginUrl'
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'])
+    data = data['data']
+    loginurl = data['url']
+    oauthkey = data['oauthKey']
+    return loginurl,oauthkey
+
+def check_scan(oauthkey):
+    header = fake_headers_post
+    header['Host'] = 'passport.bilibili.com'
+    header['Referer'] = "https://passport.bilibili.com/login"
+    data = post_data_json('http://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey})
+    #-1：密钥错误 -2：密钥超时 -4：未扫描 -5：未确认
+    status = data['status']
+    if status:
+        return True,data['data']['url'],0 #成功与否,URL,状态码
+    else:
+        return False,None,data['data']
+
+def make_cookiejar(url):#URL来自 check_scan() 成功后的传参
+    from http.cookiejar import Cookie
+    tmpjar = cookiejar.MozillaCookieJar()
+    data = url.split('?')[-1].split('&')[:-1]
+    for domain in ['.bilibili.com','.bigfun.cn','.bigfunapp.cn','.biligame.com']:
+        for item in data:
+            i = item.split('=')
+            tmpjar.set_cookie(Cookie(
+                0,i[0],i[1],
+                None,False,
+                domain,True,domain.startswith('.'),
+                '/',False,
+                False,int(time.time())+(6*30*24*60*60),
+                False,
+                None,
+                None,
+                {}
+                ))
+    return tmpjar
+
+def format_img(url,w=None,h=None,f=None):
+    '''For *.hdslb.com/bfs only.'''
+    if '.hdslb.com/bfs' not in url:
+        raise RuntimeError('Not-supported URL Type:%s'%url)
+    tmp = []
+    if w:
+        tmp += [str(w)+'w']
+    if h:
+        tmp += [str(w)+'h']
+    tmp = '_'.join(tmp)
+    if f and f in ['png','jpg','webp']:
+        tmp += '.'+f
+    if tmp:
+        return url+'@'+tmp
+    else:
+        return url
+
+def is_cookiejar_usable():
+    try:
+        get_login_info()
+    except RuntimeError:
+        return False
+    else:
+        return True

@@ -1,8 +1,7 @@
-import sys  
-import os.path  
 import win32clipboard as w    
 import win32con  
-import win32api  
+import win32api
+
 def getText():#读取剪切板  
     w.OpenClipboard()
     try:
@@ -12,6 +11,7 @@ def getText():#读取剪切板
     else:
         w.CloseClipboard()  
         return d.decode('utf-8','ignore')
+    
 def setText(aString):#写入剪切板  
     w.OpenClipboard()  
     w.EmptyClipboard()  
