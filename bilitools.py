@@ -14,10 +14,15 @@ import traceback
 #第三方库
 from PIL import Image,ImageTk
 import qrcode
+import tooltip
 #自制库
 import clipboard
 import biliapis
 import bilicodes
+
+#注意：
+#为了页面美观，将Button/Radiobutton/Checkbutton/Entry的母模块从tk换成ttk
+#↑步入现代风（并不
 
 version = '2.0.0_Dev02'
 work_dir = os.getcwd()
@@ -27,7 +32,8 @@ devmode = True
 config = {
     'topmost':True,
     'login_method':'qrcode',# qrcode / cookies / no
-    'autologin':True
+    'autologin':True,
+    'alpha':1.0 # 0.0-1.0
     }
 
 tips = [
@@ -36,7 +42,7 @@ tips = [
         '不管怎样，你得先告诉我你要去哪儿啊',
         'Bug是此程序的核心部分',
         '鸽子是此程序的作者的本体（咕',
-        '想要反馈Bug？那你得先找到作者再说'
+        '想要反馈Bug？那你得先找到作者再说',
         ]
 
 about_info = '\n'.join([
@@ -119,17 +125,18 @@ class MainWindow(object):
         self.window.title('BiliTools - Main')
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
+        self.window.wm_attributes('-alpha',config['alpha'])
         self.setTopmost()
 
         self.frame_main = tk.Frame(self.window)
         tk.Label(self.frame_main,text='随便输入点什么吧~').grid(column=0,row=0,sticky='w')
         #主输入框
-        self.entry_source = tk.Entry(self.frame_main,width=50,exportselection=0,selectbackground='#66CCFF')
+        self.entry_source = ttk.Entry(self.frame_main,width=50,exportselection=0)
         self.entry_source.grid(column=0,row=1)
         self.entry_source.bind('<Return>',lambda x=0:self.start())
-        tk.Button(self.frame_main,text='粘贴',command=lambda x=0:self.setEntry(self.entry_source,text=clipboard.getText())).grid(column=1,row=1)
-        tk.Button(self.frame_main,text='清空',command=lambda x=0:self.entry_source.delete(0,'end')).grid(column=2,row=1)
-        tk.Button(self.frame_main,text='开始',command=self.start,width=9).grid(column=1,row=2,columnspan=2)
+        ttk.Button(self.frame_main,text='粘贴',command=lambda x=0:self.setEntry(self.entry_source,text=clipboard.getText()),width=5).grid(column=1,row=1)
+        ttk.Button(self.frame_main,text='清空',command=lambda x=0:self.entry_source.delete(0,'end'),width=5).grid(column=2,row=1)
+        ttk.Button(self.frame_main,text='开始',command=self.start,width=10).grid(column=1,row=2,columnspan=2)
         #Tips Shower
         self.label_tips = tk.Label(self.frame_main,text='Tips: -')
         self.label_tips.grid(column=0,row=2,sticky='w')
@@ -156,10 +163,10 @@ class MainWindow(object):
         self.label_vip = tk.Label(self.frame_userinfo,text='非大会员')
         self.label_vip.grid(column=1,row=3,sticky='w')
         #Login Operation
-        self.button_login = tk.Button(self.frame_userinfo,text='登录',command=self.login)
+        self.button_login = ttk.Button(self.frame_userinfo,text='登录',command=self.login)
         self.button_login.grid(column=0,row=4,sticky='w')
-        tk.Button(self.frame_userinfo,text='刷新',command=self.refreshUserinfo).grid(column=1,row=4,sticky='w')
-        tk.Button(self.frame_userinfo,text='清除登录痕迹',command=self.clearLoginData).grid(column=0,row=5,columnspan=2)
+        ttk.Button(self.frame_userinfo,text='刷新',command=self.refreshUserinfo).grid(column=1,row=4,sticky='w')
+        ttk.Button(self.frame_userinfo,text='清除登录痕迹',command=self.clearLoginData).grid(column=0,row=5,columnspan=2)
         self.frame_userinfo.grid(column=0,row=1,sticky='w',columnspan=2)
 
         self.frame_console = tk.LabelFrame(self.window,text='操作')
@@ -168,23 +175,33 @@ class MainWindow(object):
         self.frame_config = tk.LabelFrame(self.window,text='全局设置')
         #置顶
         self.boolvar_topmost = tk.BooleanVar(value=config['topmost'])
-        tk.Checkbutton(self.frame_config,variable=self.boolvar_topmost,onvalue=True,offvalue=False,text='置顶',command=self.applyConfig).grid(column=0,row=0,sticky='w')
+        ttk.Checkbutton(self.frame_config,variable=self.boolvar_topmost,onvalue=True,offvalue=False,text='置顶',command=self.applyConfig).grid(column=0,row=0,sticky='w')
         #登录方式
         self.frame_config_login_method = tk.LabelFrame(self.frame_config,text='登录方式')
         self.strvar_login_method = tk.StringVar(value=config['login_method'])
-        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='qrcode',text='扫描二维码',command=self.applyConfig).grid(column=0,row=0,sticky='w')
-        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='cookies',text='加载现有的Cookies',command=self.applyConfig).grid(column=0,row=1,sticky='w')
-        tk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='no',text='不登录',command=self.applyConfig).grid(column=0,row=2,sticky='w')
-        self.frame_config_login_method.grid(column=0,row=1)
+        ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='qrcode',text='扫描二维码',command=self.applyConfig).grid(column=0,row=0,sticky='w')
+        ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='cookies',text='加载现有的Cookies',command=self.applyConfig).grid(column=0,row=1,sticky='w')
+        ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='no',text='不登录',command=self.applyConfig).grid(column=0,row=2,sticky='w')
+        self.frame_config_login_method.grid(column=0,row=1,sticky='w',rowspan=2)
         #启动时自动尝试登录
         self.boolvar_autologin = tk.BooleanVar(value=config['autologin'])
-        tk.Checkbutton(self.frame_config,variable=self.boolvar_autologin,onvalue=True,offvalue=False,text='启动时自动尝试登录',command=self.applyConfig).grid(column=1,row=0,sticky='w')
+        ttk.Checkbutton(self.frame_config,variable=self.boolvar_autologin,onvalue=True,offvalue=False,text='启动时自动尝试登录',command=self.applyConfig).grid(column=1,row=0,sticky='w')
+        #窗体透明度
+        self.frame_winalpha = tk.LabelFrame(self.frame_config,text='窗体透明度')
+        self.doublevar_winalpha = tk.DoubleVar(value=config['alpha'])
+        self.label_winalpha_shower = tk.Label(self.frame_winalpha,text='% 3d%%'%(config['alpha']*100))
+        self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
+        self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.0,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha,command=lambda x=0:self.applyConfig())
+        self.scale_winalpha.grid(column=1,row=0,sticky='w')
+        self.frame_winalpha.grid(column=1,row=1,sticky='w')
+        self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，透明度调得过低会影响操作体验')
         self.frame_config.grid(column=0,row=2,columnspan=2)
 
         self.changeTips()
         if config['autologin']:
-            self.login()
+            self.window.after(20,self.login)
         self.listen_task()
+        self.entry_source.focus()
         #self.window.mainloop()
 
     def listen_task(self):
@@ -196,19 +213,16 @@ class MainWindow(object):
     def setTopmost(self,mode=None):
         if mode == False:
             self.window.wm_attributes('-topmost',False)
-            print('已取消置顶')
         elif mode == True:
             self.window.wm_attributes('-topmost',True)
-            print('已置顶')
         else:
             self.window.wm_attributes('-topmost',config['topmost'])
-            print('已将置顶选项与设置同步')
             
     def quitLogin(self):
         biliapis.quit_login()
         self.label_face.configure(image=self.img_user_face_empty)
-        self.label_face.image = self.img_user_face
-        self.label_face_text['text'] = '未加载'
+        self.label_face.image = self.img_user_face_empty
+        self.label_face_text.grid()
         self.label_username['text'] = '-'
         self.label_uid['text'] = 'UID0'
         self.label_level['text'] = 'Lv.0'
@@ -279,7 +293,7 @@ class MainWindow(object):
             face = biliapis.get_content_bytes(biliapis.format_img(tmp['face'],w=100,h=100))
             face = BytesIO(face)
             self.task_queue.put_nowait(lambda x=0:self.set_image(self.label_face,face,(100,100)))
-            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_face_text,'text',''))
+            self.task_queue.put_nowait(lambda x=0:self.label_face_text.grid_remove())
             #Info
             self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_username,'text',tmp['name']))
             self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_uid,'text','UID%s'%tmp['uid']))
@@ -292,7 +306,10 @@ class MainWindow(object):
         config['topmost'] = self.boolvar_topmost.get()
         config['login_method'] = self.strvar_login_method.get()
         config['autologin'] = self.boolvar_autologin.get()
+        config['alpha'] = round(self.doublevar_winalpha.get(),2)
+        self.label_winalpha_shower['text'] = '% 3d%%'%(config['alpha']*100)
         self.setTopmost()
+        self.window.wm_attributes('-alpha',config['alpha'])
 
     def changeTips(self,index=None):
         if index == None:
@@ -342,12 +359,44 @@ class MainWindow(object):
         self.window.quit()
         self.window.destroy()
 
+class AudioWindow(object):
+    def __init__(self):
+        self.task_queue = queue.Queue() #此队列用于储存来自子线程的lambda函数
+        self.image_library = [] #将tkimage存在这里
+        
+        self.window = tk.Toplevel()
+        self.window.title('BiliTools - Audio')
+        self.window.resizable(height=False,width=False)
+        self.window.protocol('WM_DELETE_WINDOW',self.close)
+        self.window.attributes('-alpha',config['alpha'])
+
+        self.listen_task()
+        #self.window.mainloop()
+
+    def listen_task(self):
+        if not self.task_queue.empty():
+            func = self.task_queue.get_nowait()
+            func()
+        self.window.after(10,self.listen_task)
+
+    def config_widget(self,widget,option,value):#不要往这里面传image参数
+        if option == 'image':
+            return
+        widget[option] = value
+
+    def set_image(self,widget,image_bytesio,size=()):
+        self.image_library.append(tkImg(image_bytesio,size=size))
+        index = len(self.image_library)-1
+        widget.configure(image=self.image_library[index])
+        widget.image = self.image_library[index]
+
+    def close(self):
+        self.window.quit()
+        self.window.destroy()
+
 class LoginWindow(object):
-    def __init__(self,topmode=False):
-        if topmode:
-            self.window = tk.Toplevel()
-        else:
-            self.window = tk.Tk()
+    def __init__(self):
+        self.window = tk.Toplevel()
         self.window.title('BiliTools - Login')
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
@@ -368,7 +417,7 @@ class LoginWindow(object):
         self.label_imgshower.pack()
         self.label_text = tk.Label(self.window,text='未获取',font=(15))
         self.label_text.pack(pady=10)
-        self.button_refresh = tk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
+        self.button_refresh = ttk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
         self.button_refresh.pack()
 
         self.fresh()
@@ -429,11 +478,11 @@ class Inputer(object):
         self.window.wm_attributes('-topmost',topmost)
 
         tk.Label(self.window,text=text).grid(column=0,row=0,columnspan=2,sticky='w')
-        self.entry = tk.Entry(self.window,width=40,exportselection=0,selectbackground='#66CCFF')
+        self.entry = ttk.Entry(self.window,width=40,exportselection=0)
         self.entry.grid(column=0,row=1,columnspan=2)
         self.entry.bind('<Return>',self.ensure)
-        tk.Button(self.window,text='确认',command=self.ensure).grid(column=0,row=2)
-        tk.Button(self.window,text='取消',command=self.cancel).grid(column=1,row=2)
+        ttk.Button(self.window,text='确认',command=self.ensure).grid(column=0,row=2)
+        ttk.Button(self.window,text='取消',command=self.cancel).grid(column=1,row=2)
 
     def ensure(self,event=None):
         try:
