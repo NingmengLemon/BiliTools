@@ -52,6 +52,9 @@ class ToolTip:
         self.widget.bind("<Leave>", self.leave)
         self.widget.bind("<ButtonPress>", self.leave)
 
+    def change_text(self,text):
+        self.text = text
+
     def _init_params(self):
         '''内部参数的初始化'''
         self.id_after = None
