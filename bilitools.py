@@ -1,6 +1,7 @@
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.filedialog as filedialog
+import tkinter.scrolledtext as scrolledtext
 import tkinter.ttk as ttk
 import os
 import sys
@@ -208,6 +209,7 @@ class MainWindow(object):
         if not self.task_queue.empty():
             func = self.task_queue.get_nowait()
             func()
+            print('已处理1个任务,还剩%s个'%self.task_queue.qsize())
         self.window.after(10,self.listen_task)
 
     def setTopmost(self,mode=None):
@@ -340,9 +342,8 @@ class MainWindow(object):
         source,flag = biliapis.parse_url(source)
         if flag == 'unknown':
             msgbox.showinfo('','无法解析......')
-            return
         elif flag == 'auid':
-            pass
+            w = AudioWindow(source)
         elif flag == 'avid' or flag == 'bvid':
             pass
         elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
@@ -353,14 +354,18 @@ class MainWindow(object):
             pass
         else:
             msgbox.showinfo('','暂不支持%s的解析'%flag)
-            return
+        return
         
     def close(self):
         self.window.quit()
         self.window.destroy()
 
 class AudioWindow(object):
-    def __init__(self):
+    def __init__(self,auid):
+        self.auid = int(auid)
+        self.title = None
+        self.load_status = False
+        self.is_alive = True
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的lambda函数
         self.image_library = [] #将tkimage存在这里
         
@@ -369,14 +374,139 @@ class AudioWindow(object):
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.attributes('-alpha',config['alpha'])
+        self.setTopmost()
+
+        #cover
+        self.img_cover_empty = tkImg(size=(300,300))
+        self.label_cover_shower = tk.Label(self.window,image=self.img_cover_empty)
+        self.label_cover_shower.grid(column=0,row=0,rowspan=4,sticky='w')
+        self.label_cover_text = tk.Label(self.window,text='加载中',font=('',8),bg='#ffffff')
+        self.label_cover_text.grid(column=0,row=0,rowspan=4)
+        #audio name
+        self.text_name = tk.Text(self.window,font=('微软雅黑',10,'bold'),width=37,height=2,state='disabled',bg='#f0f0f0',bd=0)
+        self.text_name.grid(column=0,row=4)
+        self.tooltip_name = tooltip.ToolTip(self.text_name)
+        #id
+        self.label_auid = tk.Label(self.window,text='auID0')
+        self.label_auid.grid(column=0,row=5,sticky='e')
+        #description
+        tk.Label(self.window,text='简介↓').grid(column=0,row=6,sticky='w')
+        self.sctext_desc = scrolledtext.ScrolledText(self.window,state='disabled',width=41,height=12)
+        self.sctext_desc.grid(column=0,row=7,sticky='w')
+        #uploader
+        self.frame_uploader = tk.LabelFrame(self.window,text='UP主')
+        self.img_upface_empty = tkImg(size=(50,50))
+        self.label_uploader_face = tk.Label(self.frame_uploader,image=self.img_upface_empty)#up头像
+        self.label_uploader_face.grid(column=0,row=0,rowspan=2)
+        self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('',8),bg='#ffffff')
+        self.label_uploader_face_text.grid(column=0,row=0,rowspan=2)
+        self.label_uploader_name = tk.Label(self.frame_uploader,text='-')#up名字
+        self.label_uploader_name.grid(column=1,row=0,sticky='w')
+        self.label_uploader_id = tk.Label(self.frame_uploader,text='UID0')#uid
+        self.label_uploader_id.grid(column=1,row=1,sticky='w')
+        self.frame_uploader.grid(column=1,row=0,rowspan=1,sticky='nw')
+        #tags
+        self.text_tags = tk.Text(self.window,width=45,height=2,state='disabled',wrap=tk.WORD,bg='#f0f0f0',bd=0)
+        self.text_tags.grid(column=1,row=1)
+        #lyrics
+        tk.Label(self.window,text='歌词↓').grid(column=1,row=2,sticky='sw')
+        self.sctext_lyrics = scrolledtext.ScrolledText(self.window,width=40,height=30)
+        self.sctext_lyrics.grid(column=1,row=3,rowspan=5)
+        #operations
+        self.frame_operation = tk.Frame(self.window)
+        self.button_download_audio = ttk.Button(self.frame_operation,text='下载音频',command=self.download_audio)
+        self.button_download_audio.grid(column=0,row=0)
+        self.button_download_cover = ttk.Button(self.frame_operation,text='下载封面',command=self.download_cover)
+        self.button_download_cover.grid(column=1,row=0)
+        self.frame_operation.grid(column=0,row=8,columnspan=2)
 
         self.listen_task()
-        #self.window.mainloop()
+        self.refresh_data()
+        self.window.mainloop()
+
+    def download_audio(self):
+        self.button_download_audio['state'] = 'disabled'
+        if self.load_status:
+            filename = replaceChr(self.title)+'.aac'
+            path = filedialog.askdirectory(title='保存至')
+            if path:
+                stream = biliapis.get_audio_stream(auid=self.auid,quality=2)
+                w = biliapis.DownloadWindow(stream['url'],path,filename)
+        else:
+            msgbox.showwarning('','加载未完成')
+        if self.is_alive:
+            self.button_download_audio['state'] = 'normal'
+        return
+
+    def download_cover(self):
+        self.button_download_cover['state'] = 'disabled'
+        if self.load_status:
+            filename = replaceChr(self.title)+'.jpg'
+            path = filedialog.askdirectory(title='保存至')
+            if path:
+                url = biliapis.get_audio_info(self.auid)['cover']
+                w = biliapis.DownloadWindow(url,path,filename)
+        else:
+            msgbox.showwarning('','加载未完成')
+        if self.is_alive:
+            self.button_download_cover['state'] = 'normal'
+        return
+        
+    def refresh_data(self):
+        def tmp():
+            data = biliapis.get_audio_info(self.auid)
+            self.title = data['title']
+            self.task_queue.put_nowait(lambda x=0:self.setSctext(self.text_name,text=data['title'],lock=True))
+            self.task_queue.put_nowait(lambda x=0:self.tooltip_name.change_text(data['title']))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_auid,'text','auID%s'%data['auid']))
+            if data['description'].strip():
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.sctext_desc,text=data['description'],lock=True))
+            else:
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.sctext_desc,text='没有简介',lock=True))
+            updata = biliapis.get_user_info(data['uploader']['uid'])
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_uploader_name,'text',updata['name']))
+            self.task_queue.put_nowait(lambda x=0:self.config_widget(self.label_uploader_id,'text','UID%s'%updata['uid']))
+            if data['lyrics_url']:
+                lrcdata = biliapis.get_audio_lyrics(self.auid)
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.sctext_lyrics,text=lrcdata,lock=True))
+            else:
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.sctext_lyrics,text='没有歌词',lock=True))            
+            tagdata = biliapis.get_audio_tags(self.auid)
+            if tagdata:
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.text_tags,text='#'+'# #'.join(tagdata)+'#',lock=True))
+            else:
+                self.task_queue.put_nowait(lambda x=0:self.setSctext(self.text_tags,text='没有标签',lock=True))
+            #image
+            cover = BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['cover'],w=300,h=300)))
+            face = BytesIO(biliapis.get_content_bytes(biliapis.format_img(updata['face'],w=50,h=50)))
+            self.task_queue.put_nowait(lambda x=0:self.set_image(self.label_cover_shower,cover,(300,300)))
+            self.task_queue.put_nowait(lambda x=0:self.label_cover_text.grid_remove())
+            self.task_queue.put_nowait(lambda x=0:self.set_image(self.label_uploader_face,face,(50,50)))
+            self.task_queue.put_nowait(lambda x=0:self.label_uploader_face_text.grid_remove())
+            self.load_status = True
+        _thread.start_new(tmp,())
+
+    def setSctext(self,sctext,lock=False,add=False,text=''):
+        sctext['state'] = 'normal'
+        if not add:
+            sctext.delete(1.0,'end')
+        sctext.insert('end',text)
+        if lock:
+            sctext['state'] = 'disabled'
+
+    def setTopmost(self,mode=None):
+        if mode == False:
+            self.window.wm_attributes('-topmost',False)
+        elif mode == True:
+            self.window.wm_attributes('-topmost',True)
+        else:
+            self.window.wm_attributes('-topmost',config['topmost'])
 
     def listen_task(self):
         if not self.task_queue.empty():
             func = self.task_queue.get_nowait()
             func()
+            print('已处理1个任务,还剩%s个'%self.task_queue.qsize())
         self.window.after(10,self.listen_task)
 
     def config_widget(self,widget,option,value):#不要往这里面传image参数
@@ -393,6 +523,7 @@ class AudioWindow(object):
     def close(self):
         self.window.quit()
         self.window.destroy()
+        self.is_alive = False
 
 class LoginWindow(object):
     def __init__(self):
@@ -419,7 +550,7 @@ class LoginWindow(object):
         self.label_text.pack(pady=10)
         self.button_refresh = ttk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
         self.button_refresh.pack()
-
+        
         self.fresh()
         print('LoginWindow初始化完成')
         self.window.mainloop()
