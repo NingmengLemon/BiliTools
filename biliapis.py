@@ -16,6 +16,7 @@ import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.ttk as ttk
 #My
+from basic_window import Window
 import bilicodes
 #av号统称为avid, bv号统称为bvid.
 #音频id统称为auid
@@ -30,6 +31,7 @@ _xor = 177451812
 _add = 8728348608
 
 #requester's pre-data
+user_name = os.getlogin()
 cookies = None
 fake_headers_get = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
@@ -45,6 +47,35 @@ fake_headers_post = {
     }
 
 local_cookiejar_path = os.path.abspath('./cookies.txt')
+
+chrome_path = 'C:\\Users\\%s\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'%user_name
+firefox_path_x64 = r'C:\Program Files\Mozilla Firefox\firefox.exe'
+firefox_path_x86 = r'C:\Program Files (x86)\Mozilla Firefox\firefox.exe'
+
+def open_in_explorer(url,method='chrome'):
+    method = method.lower()
+    if method == 'chrome' and os.path.exists(chrome_path):
+        os.popen(f'"{chrome_path}" "{url}"')
+        return 0
+    elif method == 'firefox':
+        if os.path.exists(firefox_path_x64):
+            os.popen(f'"{firefox_path_x64}" "{url}"')
+            return 0
+        elif os.path.exists(firefox_path_x86):
+            os.popen(f'"{firefox_path_x86}" "{url}"')
+            return 0
+        else:
+            return 1
+    else:
+        return 1
+
+class BiliError(Exception):
+    def __init__(self,code,msg):
+        self.code = code
+        self.msg = msg
+        self._final_msg = 'Code %s: %s'%(code,msg)
+    def __str__(self):
+        return self._final_msg
 
 #requester
 def _ungzip(data):
@@ -100,7 +131,7 @@ def get_cookies(url):
 
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
-    return str(content, encoding, 'ignore')
+    return content.decode(encoding, 'ignore')
 
 def get_content_bytes(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
@@ -299,7 +330,7 @@ releaseprog:释放进程
 askopen:完成后询问是否打开文件夹
 showwarning:显示警告(关闭此选项也会关闭askopen)
 use_fakeheaders:使用伪装请求头
-use_cookies:使用Cookies进行下载
+use_cookies:使用已加载的Cookies进行下载
 '''
     def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_fakeheaders=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True):
         if not showwarning:
@@ -441,9 +472,18 @@ use_cookies:使用Cookies进行下载
             self.data['condition_str'] = 'Checking File Size...'
             response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
             #Check Existed File
-            self.data['condition_str'] = 'Checking Existed File...'
-            file_size = int(response.headers['content-length'])
-            self.data['totalsize'] = file_size
+            counter = 0
+            while self.data['totalsize'] == 0:
+                self.data['condition_str'] = 'Checking Existed File...'
+                file_size = int(response.headers['content-length'])
+                self.data['totalsize'] = file_size
+                counter += 1
+                if counter >= 3:
+                    self.data['error_info'] = 'File size received = 0 B'
+                    self.data['condition'] = 2
+                    self.data['condition_str'] = 'Error'
+                    return
+                    
             if os.path.exists(tmp_file):
                 start_byte = os.path.getsize(tmp_file)
             else:
@@ -526,6 +566,13 @@ def _replaceChr(text):
     for t in list(repChr.keys()):
         text = text.replace(t,repChr[t])
     return text
+
+def second_to_time(sec):
+    h = sec // 3600
+    sec = sec % 3600
+    m = sec // 60
+    s = sec % 60
+    return '%d:%02d:%02d'%(h,m,s)
 
 def bvid_to_avid_online(bvid):
     data = get_content_str('https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
@@ -704,6 +751,7 @@ def _video_detail_handler(data,detailmode=True):
         'bvid':data['bvid'],
         'avid':data['aid'],
         'main_zone':bilicodes.video_zone[int(data['tid'])],
+        'main_zone_id':int(data['tid']),
         'child_zone':data['tname'],
         'part_number':data['videos'],
         'picture':data['pic'],
@@ -730,11 +778,32 @@ def _video_detail_handler(data,detailmode=True):
     if detailmode:
         parts = []
         for i in data['pages']:
-            parts.append({'cid':i['cid'],
-                          'title':i['part']
+            parts.append({
+                'cid':i['cid'],
+                'title':i['part'],
+                'length':i['duration'],#Second
                           })
         res['parts'] = parts
+        res['warning_info'] = data['stat']['argue_msg']
+        res['is_interact_video'] = bool(data['rights']['is_stein_gate'])
     return res
+
+def get_video_tags(avid=None,bvid=None):
+    '''Choose one parameter between avid and bvid'''
+    if avid != None:
+        api = 'http://api.bilibili.com/x/tag/archive/tags?aid=%s'%avid
+    elif bvid != None:
+        api = 'http://api.bilibili.com/x/tag/archive/tags?bvid='+bvid
+    else:
+        raise RuntimeError('You must choose one between avid and bvid.')
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['message'])
+    data = data['data']
+    tags = []
+    for tag in data:
+        tags.append(tag['tag_name'])
+    return tags
 
 def get_blackroom(page):
     data = get_content_str(f'https://api.bilibili.com/x/credit/blocked/list?jsonp=jsonp&otype=0&pn={page}')
@@ -797,9 +866,9 @@ def _is_url(url):
 def _error_raiser(code,message=None):
     if code != 0:
         if message:
-            raise RuntimeError('Code %s: %s'%(code,message))
+            raise BiliError(code,message)
         else:
-            raise RuntimeError('Code %s: %s'%(code,bilicodes.error_code[code]))
+            raise BiliError(code,bilicodes.error_code[code])
 
 def get_media_detail(ssid=None,epid=None,mdid=None):
     '''Choose one parameter from ssid, epid and mdid'''
@@ -909,14 +978,14 @@ def get_video_stream_dash(cid,avid=None,bvid=None):
     audio = []
     for au in data['audio']:
         audio.append({
-            'quality':bilicodes.stream_dash_audio_quality[au['id']],
+            'quality':au['id'],#对照表bilicodes.stream_dash_audio_quality
             'url':au['baseUrl'],
             'type':au['codecs'],
             })
     video = []
     for vi in data['video']:
         video.append({
-            'quality':bilicodes.stream_dash_video_quality[vi['id']],
+            'quality':vi['id'],#对照表bilicodes.stream_dash_video_quality
             'url':vi['baseUrl'],
             'type':vi['codecs'],
             'width':vi['width'],
@@ -1037,8 +1106,21 @@ def get_audio_lyrics(auid):
     data = data['data']
     return data
 
-def get_redirect_url(url):
-    return requester.get_redirect_url(url)
+def get_banlist(page=1,source_filter=None,type_filter=0):
+    '''source_filter = None(All) / 0(SystemBanned) / 1(JudgementBanned)
+    type_filter = 0(All)/...(Look in bilicodes.ban_type)
+    '''
+    api = 'http://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,type_filter,page)
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['msg'])
+    data = data['data']
+    res = []
+    for item in data:
+        res.append({
+            ##############
+            })
+    return res
 
 def parse_url(url):
     if 'b23.tv' in url:#短链接重定向
@@ -1046,12 +1128,12 @@ def parse_url(url):
     res = re.findall(r'au([0-9]+)',url,re.I)#音频id
     if res:
         return int(res[0]),'auid'
-    res = re.findall(r'av([0-9]+)',url,re.I)#av号
-    if res:
-        return int(res[0]),'avid'
     res = re.findall(r'BV[a-zA-Z0-9]{10}',url,re.I)#bv号
     if res:
         return res[0],'bvid'
+    res = re.findall(r'av([0-9]+)',url,re.I)#av号
+    if res:
+        return int(res[0]),'avid'
     res = re.findall(r'cv([0-9]+)',url,re.I)#专栏号
     if res:
         return int(res[0]),'cvid'
