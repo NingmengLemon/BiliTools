@@ -1,6 +1,7 @@
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.filedialog as filedialog
+import tkinter.scrolledtext as scrolledtext
 import tkinter.ttk as ttk
 from PIL import Image,ImageTk
 import _thread
@@ -32,11 +33,12 @@ def tkImg(file=None,scale=1,size=()):
     return img
 
 class Window(object):#程序中所有常规窗口的父类
-    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0):
+    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0,ignore_queue_error=False):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象
         self.image_library = [] #将tkimage存在这里
         self.is_alive = True
         load_status = False
+        self._ignore_queue_error = ignore_queue_error
 
         if toplevel:
             self.window = tk.Toplevel()
@@ -52,10 +54,17 @@ class Window(object):#程序中所有常规窗口的父类
     def listen_task(self):
         if not self.task_queue.empty():
             func = self.task_queue.get_nowait()
-            func()
+            try:
+                func()
+            except Exception as e:
+                self._report_debug_info(msg='Error: '+str(e))
+                if self._ignore_queue_error:
+                    pass
+                else:
+                    raise e
         self.window.after(10,self.listen_task)
 
-    def config_widget(self,widget,option,value):#不要往这里面传image参数
+    def config_widget(self,widget,option,value):#不要往这里面传image参数 以及不能用[]设置的参数
         if option == 'image':
             return
         widget[option] = value
@@ -94,4 +103,4 @@ class Window(object):#程序中所有常规窗口的父类
         self.is_aive = False
 
     def start_window(self,winobj,args=()):
-        w=winobj(args)
+        w = winobj(args)

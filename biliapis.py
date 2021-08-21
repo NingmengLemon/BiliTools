@@ -1,25 +1,31 @@
 from http import cookiejar
 from urllib import request, parse, error
-import requests #
 import os
 import re
 import sys
 import time
 import json
 import zlib,gzip
-import _thread
+import threading
 import hashlib
 import math
+import random
 from io import BytesIO
-#GUI
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.ttk as ttk
-#My
+
+import requests
+from bs4 import BeautifulSoup
+
 from basic_window import Window
 import bilicodes
+
 #av号统称为avid, bv号统称为bvid.
 #音频id统称为auid
+
+def start_new_thread(func,args=(),kwargs=None,name=None):
+    threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
 
 #abvid offline converter's pre-data
 _table = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF'
@@ -183,6 +189,10 @@ def load_local_cookies():
         f.close()
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
+
+def refresh_local_cookies():
+    global cookies
+    cookies.save()
 
 def load_explorer_cookies(cookiefile=find_explorer_cookies()):
     global cookies
@@ -398,7 +408,7 @@ use_cookies:使用已加载的Cookies进行下载
         self.widgets['label_url']['text'] = self._cut(self.data['url'])
         self.widgets['label_topath']['text'] = self._cut(self.data['topath'])
         self._autofresh()
-        _thread.start_new(self._download_thread,())
+        start_new_thread(self._download_thread,())
         if not releaseprog:
             self.window.mainloop()
 
@@ -850,7 +860,7 @@ def download_emotions(path='./emotions/',pause_time=1,show_process=False):
             os.mkdir(path_)
         for i in pkg['emote']:
             if _is_url(i['url']):
-                _thread.start_new(download_common,(i['url'],path_+i['text']+'.png'))
+                start_new_thread(download_common,(i['url'],path_+i['text']+'.png'))
             else:
                 with open(path_+'data.txt','a+',encoding='utf-8') as f:
                     f.write('%s\t%s\n'%(i['id'],i['text']))
@@ -1106,22 +1116,6 @@ def get_audio_lyrics(auid):
     data = data['data']
     return data
 
-def get_banlist(page=1,source_filter=None,type_filter=0):
-    '''source_filter = None(All) / 0(SystemBanned) / 1(JudgementBanned)
-    type_filter = 0(All)/...(Look in bilicodes.ban_type)
-    '''
-    api = 'http://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,type_filter,page)
-    data = get_content_str(api)
-    data = json.loads(data)
-    _error_raiser(data['code'],data['msg'])
-    data = data['data']
-    res = []
-    for item in data:
-        res.append({
-            ##############
-            })
-    return res
-
 def parse_url(url):
     if 'b23.tv' in url:#短链接重定向
         url = get_redirect_url(url)
@@ -1154,7 +1148,7 @@ def parse_url(url):
         return int(res[0]),'uid'
     return None,'unknown'
 
-def filter_danmaku_xml(xmlstr,regulars=None,keywords=None,users=None):
+def filter_danmaku_xml(xmlstr,regulars=None,keywords=None,users=None):#无法处理高级弹幕
     #切分
     sps = list(set(re.findall('[a-zA-Z]><[a-zA-Z]',xmlstr)))
     for sp in sps:
@@ -1204,18 +1198,23 @@ def load_danmaku_filter(file):
         users[i] = users[i][23:-7]
     return regulars,keywords,users
 
-def get_bcc(bvid):
-    url = 'https://www.bilibili.com/video/'+bvid
-    source = get_content_str(url)
-    t = re.findall(r"subtitle_url\":\"(.*?json)",source)
-    res = []
-    for u in t:
-        res += [json.loads(get_content_str(u.replace("\\u002F", "/")))]
-    return res
+def get_bcc(cid,avid=None,bvid=None):
+    '''Choose one parameter between avid and bvid'''
+    if avid != None:
+        api = 'https://api.bilibili.com/x/player/v2?cid=%s&aid=%s'%(cid,avid)
+    elif bvid != None:
+        api = 'https://api.bilibili.com/x/player/v2?cid=%s&bvid=%s'%(cid,bvid)
+    else:
+        raise RuntimeError('You must choose one parameter between avid and bvid.')
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['message'])
+    data = data['data']['subtitle']['subtitles']
+    return data #######
 
 def bcc_to_srt(jsondata):
      srt_file = ''
-     bccdata = jsondata['body']
+     bccdata = jsondata #？
      i = 1
      for data in bccdata:
          start = data['from']  # 获取开始时间
@@ -1237,18 +1236,7 @@ def bcc_to_srt(jsondata):
          i += 1
      return srt_file
 
-def download_subtitle(bvid,topath='./'):
-    topath = os.path.abspath(topath)+'\\'
-    bccs = get_bcc(bvid)
-    srts = []
-    for bcc in bccs:
-        srts += [bcc_to_srt(bcc)]
-    counter = 0
-    for srt in srts:
-        counter += 1
-        with open(topath+f'{bvid}[{counter}].srt','w+',encoding='utf-8') as f:
-            f.write(srt)
-
+#########登录操作#########
 def get_login_url():
     api = 'https://passport.bilibili.com/qrcode/getLoginUrl'
     data = get_content_str(api)
@@ -1291,8 +1279,17 @@ def make_cookiejar(url):#URL来自 check_scan() 成功后的传参
                 ))
     return tmpjar
 
+def is_cookiejar_usable():
+    try:
+        get_login_info()
+    except BiliError:#操作得当不会出现BiliError以外的错误(网络问题除外
+        return False
+    else:
+        return True
+##########################
+
 def format_img(url,w=None,h=None,f=None):
-    '''For *.hdslb.com/bfs only.'''
+    '''For *.hdslb.com/bfs/* only.'''
     if '.hdslb.com/bfs' not in url:
         raise RuntimeError('Not-supported URL Type:%s'%url)
     tmp = []
@@ -1308,10 +1305,87 @@ def format_img(url,w=None,h=None,f=None):
     else:
         return url
 
-def is_cookiejar_usable():
-    try:
-        get_login_info()
-    except RuntimeError:
-        return False
-    else:
-        return True
+def get_blackroom(page=1,source_filter=None,reason_filter=0):
+    '''
+    source_filter = None(All) / 0(SystemBanned) / 1(JudgementBanned)
+    reason_filter = 0(All)/...(Look in bilicodes.ban_reason)
+    '''
+    if source_filter == None:
+        source_filter = ''
+    api = 'http://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,reason_filter,page)
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = []
+    for item in data:
+        res.append({
+            'id':item['id'],
+            'user':{
+                'name':item['uname'],
+                'face':item['face'],
+                'uid':item['uid']
+                },
+            'origin':{
+                'title':item['originTitle'],
+                'url':item['originUrl'],
+                'type_id':item['originType'],
+                'type':item['originTypeName']
+                },
+            'punish':{
+                'content':BeautifulSoup(item['originContentModify'],"html.parser").get_text('\n'),
+                'title':item['punishTitle'],
+                'time':item['punishTime'],#TimeStamp
+                'type':item['punishTypeName'],
+                'days':item['blockedDays'],#forever is 0
+                'is_forever':bool(item['blockedForever']),
+                },
+            'reason':{
+                'type_id':item['reasonType'],
+                'type':item['reasonTypeName']
+                },
+            })
+    return res
+
+def _single_comment_handler(data):
+    res = {
+        'rpid':data['rpid'],
+        'oid':data['oid'],
+        'type_id':data['type'],
+        'sender':{
+            'uid':data['member']['mid'],
+            'name':data['member']['uname'],
+            'sex':data['member']['sex'],
+            'desc':data['member']['sign'],
+            'face':data['member']['avatar'],
+            'level':data['member']['level']['current_level'],
+            'vip':{0:'非大会员',1:'月度大会员',2:'年度及以上大会员'}[data['member']['vip']['vipType']],
+            'is_vip':bool(data['member']['vip']['vipStatus']),
+            'verify':data['member']['official_verify'],
+            'fanslabel_id':data['member']['fans_detail']['medal_id'],
+            'fanslabel_name':data['member']['fans_detail']['medal_name'],
+            },
+        'content':{
+            'message':data['content']['message'],
+            'plat':{1:'Web端',2:'Android客户端',3:'iOS客户端',4:'WindowsPhone客户端'}[data['content']['plat']],
+            'device':data['content']['device']
+            }
+        }
+
+def get_comment():
+    pass #wait for building
+
+def get_shortlink(avid):
+    data = post_data_json('https://api.bilibili.com/x/share/click',data={
+	'build':9300,
+	'buvid':hashlib.md5(bytes(random.randint(1000,9999))).hexdigest(),
+	'oid':int(avid),
+	'platform':'web',
+	'share_channel':'COPY',
+	'share_id':"main.ugc-video-detail.0.0.pv",
+	'share_mode':1
+        })
+    _error_raiser(data['code'],data['message'])
+    data = data['data']
+    url = re.findall(r'(https?\://b23\.tv/[0-9A-Za-z]+)',data['content'])[0]
+    return url
