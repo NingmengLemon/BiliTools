@@ -1,10 +1,8 @@
-#GUI
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.filedialog as filedialog
 import tkinter.scrolledtext as scrolledtext
 import tkinter.ttk as ttk
-#System
 import os
 import sys
 import re
@@ -13,12 +11,12 @@ import random
 from io import BytesIO
 import traceback
 import math
-#多线程用
-import _thread
+import logging
+import threading
 import queue
-#第三方库
+
 import qrcode
-#自制库
+
 import clipboard
 import biliapis
 import bilicodes
@@ -62,6 +60,9 @@ about_info = '\n'.join([
     '此程序的作者不会为任何因使用此程序所造成的后果负责.',
     '感谢您的使用.'
     ])
+
+def start_new_thread(func,args=(),kwargs=None,name=None):
+    threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
 
 def print(*text,end='\n',sep=' '):
     tmp = []
@@ -109,7 +110,7 @@ class MainWindow(Window):
         self.img_user_face_empty = tkImg(size=(100,100))
         self.label_face = tk.Label(self.frame_userinfo,text='',image=self.img_user_face_empty)
         self.label_face.grid(column=0,row=0,rowspan=4)
-        self.label_face_text = tk.Label(self.frame_userinfo,text='未加载',bg='#ffffff',font=('',8))#图片上的提示文本
+        self.label_face_text = tk.Label(self.frame_userinfo,text='未加载',bg='#ffffff',font=('Microsoft YaHei UI',8))#图片上的提示文本
         self.label_face_text.grid(column=0,row=0,rowspan=4)
         #用户名
         self.label_username = tk.Label(self.frame_userinfo,text='-')
@@ -246,7 +247,7 @@ class MainWindow(Window):
             self.task_queue.put_nowait(lambda:self.config_widget(self.label_uid,'text','UID%s'%tmp['uid']))
             self.task_queue.put_nowait(lambda:self.config_widget(self.label_level,'text','Lv.%s'%tmp['level']))
             self.task_queue.put_nowait(lambda:self.config_widget(self.label_vip,'text',tmp['vip_type']))
-        _thread.start_new(tmp,())
+        start_new_thread(tmp,())
 
     def applyConfig(self):
         global config
@@ -297,10 +298,10 @@ class AudioWindow(Window):
         self.img_cover_empty = tkImg(size=(300,300))
         self.label_cover_shower = tk.Label(self.window,image=self.img_cover_empty)
         self.label_cover_shower.grid(column=0,row=0,rowspan=4,sticky='w')
-        self.label_cover_text = tk.Label(self.window,text='加载中',font=('',8),bg='#ffffff')
+        self.label_cover_text = tk.Label(self.window,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_cover_text.grid(column=0,row=0,rowspan=4)
         #audio name
-        self.text_name = tk.Text(self.window,font=('微软雅黑',10,'bold'),width=37,height=2,state='disabled',bg='#f0f0f0',bd=0)
+        self.text_name = tk.Text(self.window,font=('Microsoft YaHei UI',10,'bold'),width=37,height=2,state='disabled',bg='#f0f0f0',bd=0)
         self.text_name.grid(column=0,row=4)
         self.tooltip_name = tooltip.ToolTip(self.text_name)
         #id
@@ -315,7 +316,7 @@ class AudioWindow(Window):
         self.img_upface_empty = tkImg(size=(50,50))
         self.label_uploader_face = tk.Label(self.frame_uploader,image=self.img_upface_empty)#up头像
         self.label_uploader_face.grid(column=0,row=0,rowspan=2)
-        self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('',8),bg='#ffffff')
+        self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_uploader_face_text.grid(column=0,row=0,rowspan=2)
         self.label_uploader_name = tk.Label(self.frame_uploader,text='-')#up名字
         self.label_uploader_name.grid(column=1,row=0,sticky='w')
@@ -429,7 +430,7 @@ class AudioWindow(Window):
             self.task_queue.put_nowait(lambda:self.set_image(self.label_uploader_face,face,(50,50)))
             self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
             self.load_status = True
-        _thread.start_new(tmp,())
+        start_new_thread(tmp,())
 
     def check_usable(self):
         try:
@@ -515,7 +516,7 @@ class CommonVideoWindow(Window):
         self.img_upface_empty = tkImg(size=(50,50))
         self.label_uploader_face = tk.Label(self.frame_uploader,image=self.img_upface_empty)#up头像
         self.label_uploader_face.grid(column=0,row=0,rowspan=2)
-        self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('',8),bg='#ffffff')
+        self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_uploader_face_text.grid(column=0,row=0,rowspan=2)
         self.label_uploader_name = tk.Label(self.frame_uploader,text='-')#up名字
         self.label_uploader_name.grid(column=1,row=0,sticky='w')
@@ -523,7 +524,7 @@ class CommonVideoWindow(Window):
         self.label_uploader_id.grid(column=1,row=1,sticky='w')
         self.frame_uploader.grid(column=0,row=0,sticky='nw')
         #comment
-        self.button_show_comments = ttk.Button(self.frame_left_2,text='查看评论')#
+        self.button_show_comments = ttk.Button(self.frame_left_2,text='查看评论',command=lambda:msgbox.showinfo('','建设中'))#
         self.button_show_comments.grid(column=0,row=0,sticky='se')
         #desc
         tk.Label(self.frame_left_2,text='简介↑').grid(column=0,row=2,sticky='nw')
@@ -569,12 +570,27 @@ class CommonVideoWindow(Window):
         self.button_rec_back.grid(column=0,row=0)
         self.button_rec_next = ttk.Button(self.frame_rec_control,text='下一页',state='disabled',command=lambda:self.fill_recommends(self.rec_page+1))
         self.button_rec_next.grid(column=1,row=0)
-        
+        #调试信息
+        self.frame_debug = tk.Frame(self.window)
+        self.frame_debug.grid(column=0,row=1,columnspan=3,sticky='w')
+        tk.Label(self.frame_debug,text='Thread:').grid(column=0,row=0)
+        self.label_thread_count = tk.Label(self.frame_debug,text='0')
+        self.label_thread_count.grid(column=1,row=0)
+        tk.Label(self.frame_debug,text='|').grid(column=2,row=0)
+        tk.Label(self.frame_debug,text='Queue:').grid(column=3,row=0)
+        self.label_queue_count = tk.Label(self.frame_debug,text='0')
+        self.label_queue_count.grid(column=4,row=0)
+
+        self.update_debug_info()
         self.refresh_data()
-        #self.window.mainloop()
+        self.window.mainloop()
+
+    def update_debug_info(self):#自动循环
+        self.label_thread_count['text'] = str(threading.active_count())
+        self.label_queue_count['text'] = str(self.task_queue.qsize())
+        self.window.after(10,self.update_debug_info)
 
     def download_audio(self):
-        #待施工！
         self.button_download_audio['state'] = 'disabled'
         path = filedialog.askdirectory(title='选择保存位置')
         if not path:
@@ -613,7 +629,6 @@ class CommonVideoWindow(Window):
         需要在第一次调用 fill_recommend() 之前调用.
         因为推荐视频数量不能确定, 所以没有放在 __init__() 中.(标准的是40, 但有时会抽风)
         又因为queue的先进先出原则, 所以放在 refresh_data() 里通过queue传递指令来执行没有问题.
-
         '''
         pn = math.ceil(rec_length/self.rec_spage_objnum)
         for i in range(0,pn):
@@ -626,8 +641,7 @@ class CommonVideoWindow(Window):
                 self.obj_rec[i][o].append(tk.Text(self.obj_rec[i][o][0],bg='#f0f0f0',bd=0,height=2,width=30,state='disabled'))#title
                 self.obj_rec[i][o].append(tk.Label(self.obj_rec[i][o][0],text='-'))#uploader
                 self.obj_rec[i][o].append(tk.Label(self.obj_rec[i][o][0],text='-'))#bvid
-                for t in range(0,5):
-                    self.obj_rec[i][o][t].bind('<Button-1>',lambda x=0,i_=i,o_=o:self.jump_by_recommend(self.obj_rec[i_][o_][4]['text']))#绑定跳转操作
+                self.obj_rec[i][o][1].bind('<Button-1>',lambda x=0,i_=i,o_=o:self.jump_by_recommend(self.obj_rec[i_][o_][4]['text']))#绑定跳转操作
                 c = 0
                 for coor in [(0,o,1,1,'w'),(0,0,1,3,'w'),(1,0,2,1,'w'),(1,1,1,1,'w'),(2,1,1,1,'e')]:#(col,row,rspan,cspan,sticky)
                     self.obj_rec[i][o][c].grid(column=coor[0],row=coor[1],columnspan=coor[2],rowspan=coor[3],sticky=coor[4])
@@ -679,10 +693,14 @@ class CommonVideoWindow(Window):
                 desc = '没有简介'
             self.task_queue.put_nowait(lambda:self.set_text(self.sctext_desc,lock=True,text=desc))
             #img
-            self.task_queue.put_nowait(lambda:self.set_image(self.label_cover,BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['picture'],w=380))),size=(380,232)))
-            self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
-            self.task_queue.put_nowait(lambda:self.set_image(self.label_uploader_face,BytesIO(biliapis.get_content_bytes(biliapis.format_img(up['face'],w=50,h=50))),size=(50,50)))
-            self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
+            def load_img():
+                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['picture'],w=380))):
+                                           self.set_image(self.label_cover,img,size=(380,232)))
+                self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
+                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(up['face'],w=50,h=50))):
+                                           self.set_image(self.label_uploader_face,img,size=(50,50)))
+                self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
+            start_new_thread(load_img)
             #parts
             parts = data['parts']
             counter = 0
@@ -698,7 +716,7 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda:self.set_text(self.text_tags,lock=True,text=tagtext))
             #rec_img & rec_controller_unlock
             self.task_queue.put_nowait(lambda:self.fill_recommends(-1))
-        _thread.start_new(tmp,())
+        start_new_thread(tmp,())
 
     def fill_recommends(self,page=1):#在加载完成后调用时传入-1
         self.button_rec_next['state'] = 'disabled'
@@ -714,21 +732,31 @@ class CommonVideoWindow(Window):
             page = ttpage
         elif page < 1:
             page = 1
-        if page in self.rec_page_his:
+        if page in self.rec_page_his:#检查翻页历史, 如果翻过了就不必重新加载
             pass
         else:
             def tmp_(o_,c_):
-                self.task_queue.put_nowait(lambda w=o_[1],u=self.recommend[c_]['picture']:self.set_image(w,BytesIO(biliapis.get_content_bytes(biliapis.format_img(u,w=114,h=69))),size=(114,69)))
+                self.task_queue.put_nowait(lambda w=o_[1],img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.recommend[c_]['picture'],w=114,h=69))):
+                                           self.set_image(w,img,size=(114,69)))
                 self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:self.set_text(w,text=t,lock=True))
                 self.task_queue.put_nowait(lambda w=o_[3],t=self.recommend[c_]['uploader']['name']:self.config_widget(w,'text',t))
                 self.task_queue.put_nowait(lambda w=o_[4],t=self.recommend[c_]['bvid']:self.config_widget(w,'text',t))
-                self.task_queue.put_nowait(lambda w1=o_[0]:o_.append(tooltip.ToolTip(w1,text='点击打开')))#绑定tooltip
+                #绑定tooltip
+                self.task_queue.put_nowait(lambda w=o_[1]:o_.append(tooltip.ToolTip(w,text='点击跳转到此视频')))
+                self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:o_.append(tooltip.ToolTip(w,text=t)))
+                self.task_queue.put_nowait(lambda w=o_[3],t='%s\nUID%s'%(self.recommend[c_]['uploader']['name'],self.recommend[c_]['uploader']['uid']):
+                                           o_.append(tooltip.ToolTip(w,text=t)))
+                self.task_queue.put_nowait(lambda w=o_[4],t='%s\nav%s\n播放: %s\n弹幕: %s\n评论: %s'%(self.recommend[c_]['bvid'],
+                                                                                                self.recommend[c_]['avid'],
+                                                                                                self.recommend[c_]['stat']['view'],
+                                                                                                self.recommend[c_]['stat']['danmaku'],
+                                                                                                self.recommend[c_]['stat']['reply']):o_.append(tooltip.ToolTip(w,text=t)))
             c = (page-1)*self.rec_spage_objnum
             for o in self.obj_rec[page-1]:
                 if c >= len(self.recommend):
                     break
                 else:
-                    _thread.start_new(tmp_,(o,c))
+                    start_new_thread(tmp_,(o,c))
                     c += 1
             self.rec_page_his.append(page)
         self.rec_page = page
@@ -824,39 +852,53 @@ class LoginWindow(object):
         self.window.destroy()
         print('LOGINWINDOW已关闭')
 
-class Inputer(object):
-    def __init__(self,text,title='Inputer',topmost=True,accept_type=str):
-        self.return_value = None
-        self.accept_type = accept_type
+class BlackroomWindow(Window):
+    def __init__(self):
+        data_pool = []
+        super().__init__('BiliTools - Blackroom',True,config['topmost'],config['alpha'])
+
+        #内容框架
+        self.frame_content = tk.Frame(self.window)
+        self.frame_content.grid(column=0,row=0)
+        #Target
+        self.frame_target = tk.Frame(self.frame_content)
+        self.frame_target.grid(column=0,row=0)
+        self.img_targetface_empty = tkImg(size=(50,50))
+        self.label_target_face = tk.Label(self.frame_target,image=self.img_targetface_empty)#用户头像
+        self.label_target_face.grid(column=0,row=0,rowspan=2)
+        self.label_target_face_text = tk.Label(self.frame_target,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
+        self.label_target_face_text.grid(column=0,row=0,rowspan=2)
+        self.label_target_name = tk.Label(self.frame_target,text='-')#用户昵称
+        self.label_target_name.grid(column=1,row=0,sticky='w')
+        self.label_target_id = tk.Label(self.frame_target,text='UID0')#uid
+        self.label_target_id.grid(column=1,row=1,sticky='w')
+        #Behavior
+        self.frame_behavior = tk.Frame(self.frame_content)
+        self.frame_behavior.grid(column=0,row=1)
+        tk.Label(self.frame_behavior,text='违规行为: ').grid(column=0,row=0,sticky='sw')
+        tk.Label(self.frame_behavior,text='处理手段: ').grid(column=0,row=1,sticky='sw')
+        self.label_behavior = tk.Label(self.frame_behavior,text='-',font=('Microsoft YaHei UI',14))
+        self.label_behavior.grid(column=1,row=0,sticky='w')
+        self.label_treatment = tk.Label(self.frame_behavior,text='-',font=('Microsoft YaHei UI',14))
+        self.label_treatment.grid(column=1,row=1,sticky='w')
+        #Content
+        self.sctext_content = scrolledtext.ScrolledText(self.frame_content,width=50,height=20,state='disabled')
+        self.sctext_content.grid(column=0,row=2)
+        #Controller
+        self.frame_controller = tk.Frame(self.window)
+        self.frame_controller.grid(column=0,row=1)
+        self.button_back = ttk.Button(self.frame_controller,text='上一页')
+        self.button_back.grid(column=0,row=0)
+        self.label_page_shower = tk.Label(self.frame_controller,text='0/0')
+        self.label_page_shower.grid(column=1,row=0)
+        self.button_next = ttk.Button(self.frame_controller,text='下一页')
+        self.button_next.grid(column=2,row=0)
+        self.button_more = ttk.Button(self.frame_controller,text='加载更多')
+        self.button_more.grid(column=1,row=1)
+
+    def load_data(self):
+        pass
         
-        self.window = tk.Tk()
-        self.window.title(title)
-        self.window.resizable(height=False,width=False)
-        self.window.protocol('WM_DELETE_WINDOW',self.cancel)
-        self.window.wm_attributes('-topmost',topmost)
-
-        tk.Label(self.window,text=text).grid(column=0,row=0,columnspan=2,sticky='w')
-        self.entry = ttk.Entry(self.window,width=40,exportselection=0)
-        self.entry.grid(column=0,row=1,columnspan=2)
-        self.entry.bind('<Return>',self.ensure)
-        ttk.Button(self.window,text='确认',command=self.ensure).grid(column=0,row=2)
-        ttk.Button(self.window,text='取消',command=self.cancel).grid(column=1,row=2)
-
-    def ensure(self,event=None):
-        try:
-            self.accept_type(self.entry.get())
-        except:
-            msgbox.showwarning('','你所输入的内容无法转换为程序要求的类型.\n需要: '+type(self.accept_type))
-            return
-        self.return_value = self.entry.get()
-        self.close()
-
-    def cancel(self):
-        self.close()
-
-    def close(self):
-        self.window.quit()
-        self.window.destroy()
 
 if __name__ == '__main__' and not devmode:
     print('Program Running.')
