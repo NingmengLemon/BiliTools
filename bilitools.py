@@ -14,6 +14,8 @@ import math
 import logging
 import threading
 import queue
+import webbrowser
+import json
 
 import qrcode
 
@@ -27,18 +29,25 @@ from basic_window import tkImg,Window
 #为了页面美观，将Button/Radiobutton/Checkbutton/Entry的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev03'
+version = '2.0.0_Dev04'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 config_path = f'C:\\Users\\{user_name}\\bilitools_config.json'
-devmode = True #开发模式开关
+
 config = {
     'topmost':True,
-    'login_method':'qrcode',# qrcode / cookies / no
-    'autologin':True,
+    'autologin':False,
     'alpha':1.0,# 0.0 - 1.0
     'explorer':'chrome',# chrome / firefox
+    'filter_emoji':False,
+    'devmode':True #开发模式开关
     }
+
+biliapis.filter_emoji = config['filter_emoji']
+#日志模块设置
+logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    level={True:logging.DEBUG,False:logging.WARNING}[config['devmode']])
 
 tips = [
         '欢迎使用基于Bug开发的BiliTools（',
@@ -46,7 +55,8 @@ tips = [
         '不管怎样，你得先告诉我你要去哪儿啊',
         'Bug是此程序的核心部分',
         '鸽子是此程序的作者的本体（咕',
-        '想要反馈Bug？那你得先找到作者再说'
+        '想要反馈Bug？那你得先找到作者再说',
+        'No one knows CREATING BUGs better than me！'
         ]
 
 about_info = '\n'.join([
@@ -106,6 +116,7 @@ class MainWindow(Window):
         self.frame_main.grid(column=0,row=0,columnspan=2)
 
         self.frame_userinfo = tk.LabelFrame(self.window,text='用户信息')
+        self.frame_userinfo.grid(column=0,row=1,sticky='w',columnspan=2)
         #用户头像
         self.img_user_face_empty = tkImg(size=(100,100))
         self.label_face = tk.Label(self.frame_userinfo,text='',image=self.img_user_face_empty)
@@ -130,26 +141,18 @@ class MainWindow(Window):
         self.button_refresh = ttk.Button(self.frame_userinfo,text='刷新',command=self.refreshUserinfo,state='disabled')
         self.button_refresh.grid(column=1,row=4,sticky='w')
         ttk.Button(self.frame_userinfo,text='清除登录痕迹',command=self.clearLoginData).grid(column=0,row=5,columnspan=2)
-        self.frame_userinfo.grid(column=0,row=1,sticky='w',columnspan=2)
 
-        self.frame_console = tk.LabelFrame(self.window,text='操作')
+        self.frame_console = tk.LabelFrame(self.window,text='功能区')
         self.frame_console.grid(column=1,row=1,sticky='e')
+        self.button_blackroom = ttk.Button(self.frame_console,text='小黑屋',command=self.goto_blackroom)
+        self.button_blackroom.grid(column=0,row=0)
 
         self.frame_config = tk.LabelFrame(self.window,text='全局设置')
+        self.frame_config.grid(column=0,row=2,columnspan=2)
         #置顶
         self.boolvar_topmost = tk.BooleanVar(value=config['topmost'])
         ttk.Checkbutton(self.frame_config,variable=self.boolvar_topmost,onvalue=True,offvalue=False,text='置顶',command=self.applyConfig).grid(column=0,row=0,sticky='w')
-        #登录方式
-        self.frame_config_login_method = tk.LabelFrame(self.frame_config,text='登录方式')
-        self.strvar_login_method = tk.StringVar(value=config['login_method'])
-        self.rb_login_1 = ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='qrcode',text='扫描二维码',command=self.applyConfig)
-        self.rb_login_1.grid(column=0,row=0,sticky='w')
-        self.rb_login_2 = ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='cookies',text='加载现有的Cookies',command=self.applyConfig)
-        self.rb_login_2.grid(column=0,row=1,sticky='w')
-        self.rb_login_3 = ttk.Radiobutton(self.frame_config_login_method,variable=self.strvar_login_method,value='no',text='不登录',command=self.applyConfig)
-        self.rb_login_3.grid(column=0,row=2,sticky='w')
-        self.frame_config_login_method.grid(column=0,row=1,sticky='w',rowspan=2)
-        #启动时自动尝试登录
+        #自动登录
         self.boolvar_autologin = tk.BooleanVar(value=config['autologin'])
         ttk.Checkbutton(self.frame_config,variable=self.boolvar_autologin,onvalue=True,offvalue=False,text='启动时自动尝试登录',command=self.applyConfig).grid(column=1,row=0,sticky='w')
         #窗体透明度
@@ -159,15 +162,20 @@ class MainWindow(Window):
         self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
         self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.0,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha,command=lambda x=0:self.applyConfig())
         self.scale_winalpha.grid(column=1,row=0,sticky='w')
-        self.frame_winalpha.grid(column=1,row=1,sticky='w')
+        self.frame_winalpha.grid(column=0,row=1,sticky='w')
         self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
-        self.frame_config.grid(column=0,row=2,columnspan=2)
+        #过滤emoji
+        self.boolvar_filteremoji = tk.BooleanVar(value=config['filter_emoji'])
+        ttk.Checkbutton(self.frame_config,variable=self.boolvar_filteremoji,onvalue=True,offvalue=False,text='过滤Emoji',command=self.applyConfig).grid(column=1,row=1,sticky='w')
 
         self.changeTips()
         if config['autologin']:
             self.window.after(20,self.login)
         self.entry_source.focus()
         self.window.mainloop()
+
+    def goto_blackroom(self):
+        w = BlackroomWindow()
             
     def quitLogin(self):
         biliapis.quit_login()
@@ -178,60 +186,35 @@ class MainWindow(Window):
         self.label_uid['text'] = 'UID0'
         self.label_level['text'] = 'Lv.0'
         self.label_vip['text'] = '非大会员'
-        print('已退出登录')
         self.button_login['text'] = '登录'
         self.button_login['command'] = self.login
         self.button_refresh['state'] = 'disabled'
-        self.rb_login_1['state'] = 'normal'
-        self.rb_login_2['state'] = 'normal'
-        self.rb_login_3['state'] = 'normal'
 
     def clearLoginData(self):
         if msgbox.askyesno('','这将会删除保存在程序中的登录数据.\n确认？'):
             biliapis.clear_cookies()
             self.quitLogin()
-            print('已清除登录数据')
 
     def login(self):
         flag = 0
-        if config['login_method'] == 'qrcode':
-            print('正在通过QRCODE方式登录')
-            biliapis.load_local_cookies()
-            if biliapis.is_cookiejar_usable():
-                self.refreshUserinfo()
-                print('登录成功')
-                flag = 1
-            else:
-                self.window.wm_attributes('-topmost',False)
-                w = LoginWindow()
-                if w.status:
-                    biliapis.load_local_cookies()
-                    self.refreshUserinfo()
-                    print('登录成功')
-                    flag = 1
-                else:
-                    msgbox.showwarning('','登录未完成.')
-                    print('登录取消')
-                self.window.wm_attributes('-topmost',config['topmost'])
-        elif config['login_method'] == 'cookies':
-            print('正在通过COOKIES方式登录')
-            biliapis.load_explorer_cookies()
-            if biliapis.is_cookiejar_usable():
-                self.refreshUserinfo()
-                print('登录成功')
-                flag = 1
-            else:
-                msgbox.showwarning('','无法从浏览器中加载现成的Cookies.')
-                print('登录失败')
+        biliapis.load_local_cookies()
+        if biliapis.is_cookiejar_usable():
+            self.refreshUserinfo()
+            flag = 1
         else:
-            msgbox.showwarning('','你已将登录方式设为不登录.')
+            self.window.wm_attributes('-topmost',False)
+            w = LoginWindow()
+            if w.status:
+                biliapis.load_local_cookies()
+                self.refreshUserinfo()
+                flag = 1
+            else:
+                msgbox.showwarning('','登录未完成.')
+            self.window.wm_attributes('-topmost',config['topmost'])
         if flag != 0:
             self.button_login['text'] = '退出登录'
             self.button_login['command'] = self.quitLogin
             self.button_refresh['state'] = 'normal'
-            self.rb_login_1['state'] = 'disabled'
-            self.rb_login_2['state'] = 'disabled'
-            self.rb_login_3['state'] = 'disabled'
         return
              
     def refreshUserinfo(self):
@@ -252,12 +235,13 @@ class MainWindow(Window):
     def applyConfig(self):
         global config
         config['topmost'] = self.boolvar_topmost.get()
-        config['login_method'] = self.strvar_login_method.get()
         config['autologin'] = self.boolvar_autologin.get()
         config['alpha'] = round(self.doublevar_winalpha.get(),2)
+        config['filter_emoji'] = self.boolvar_filteremoji.get()
         self.label_winalpha_shower['text'] = '% 3d%%'%(config['alpha']*100)
         self.window.wm_attributes('-topmost',config['topmost'])
         self.window.wm_attributes('-alpha',config['alpha'])
+        biliapis.filter_emoji = config['filter_emoji']
 
     def changeTips(self,index=None):
         if index == None:
@@ -338,7 +322,7 @@ class AudioWindow(Window):
         self.button_download_cover.grid(column=1,row=0)
         self.button_download_lyrics = ttk.Button(self.frame_operation,text='下载歌词',command=self.download_lyrics)
         self.button_download_lyrics.grid(column=2,row=0)
-        self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开',command=lambda:biliapis.open_in_explorer(f'https://www.bilibili.com/audio/au{self.auid}',config['explorer']))
+        self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开',command=lambda:webbrowser.open(f'https://www.bilibili.com/audio/au{self.auid}'))
         self.button_open_in_ex.grid(column=3,row=0)
         self.frame_operation.grid(column=0,row=8,columnspan=2)
 
@@ -454,8 +438,7 @@ class CommonVideoWindow(Window):
 
         super().__init__('BiliTools - CommonVideo',True,config['topmost'],config['alpha'])
 
-        self.rec_page = 1
-        self.rec_spage_objnum = 5 #每页项数
+        self.video_data = None
         #左起第1列
         self.frame_left_1 = tk.Frame(self.window)
         self.frame_left_1.grid(column=0,row=0)
@@ -523,9 +506,13 @@ class CommonVideoWindow(Window):
         self.label_uploader_id = tk.Label(self.frame_uploader,text='UID0')#uid
         self.label_uploader_id.grid(column=1,row=1,sticky='w')
         self.frame_uploader.grid(column=0,row=0,sticky='nw')
-        #comment
-        self.button_show_comments = ttk.Button(self.frame_left_2,text='查看评论',command=lambda:msgbox.showinfo('','建设中'))#
+        #extra operation
+        self.frame_extraopt = tk.Frame(self.frame_left_2)
+        self.frame_extraopt.grid(column=0,row=0,sticky='se')
+        self.button_show_comments = ttk.Button(self.frame_extraopt,text='查看评论',command=lambda:msgbox.showinfo('','建设中'))#
         self.button_show_comments.grid(column=0,row=0,sticky='se')
+        self.button_show_pbp = ttk.Button(self.frame_extraopt,text='查看PBP',command=self.show_pbp)
+        self.button_show_pbp.grid(column=0,row=1)
         #desc
         tk.Label(self.frame_left_2,text='简介↑').grid(column=0,row=2,sticky='nw')
         self.sctext_desc = scrolledtext.ScrolledText(self.frame_left_2,width=40,height=15,state='disabled')
@@ -555,6 +542,8 @@ class CommonVideoWindow(Window):
         self.text_tags = tk.Text(self.frame_left_3,bg='#f0f0f0',bd=0,height=5,width=48,state='disabled',wrap=tk.WORD)
         self.text_tags.grid(column=0,row=0,sticky='sw')
         #recommend
+        self.rec_page = 1
+        self.rec_spage_objnum = 5 #每页项数
         self.frame_rec = tk.LabelFrame(self.frame_left_3,text='相关视频 -个 -/-页')
         self.frame_rec.grid(column=0,row=1)
         self.rec_page_his = [] #翻页历史
@@ -583,7 +572,20 @@ class CommonVideoWindow(Window):
 
         self.update_debug_info()
         self.refresh_data()
-        self.window.mainloop()
+
+    def show_pbp(self):
+        tmplist = []
+        parts = self.video_data['parts']
+        for part in parts:
+            tmplist.append([
+                part['title'],
+                biliapis.second_to_time(part['length']),
+                str(part['cid'])
+                ])
+        w = PartsChooser(tmplist)
+        target = w.return_values
+        for index in target:
+            PbpShower(parts[index]['cid'])
 
     def update_debug_info(self):#自动循环
         self.label_thread_count['text'] = str(threading.active_count())
@@ -658,12 +660,13 @@ class CommonVideoWindow(Window):
                 data = biliapis.get_video_detail(avid=self.abvid)
                 tags = biliapis.get_video_tags(avid=self.abvid)
                 self.recommend = biliapis.get_video_recommend(avid=self.abvid)
-                opener_lambda = lambda:biliapis.open_in_explorer(f'https://www.bilibili.com/video/av%s'%self.abvid,config['explorer'])
+                opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/av%s'%self.abvid)
             else:
                 data = biliapis.get_video_detail(bvid=self.abvid)
                 tags = biliapis.get_video_tags(bvid=self.abvid)
                 self.recommend = biliapis.get_video_recommend(bvid=self.abvid)
-                opener_lambda = lambda:biliapis.open_in_explorer(f'https://www.bilibili.com/video/'+self.abvid,config['explorer'])
+                opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/'+self.abvid)
+            self.video_data = data
             self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的存放空间
             #explorer_opener
             self.task_queue.put_nowait(lambda:self.config_widget(self.button_open_in_ex,'command',opener_lambda))
@@ -732,7 +735,7 @@ class CommonVideoWindow(Window):
             page = ttpage
         elif page < 1:
             page = 1
-        if page in self.rec_page_his:#检查翻页历史, 如果翻过了就不必重新加载
+        if page in self.rec_page_his:#检查翻页历史, 如果翻过了就不再重新加载
             pass
         else:
             def tmp_(o_,c_):
@@ -807,7 +810,7 @@ class LoginWindow(object):
         self.button_refresh.pack()
         
         self.fresh()
-        print('LoginWindow初始化完成')
+        logging.info('LoginWindow Initialization Completed')
         self.window.mainloop()
 
     def fresh(self):
@@ -827,12 +830,11 @@ class LoginWindow(object):
         self.status,self.final_url,self.condition = res
         self.label_text['text'] = {0:'登录成功',-1:'密钥错误',-2:'二维码已超时',-4:'使用B站手机客户端扫描此二维码',-5:'在手机上确认登录'}[self.condition]
         if self.condition == 0:
-            print('已确认登录')
             cookiejar = biliapis.make_cookiejar(self.final_url)
             if os.path.exists(os.path.abspath('./cookies.txt')):
                 os.remove(os.path.abspath('./cookies.txt'))
             cookiejar.save(os.path.abspath('./cookies.txt'))
-            print('COOKIEJAR已生成')
+            logging.debug('Cookie File saved to '+os.path.abspath('./cookies.txt'))
             self.window.after(1000,self.close)
             return
         elif self.condition == -2:
@@ -840,21 +842,149 @@ class LoginWindow(object):
             self.qrcode_img = tkImg(size=(300,300))
             self.label_imgshower.configure(image=self.qrcode_img)
             self.label_imgshower.image = self.qrcode_img
-            print('二维码已失效')
             return
         elif self.condition == -4 or self.condition == -5:
             self.window.after(2000,self.start_autocheck)
-            print('已检查')
             return
             
     def close(self):
         self.window.quit()
         self.window.destroy()
-        print('LOGINWINDOW已关闭')
+
+class PbpShower(Window):
+    def __init__(self,cid):
+        super().__init__('BiliTools - PBP Shower of cid{}'.format(cid),True,config['topmost'],config['alpha'])
+
+        self.pbp_data = biliapis.get_pbp(cid)
+        self.length = len(self.pbp_data['data'])*self.pbp_data['step_sec']
+
+        self.chart = tk.Canvas(self.window,height=400,width=800,bg='#ffffff')
+        self.chart.grid(column=0,row=0,columnspan=2)
+        w = int(self.chart['width'])
+        h = int(self.chart['height'])
+
+        step = w / len(self.pbp_data['data'])
+        scale = h / max(self.pbp_data['data'])
+        x = 1
+        chart_data = []
+        for p in self.pbp_data['data']:
+            chart_data += [x,h-p*scale+1]
+            x += step
+        self.chart.create_line(chart_data)
+
+        self.x_scanline = self.chart.create_line(0,0,w,0)
+        self.y_scanline = self.chart.create_line(0,0,0,h)
+
+        self.chart.bind('<B1-Motion>',self.track_scanline)
+        self.chart.bind('<ButtonRelease-1>',self.move_away)
+        
+        self.frame_coorshower = tk.Frame(self.window)
+        self.frame_coorshower.grid(column=0,row=1,sticky='w')
+        tk.Label(self.frame_coorshower,text='Mouse x:').grid(column=0,row=0,sticky='w')
+        self.x_shower = tk.Label(self.frame_coorshower,text='-')
+        self.x_shower.grid(column=1,row=0,sticky='w')
+        tk.Label(self.frame_coorshower,text='Mouse y:').grid(column=0,row=1,sticky='w')
+        self.y_shower = tk.Label(self.frame_coorshower,text='-')
+        self.y_shower.grid(column=1,row=1,sticky='w')
+
+        self.frame_datashower = tk.Frame(self.window)
+        self.frame_datashower.grid(column=1,row=1,sticky='e')
+        tk.Label(self.frame_datashower,text='Total Length:').grid(column=0,row=0,sticky='w')
+        tk.Label(self.frame_datashower,text=biliapis.second_to_time(self.length)).grid(column=1,row=0,sticky='w')
+        tk.Label(self.frame_datashower,text='Realtime Position:').grid(column=0,row=1,sticky='w')
+        self.label_rtlength = tk.Label(self.frame_datashower,text='--------')
+        self.label_rtlength.grid(column=1,row=1,sticky='w')
+
+    def move_away(self,event):
+        self.chart.itemconfig(self.x_scanline,state='hidden')
+        self.chart.itemconfig(self.y_scanline,state='hidden')
+        self.x_shower['text'] = '-'
+        self.y_shower['text'] = '-'
+        self.label_rtlength['text'] = '--------'
+
+    def track_scanline(self,event):
+        self.chart.itemconfig(self.x_scanline,state='normal')
+        self.chart.itemconfig(self.y_scanline,state='normal')
+        w = int(self.chart['width'])
+        h = int(self.chart['height'])
+        x = self.chart.canvasx(event.x)
+        y = self.chart.canvasy(event.y)
+        self.chart.coords(self.x_scanline,x,0,x,h)
+        self.chart.coords(self.y_scanline,0,y,w,y)
+        self.x_shower['text'] = '{}'.format(x)
+        self.y_shower['text'] = '{}'.format(y)
+        if x >= 0 and x <= w:
+            self.label_rtlength['text'] = biliapis.second_to_time(self.length/w*x)
+        else:
+            self.label_rtlength['text'] = '--------'
+
+class PartsChooser(Window):
+    def __init__(self,part_list,title='PartsChooser',columns=['分P名','长度','Cid','编码'],columns_widths=[200,70,90,100]):
+        self.return_values = [] #Selected Indexes
+        super().__init__('BiliTools - PartsChooser',True,config['topmost'],config['alpha'])
+        #part_list: 逐行多维数组
+        #例如:
+        #[
+        # ['Wdnmd',99999,233333,'H.265'],
+        # ['nyanyanyanyanya',88888,'55555555','Flash Video']
+        #]
+        self.columns = columns
+        self.part_list = part_list
+        tk.Label(self.window,text=title).grid(column=0,row=0)
+        self.frame_parts = tk.Frame(self.window)
+        self.frame_parts.grid(column=0,row=1)
+        self.scbar_parts_y = tk.Scrollbar(self.frame_parts,orient='vertical')
+        self.scbar_parts_x = tk.Scrollbar(self.frame_parts,orient='horizontal')
+        self.tview_parts = ttk.Treeview(self.frame_parts,show="headings",columns=tuple(['序号']+self.columns),yscrollcommand=self.scbar_parts_y.set,xscrollcommand=self.scbar_parts_x.set,height=15)
+        self.scbar_parts_y['command'] = self.tview_parts.yview
+        self.scbar_parts_x['command'] = self.tview_parts.xview
+        self.tview_parts.column("序号", width=40,anchor='e')
+        self.tview_parts.heading("序号", text="序号",anchor='w')
+        self.tview_parts.grid(column=0,row=0)
+        self.scbar_parts_y.grid(column=1,row=0,sticky='nw',ipady=140)
+        self.scbar_parts_x.grid(column=0,row=1,sticky='nw',ipadx=210)
+        #初始化表头
+        i = 0
+        for column in columns:
+            self.tview_parts.column(column,width=columns_widths[i],anchor='w')
+            self.tview_parts.heading(column,text=column,anchor='w')
+            i += 1
+        #填充数据
+        i = 0
+        for line in part_list:
+            i += 1        
+            self.tview_parts.insert("","end",values=tuple([str(i)]+line))
+        #操作区
+        self.frame_opt = tk.Frame(self.window)
+        self.frame_opt.grid(column=0,row=2,sticky='e')
+        ttk.Button(self.frame_opt,text='取消',command=self.close).grid(column=0,row=0,sticky='e')
+        ttk.Button(self.frame_opt,text='返回全部项',command=self.return_all).grid(column=1,row=0,sticky='e')
+        ttk.Button(self.frame_opt,text='返回选中项',command=self.return_selected).grid(column=2,row=0,sticky='e')
+        self.window.mainloop()
+
+    def return_selected(self):
+        sel = []
+        for item in self.tview_parts.selection():
+            sel.append(int(self.tview_parts.item(item,"values")[0])-1)
+        if not sel:
+            return
+        self.return_values = sel
+        self.close()
+
+    def return_all(self):
+        tmp = []
+        for i in self.tview_parts.get_children():
+            tmp.append(int(self.tview_parts.item(i,'values')[0])-1)
+        if not tmp:
+            return
+        self.return_values = tmp
+        self.close()
 
 class BlackroomWindow(Window):
     def __init__(self):
-        data_pool = []
+        self.data_pool = []
+        self.loaded_page = 0
+        self.page = 1
         super().__init__('BiliTools - Blackroom',True,config['topmost'],config['alpha'])
 
         #内容框架
@@ -887,19 +1017,45 @@ class BlackroomWindow(Window):
         #Controller
         self.frame_controller = tk.Frame(self.window)
         self.frame_controller.grid(column=0,row=1)
-        self.button_back = ttk.Button(self.frame_controller,text='上一页')
+        self.button_back = ttk.Button(self.frame_controller,text='上一页',command=lambda:self.turn_page(self.page-1))
         self.button_back.grid(column=0,row=0)
         self.label_page_shower = tk.Label(self.frame_controller,text='0/0')
         self.label_page_shower.grid(column=1,row=0)
-        self.button_next = ttk.Button(self.frame_controller,text='下一页')
+        self.button_next = ttk.Button(self.frame_controller,text='下一页',command=lambda:self.turn_page(self.page+1))
         self.button_next.grid(column=2,row=0)
-        self.button_more = ttk.Button(self.frame_controller,text='加载更多')
+        self.button_more = ttk.Button(self.frame_controller,text='加载更多',command=self.load_data)
         self.button_more.grid(column=1,row=1)
+        self.load_data()
+        self.turn_page(self.page)
 
     def load_data(self):
-        pass
-        
+        self.loaded_page += 1
+        self.data_pool += biliapis.get_blackroom(self.loaded_page)
+        self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
 
-if __name__ == '__main__' and not devmode:
-    print('Program Running.')
+    def turn_page(self,page):
+        if page > len(self.data_pool):
+            page = len(self.data_pool)
+        elif page < 1:
+            page = 1
+        self.page = page
+        #pdata = self.data_pool[page-1]
+        if type(self.data_pool[page-1]['user']['face']) == str:#检查是否加载过, 加载过的不再加载
+            self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
+        if len(self.image_library) >= 50:
+            self.image_library = []#清理内存
+        self.set_image(self.label_target_face,self.data_pool[page-1]['user']['face'],size=(50,50))
+        self.label_target_face_text.grid_remove()
+        self.label_target_name['text'] = self.data_pool[page-1]['user']['name']
+        self.label_target_id['text'] = 'UID{}'.format(self.data_pool[page-1]['user']['uid'])
+        self.label_behavior['text'] = self.data_pool[page-1]['punish']['title']
+        if self.data_pool[page-1]['punish']['days'] == 0:
+            self.label_treatment['text'] = '永久封禁'
+        else:
+            self.label_treatment['text'] = '封禁 {} 天'.format(self.data_pool[page-1]['punish']['days'])
+        self.set_text(self.sctext_content,True,text=self.data_pool[page-1]['punish']['content'])
+        self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
+
+if __name__ == '__main__' and not config['devmode']:
+    logging.info('Program Running.')
     w = MainWindow()
