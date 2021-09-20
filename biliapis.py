@@ -14,9 +14,12 @@ from io import BytesIO
 import tkinter as tk
 import tkinter.messagebox as msgbox
 import tkinter.ttk as ttk
+import hashlib
+import logging
 
 import requests
 from bs4 import BeautifulSoup
+import emoji
 
 from basic_window import Window
 import bilicodes
@@ -24,19 +27,18 @@ import bilicodes
 #av号统称为avid, bv号统称为bvid.
 #音频id统称为auid
 
+def make_md5(data):
+    if type(data) != bytes:
+        data = bytes(data)
+    res = hashlib.md5(data).hexdigest()
+    logging.debug('Made md5, result='+res)
+    return res
+
 def start_new_thread(func,args=(),kwargs=None,name=None):
     threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
 
-#abvid offline converter's pre-data
-_table = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF'
-_tr = {}
-for _ in range(58):
-    _tr[_table[_]] = _
-_s = [11,10,3,8,4,6]
-_xor = 177451812
-_add = 8728348608
-
 #requester's pre-data
+filter_emoji = False
 user_name = os.getlogin()
 cookies = None
 fake_headers_get = {
@@ -55,31 +57,13 @@ fake_headers_post = {
 local_cookiejar_path = os.path.abspath('./cookies.txt')
 
 chrome_path = 'C:\\Users\\%s\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'%user_name
-firefox_path_x64 = r'C:\Program Files\Mozilla Firefox\firefox.exe'
-firefox_path_x86 = r'C:\Program Files (x86)\Mozilla Firefox\firefox.exe'
-
-def open_in_explorer(url,method='chrome'):
-    method = method.lower()
-    if method == 'chrome' and os.path.exists(chrome_path):
-        os.popen(f'"{chrome_path}" "{url}"')
-        return 0
-    elif method == 'firefox':
-        if os.path.exists(firefox_path_x64):
-            os.popen(f'"{firefox_path_x64}" "{url}"')
-            return 0
-        elif os.path.exists(firefox_path_x86):
-            os.popen(f'"{firefox_path_x86}" "{url}"')
-            return 0
-        else:
-            return 1
-    else:
-        return 1
 
 class BiliError(Exception):
     def __init__(self,code,msg):
         self.code = code
         self.msg = msg
         self._final_msg = 'Code %s: %s'%(code,msg)
+        
     def __str__(self):
         return self._final_msg
 
@@ -126,7 +110,31 @@ def _get_response(url, headers=fake_headers_get):
     elif response.info().get('Content-Encoding') == 'deflate':
         data = _undeflate(data)
     response.data = data
+    logging.debug('Get Response from: '+url)
     return response
+
+def _post_request(url,data,headers=fake_headers_post):
+    if cookies:
+        opener = request.build_opener(request.HTTPCookieProcessor(cookies))
+    else:
+        opener = request.build_opener()
+    params = parse.urlencode(data).encode()
+    if headers:
+        response = opener.open(request.Request(url,data=params,headers=headers))
+    else:
+        response = opener.open(request.Request(url,data=params))
+    data = response.read()
+    if response.info().get('Content-Encoding') == 'gzip':
+        data = _ungzip(data)
+    elif response.info().get('Content-Encoding') == 'deflate':
+        data = _undeflate(data)
+    response.data = data
+    logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
+    return response
+
+def post_data_json(url,data,headers=fake_headers_post):
+    response = _post_request(url,data,headers)
+    return json.loads(response.data)
 
 def get_cookies(url):
     tmpcookiejar = cookiejar.MozillaCookieJar()
@@ -137,18 +145,14 @@ def get_cookies(url):
 
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
-    return content.decode(encoding, 'ignore')
+    data = content.decode(encoding, 'ignore')
+    if filter_emoji:
+        data = emoji.demojize(data)
+    return data
 
 def get_content_bytes(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return content
-
-def post_data_json(url,data,headers=fake_headers_post,cookiejar=None):
-    if cookiejar:
-        req = requests.post(url=url,data=data,headers=headers,cookies=cookiejar)
-    else:
-        req = requests.post(url=url,data=data,headers=headers)
-    return req.json()
 
 def get_redirect_url(url,headers=fake_headers_get):
     return request.urlopen(request.Request(url,headers=headers),None).geturl()
@@ -163,130 +167,20 @@ def clear_cookies():
 def quit_login():
     global cookies
     cookies = None
-
-def find_explorer_cookies():
-    #find cookies
-    username = os.getlogin()
-    chromeCookie = os.getenv('LOCALAPPDATA')+"\\Google\\Chrome\\User Data\\Default\\Cookies"#Chrome的Cookie加密了，暂不支持
-    firefoxCookie = os.getenv('APPDATA')+"\\Mozilla\\Firefox\\Profiles\\"
-    #if os.path.exists(chromeCookie):
-    #    cookie = chromeCookie
-    cookie = None
-    if os.path.exists(firefoxCookie):
-        for f in os.listdir(firefoxCookie):
-            if f.endswith('.default-release'):
-                firefoxCookie += f+'\\cookies.sqlite'
-                break
-        cookie = firefoxCookie
-        return cookie
-    return None
-
+    
 def load_local_cookies():
     global cookies
     if not os.path.exists(local_cookiejar_path):
         f = open(local_cookiejar_path,'w+',encoding='utf-8')
-        f.write('# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.')
+        f.write('# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.')
         f.close()
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
 
 def refresh_local_cookies():
     global cookies
-    cookies.save()
-
-def load_explorer_cookies(cookiefile=find_explorer_cookies()):
-    global cookies
-    if not cookiefile:
-        return 1
-    if cookiefile.endswith('.txt'):
-        # MozillaCookieJar treats prefix '#HttpOnly_' as comments incorrectly!
-        # do not use its load()
-        # see also:
-        #   - https://docs.python.org/3/library/http.cookiejar.html#http.cookiejar.MozillaCookieJar
-        #   - https://github.com/python/cpython/blob/4b219ce/Lib/http/cookiejar.py#L2014
-        #   - https://curl.haxx.se/libcurl/c/CURLOPT_COOKIELIST.html#EXAMPLE
-        #cookies = cookiejar.MozillaCookieJar(cookiefile)
-        #cookies.load()
-        from http.cookiejar import Cookie
-        cookies = cookiejar.MozillaCookieJar()
-        now = time.time()
-        ignore_discard, ignore_expires = False, False
-        with open(cookiefile, 'r', encoding='utf-8') as f:
-            for line in f:
-                # last field may be absent, so keep any trailing tab
-                if line.endswith("\n"): line = line[:-1]
-
-                # skip comments and blank lines XXX what is $ for?
-                if (line.strip().startswith(("#", "$")) or
-                    line.strip() == ""):
-                    if not line.strip().startswith('#HttpOnly_'):  # skip for #HttpOnly_
-                        continue
-
-                domain, domain_specified, path, secure, expires, name, value = \
-                        line.split("\t")
-                secure = (secure == "TRUE")
-                domain_specified = (domain_specified == "TRUE")
-                if name == "":
-                    # cookies.txt regards 'Set-Cookie: foo' as a cookie
-                    # with no name, whereas http.cookiejar regards it as a
-                    # cookie with no value.
-                    name = value
-                    value = None
-
-                initial_dot = domain.startswith(".")
-                if not line.strip().startswith('#HttpOnly_'):  # skip for #HttpOnly_
-                    assert domain_specified == initial_dot
-
-                discard = False
-                if expires == "":
-                    expires = None
-                    discard = True
-
-                # assume path_specified is false
-                c = Cookie(0, name, value,
-                           None, False,
-                           domain, domain_specified, initial_dot,
-                           path, False,
-                           secure,
-                           expires,
-                           discard,
-                           None,
-                           None,
-                           {})
-                if not ignore_discard and c.discard:
-                    continue
-                if not ignore_expires and c.is_expired(now):
-                    continue
-                cookies.set_cookie(c)
-        return 0
-
-    elif cookiefile.endswith(('.sqlite', '.sqlite3')):
-        import sqlite3, shutil, tempfile
-        temp_dir = tempfile.gettempdir()
-        temp_cookiefile = os.path.join(temp_dir, 'temp_cookiefile.sqlite')
-        shutil.copy2(cookiefile, temp_cookiefile)
-
-        cookies = cookiejar.MozillaCookieJar()
-        con = sqlite3.connect(temp_cookiefile)
-        cur = con.cursor()
-        cur.execute("""SELECT host, path, isSecure, expiry, name, value
-        FROM moz_cookies""")
-        for item in cur.fetchall():
-            c = cookiejar.Cookie(
-                0, item[4], item[5], None, False, item[0],
-                item[0].startswith('.'), item[0].startswith('.'),
-                item[1], False, item[2], item[3], item[3] == '', None,
-                None, {},
-            )
-            cookies.set_cookie(c)
-        return 0
-
-    else:
-        # TODO: Chromium Cookies
-        # SELECT host_key, path, secure, expires_utc, name, encrypted_value
-        # FROM cookies
-        # http://n8henrie.com/2013/11/use-chromes-cookies-for-easier-downloading-with-python-requests/
-        return 1
+    if cookies:
+        cookies.save()
 
 #Download Operation
 def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
@@ -561,8 +455,7 @@ use_cookies:使用已加载的Cookies进行下载
             self.window.destroy()
         except:
             pass
-
-#APIs    
+   
 def _replaceChr(text):
     repChr = {'/':'／',
               '*':'＊',
@@ -584,18 +477,32 @@ def second_to_time(sec):
     s = sec % 60
     return '%d:%02d:%02d'%(h,m,s)
 
+#APIs
 def bvid_to_avid_online(bvid):
     data = get_content_str('https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
     data = json.loads(data)['data']
     return data['aid']
 
 def bvid_to_avid_offline(bvid):
+    _table = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF'
+    _s = [11,10,3,8,4,6]
+    _tr = {}
+    _xor = 177451812
+    _add = 8728348608
+    for _ in range(58):
+        _tr[_table[_]] = _
+        
     r = 0
     for i in range(6):
         r += _tr[bvid[_s[i]]]*58**i
     return (r-_add)^_xor
 
 def avid_to_bvid_offline(avid):
+    _table = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF'
+    _xor = 177451812
+    _add = 8728348608
+    _s = [11,10,3,8,4,6]
+    
     avid = (avid^_xor)+_add
     r = list('BV1  4 1 7  ')
     for i in range(6):
@@ -627,7 +534,7 @@ def search_video(keyword,page=1,order='totalrank',zone=0,duration=0):
     zone = 0/tid
     duration = 0(All)/1(0-10)/2(10-30)/3(30-60)/4(60+)
     '''
-    api = f'http://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={parse.quote(keyword)}&tid={zone}&duration={duration}&page={page}'
+    api = f'https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={parse.quote(keyword)}&tid={zone}&duration={duration}&page={page}'
     data = json.loads(get_content_str(api))
     _error_raiser(data['code'],data['message'])
     data = data['data']
@@ -672,7 +579,7 @@ def search_user(keyword,page=1,order='0',order_sort=0,user_type=0):
     order_sort = 0(high->low) / 1(low->high)
     user_type = 0(All) / 1(Uploader) / 2(CommonUser) / 3(CertifiedUser)
     '''
-    api = f'http://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword={parse.quote(keyword)}&page={page}&order={order}&order_sort={order_sort}'
+    api = f'https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword={parse.quote(keyword)}&page={page}&order={order}&order_sort={order_sort}'
     data = json.loads(get_content_str(api))
     _error_raiser(data['code'],data['message'])
     data = data['data']
@@ -708,7 +615,7 @@ def search_user(keyword,page=1,order='0',order_sort=0,user_type=0):
     return result
 
 def search_bangumi(keyword,page=1):
-    api = f'http://api.bilibili.com/x/web-interface/search/type?search_type=media_bangumi&keyword={parse.quote(keyword)}&page={page}'
+    api = f'https://api.bilibili.com/x/web-interface/search/type?search_type=media_bangumi&keyword={parse.quote(keyword)}&page={page}'
     data = json.loads(get_content_str(api))
     _error_raiser(data['code'],data['message'])
     data = data['data']
@@ -745,9 +652,9 @@ def search_bangumi(keyword,page=1):
 def get_video_detail(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://api.bilibili.com/x/web-interface/view?aid=%s'%avid
+        api = 'https://api.bilibili.com/x/web-interface/view?aid=%s'%avid
     elif bvid != None:
-        api = 'http://api.bilibili.com/x/web-interface/view?bvid='+bvid
+        api = 'https://api.bilibili.com/x/web-interface/view?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
     data = get_content_str(api)
@@ -757,10 +664,15 @@ def get_video_detail(avid=None,bvid=None):
     return _video_detail_handler(data,True)
 
 def _video_detail_handler(data,detailmode=True):
+    if int(data['tid']) in bilicodes.video_zone:
+        zone = bilicodes.video_zone[int(data['tid'])]
+    else:
+        zone = 'Unknown'
+        logging.warning('Zone ID {} is unknown.'.format(int(data['tid'])))
     res = {
         'bvid':data['bvid'],
         'avid':data['aid'],
-        'main_zone':bilicodes.video_zone[int(data['tid'])],
+        'main_zone':zone,
         'main_zone_id':int(data['tid']),
         'child_zone':data['tname'],
         'part_number':data['videos'],
@@ -801,9 +713,9 @@ def _video_detail_handler(data,detailmode=True):
 def get_video_tags(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://api.bilibili.com/x/tag/archive/tags?aid=%s'%avid
+        api = 'https://api.bilibili.com/x/tag/archive/tags?aid=%s'%avid
     elif bvid != None:
-        api = 'http://api.bilibili.com/x/tag/archive/tags?bvid='+bvid
+        api = 'https://api.bilibili.com/x/tag/archive/tags?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
     data = get_content_str(api)
@@ -822,7 +734,7 @@ def get_blackroom(page):
 
 def get_emotions(business='reply'):
     '''business = reply / dynamic'''
-    data = get_content_str(f'http://api.bilibili.com/x/emote/user/panel/web?business={business}')
+    data = get_content_str(f'https://api.bilibili.com/x/emote/user/panel/web?business={business}')
     data = json.loads(data)
     _error_raiser(data['code'],data['message'])
     data = data['data']['packages']
@@ -883,16 +795,16 @@ def _error_raiser(code,message=None):
 def get_media_detail(ssid=None,epid=None,mdid=None):
     '''Choose one parameter from ssid, epid and mdid'''
     if ssid != None:
-        api = 'http://api.bilibili.com/pgc/view/web/season?season_id=%s'%ssid
+        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%ssid
     elif epid != None:
-        api = 'http://api.bilibili.com/pgc/view/web/season?ep_id=%s'%epid
+        api = 'https://api.bilibili.com/pgc/view/web/season?ep_id=%s'%epid
     elif mdid != None:
-        api = 'http://api.bilibili.com/pgc/review/user?media_id=%s'%mdid
+        api = 'https://api.bilibili.com/pgc/review/user?media_id=%s'%mdid
         data = get_content_str(api)
         data = json.loads(data)
         _error_raiser(data['code'],data['message'])
         data = data['result']['media']
-        api = 'http://api.bilibili.com/pgc/view/web/season?season_id=%s'%data['season_id']
+        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%data['season_id']
     else:
         raise RuntimeError('You must choose one parameter from ssid, epid and mdid.')
     data = get_content_str(api)
@@ -959,9 +871,9 @@ def get_media_detail(ssid=None,epid=None,mdid=None):
 def get_video_recommend(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://api.bilibili.com/x/web-interface/archive/related?aid=%s'%avid
+        api = 'https://api.bilibili.com/x/web-interface/archive/related?aid=%s'%avid
     elif bvid != None:
-        api = 'http://api.bilibili.com/x/web-interface/archive/related?bvid='+bvid
+        api = 'https://api.bilibili.com/x/web-interface/archive/related?bvid='+bvid
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
     data = get_content_str(api)
@@ -976,9 +888,9 @@ def get_video_recommend(avid=None,bvid=None):
 def get_video_stream_dash(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=16&fourk=1'%(avid,cid)
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=16&fourk=1'%(avid,cid)
     elif bvid != None:
-        api = 'http://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=16&fourk=1'%(bvid,cid)
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=16&fourk=1'%(bvid,cid)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
     data = get_content_str(api)
@@ -1010,7 +922,7 @@ def get_video_stream_dash(cid,avid=None,bvid=None):
     return stream
 
 def get_login_info(): #Cookies is Required.
-    api = 'http://api.bilibili.com/x/web-interface/nav'
+    api = 'https://api.bilibili.com/x/web-interface/nav'
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['message'])
@@ -1028,7 +940,7 @@ def get_login_info(): #Cookies is Required.
     return res
 
 def get_user_info(uid):
-    api = 'http://api.bilibili.com/x/space/acc/info?mid=%s'%uid
+    api = 'https://api.bilibili.com/x/space/acc/info?mid=%s'%uid
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['message'])
@@ -1049,7 +961,7 @@ def get_user_info(uid):
 
 def get_audio_stream(auid,quality=3,platform='web',uid=0):
     '''quality = 0(128K)/1(192K)/2(320K)/3(FLAC)'''
-    api = 'http://api.bilibili.com/audio/music-service-c/url?songid=%s&quality=%s&privilege=2&mid=%s&platform=%s'%(auid,quality,uid,platform)
+    api = 'https://api.bilibili.com/audio/music-service-c/url?songid=%s&quality=%s&privilege=2&mid=%s&platform=%s'%(auid,quality,uid,platform)
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['msg'])
@@ -1065,7 +977,7 @@ def get_audio_stream(auid,quality=3,platform='web',uid=0):
     return res
 
 def get_audio_info(auid):
-    api = 'http://www.bilibili.com/audio/music-service-c/web/song/info?sid=%s'%auid
+    api = 'https://www.bilibili.com/audio/music-service-c/web/song/info?sid=%s'%auid
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['msg'])
@@ -1098,7 +1010,7 @@ def get_audio_info(auid):
     return res
 
 def get_audio_tags(auid):
-    api = 'http://www.bilibili.com/audio/music-service-c/web/tag/song?sid=%s'%auid
+    api = 'https://www.bilibili.com/audio/music-service-c/web/tag/song?sid=%s'%auid
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['msg'])
@@ -1109,7 +1021,7 @@ def get_audio_tags(auid):
     return tags
 
 def get_audio_lyrics(auid):
-    api = 'http://www.bilibili.com/audio/music-service-c/web/song/lyric?sid=%s'%auid
+    api = 'https://www.bilibili.com/audio/music-service-c/web/song/lyric?sid=%s'%auid
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['msg'])
@@ -1251,7 +1163,7 @@ def check_scan(oauthkey):
     header = fake_headers_post
     header['Host'] = 'passport.bilibili.com'
     header['Referer'] = "https://passport.bilibili.com/login"
-    data = post_data_json('http://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey})
+    data = post_data_json('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey})
     #-1：密钥错误 -2：密钥超时 -4：未扫描 -5：未确认
     status = data['status']
     if status:
@@ -1312,7 +1224,7 @@ def get_blackroom(page=1,source_filter=None,reason_filter=0):
     '''
     if source_filter == None:
         source_filter = ''
-    api = 'http://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,reason_filter,page)
+    api = 'https://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,reason_filter,page)
     data = get_content_str(api)
     data = json.loads(data)
     _error_raiser(data['code'],data['message'])
@@ -1371,6 +1283,7 @@ def _single_comment_handler(data):
             'device':data['content']['device']
             }
         }
+    return res
 
 def get_comment():
     pass #wait for building
@@ -1389,3 +1302,16 @@ def get_shortlink(avid):
     data = data['data']
     url = re.findall(r'(https?\://b23\.tv/[0-9A-Za-z]+)',data['content'])[0]
     return url
+
+def get_pbp(cid):
+    api = 'https://bvc.bilivideo.com/pbp/data?cid='+str(cid)
+    data = get_content_str(api)
+    data = json.loads(data)
+    if not data['events']:
+        _error_raiser('NaN','PBP获取失败')
+    res = {
+        'step_sec':data['step_sec'],
+        'data':data['events']['default'],
+        'debug':json.loads(data['debug'])
+        }
+    return res

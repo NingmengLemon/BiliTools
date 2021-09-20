@@ -6,6 +6,7 @@ import tkinter.ttk as ttk
 from PIL import Image,ImageTk
 import _thread
 import queue
+import logging
 
 def print(*text,end='\n',sep=' '):
     tmp = []
@@ -24,21 +25,20 @@ def tkImg(file=None,scale=1,size=()):
             else:
                 tmp = f.resize((int(size[0]),int(size[1])),Image.ANTIALIAS)
         img = ImageTk.PhotoImage(tmp)
+        return img
     except Exception as e:
         if size == ():
             f = Image.new('RGB',(300,300),(255,255,255))
         else:
             f = Image.new('RGB',size,(255,255,255))
         return ImageTk.PhotoImage(f)
-    return img
 
 class Window(object):#程序中所有常规窗口的父类
-    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0,ignore_queue_error=False):
+    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象
         self.image_library = [] #将tkimage存在这里
         self.is_alive = True
         load_status = False
-        self._ignore_queue_error = ignore_queue_error
 
         if toplevel:
             self.window = tk.Toplevel()
@@ -57,11 +57,7 @@ class Window(object):#程序中所有常规窗口的父类
             try:
                 func()
             except Exception as e:
-                self._report_debug_info(msg='Error: '+str(e))
-                if self._ignore_queue_error:
-                    pass
-                else:
-                    raise e
+                logging.error('Task Listener Caught an Error: '+str(e))
         self.window.after(10,self.listen_task)
 
     def config_widget(self,widget,option,value):#不要往这里面传image参数 以及不能用[]设置的参数
