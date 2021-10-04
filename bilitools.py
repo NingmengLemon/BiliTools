@@ -26,7 +26,7 @@ import tooltip
 from basic_window import tkImg,Window
 
 #注意：
-#为了页面美观，将Button/Radiobutton/Checkbutton/Entry的母模块从tk换成ttk
+#为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
 version = '2.0.0_Dev04'
@@ -42,12 +42,13 @@ config = {
     'filter_emoji':False,
     'devmode':True #开发模式开关
     }
-
+#TODO: 设置保存与读取
 biliapis.filter_emoji = config['filter_emoji']
 #日志模块设置
 logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S',
-                    level={True:logging.DEBUG,False:logging.WARNING}[config['devmode']])
+                    level={True:logging.DEBUG,False:logging.INFO}[config['devmode']]
+                    )
 
 tips = [
         '欢迎使用基于Bug开发的BiliTools（',
@@ -62,7 +63,7 @@ tips = [
 about_info = '\n'.join([
     'BiliTools v.%s'%version,
     '一些功能需要 FFmpeg 的支持.',
-    '感谢 @m13253 的弹幕转换程序的支持',
+    '感谢 @m13253（GitHub） 的弹幕转换程序的支持',
     '如你所见, 此程序还没有完工.',
     'Made by: @NingmengLemon（GitHub）',
     '---------------------------',
@@ -73,13 +74,6 @@ about_info = '\n'.join([
 
 def start_new_thread(func,args=(),kwargs=None,name=None):
     threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
-
-def print(*text,end='\n',sep=' '):
-    tmp = []
-    for part in text:
-        tmp += [str(part)]
-    sys.stdout.write(sep.join(tmp)+end)    
-    sys.stdout.flush()
 
 def replaceChr(text):
     repChr = {'/':'／','*':'＊',':':'：','\\':'＼','>':'＞',
@@ -146,6 +140,7 @@ class MainWindow(Window):
         self.frame_console.grid(column=1,row=1,sticky='e')
         self.button_blackroom = ttk.Button(self.frame_console,text='小黑屋',command=self.goto_blackroom)
         self.button_blackroom.grid(column=0,row=0)
+        ttk.Button(self.frame_console,text='关于',command=lambda:msgbox.showinfo('',about_info)).grid(column=0,row=1)
 
         self.frame_config = tk.LabelFrame(self.window,text='全局设置')
         self.frame_config.grid(column=0,row=2,columnspan=2)
@@ -574,6 +569,9 @@ class CommonVideoWindow(Window):
         self.refresh_data()
 
     def show_pbp(self):
+        if not self.video_data:
+            msgbox.showwarning('','加载尚未完成')
+            return
         tmplist = []
         parts = self.video_data['parts']
         for part in parts:
@@ -593,26 +591,35 @@ class CommonVideoWindow(Window):
         self.window.after(10,self.update_debug_info)
 
     def download_audio(self):
+        if not self.video_data:
+            msgbox.showwarning('','加载尚未完成')
+            return
         self.button_download_audio['state'] = 'disabled'
         path = filedialog.askdirectory(title='选择保存位置')
         if not path:
             return
+        parts = self.video_data['parts']
+        bvid = self.video_data['bvid']
+        title = self.video_data['title']
+        if len(parts) > 1:
+            tmp = []
+            for part in parts:
+                tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+            indexes = PartsChooser(tmp).return_values
+            if not indexes:
+                return
+        else:
+            indexes = [0]
         try:
-            if self.abtype == 'av':
-                cids = biliapis.avid_to_cid_online(self.abvid)
-            else:
-                cids = biliapis.bvid_to_cid_online(self.abvid)
-            for cid in cids:
-                if self.abtype == 'av':
-                    stream = biliapis.get_video_stream_dash(cid,avid=self.abvid)
-                else:
-                    stream = biliapis.get_video_stream_dash(cid,bvid=self.abvid)
+            for index in indexes:
+                cid = parts[index]['cid']
+                stream = biliapis.get_video_stream_dash(cid,bvid=bvid)
                 stream = stream['audio']
                 qs = []
                 for item in stream:
                     qs += [item['quality']]
                 stream = stream[qs.index(max(qs))]
-                w = biliapis.DownloadWindow(stream['url'],path,f'{self.abvid} - cid{cid}.aac',False,topmost=config['topmost'])
+                w = biliapis.DownloadWindow(stream['url'],path,replaceChr('{}_P{}_{}_cid{}_{}.aac'.format(title,index+1,bvid,cid,bilicodes.stream_dash_audio_quality[max(qs)])),False,topmost=config['topmost'])
             msgbox.showinfo('','Done.')
         except biliapis.BiliError as e:
             msgbox.showerror('','BiliError Occurred with Code %s:\n%s'%(e.code,e.msg))
@@ -629,7 +636,7 @@ class CommonVideoWindow(Window):
     def _prepare_recommend(self,rec_length=40):
         '''
         需要在第一次调用 fill_recommend() 之前调用.
-        因为推荐视频数量不能确定, 所以没有放在 __init__() 中.(标准的是40, 但有时会抽风)
+        因为推荐视频数量不能确定, 所以没有放在 __init__() 中.(标准的是40, 但有时会抽风, 并且在处理番剧ID时为0)
         又因为queue的先进先出原则, 所以放在 refresh_data() 里通过queue传递指令来执行没有问题.
         '''
         pn = math.ceil(rec_length/self.rec_spage_objnum)
@@ -722,6 +729,11 @@ class CommonVideoWindow(Window):
         start_new_thread(tmp,())
 
     def fill_recommends(self,page=1):#在加载完成后调用时传入-1
+        if not self.obj_rec:
+            #防止特殊情况下推荐视频数为0
+            self.button_rec_next.grid_remove()
+            self.button_rec_back.grid_remove()
+            return
         self.button_rec_next['state'] = 'disabled'
         self.button_rec_back['state'] = 'disabled'
         if not self.obj_rec:#保险措施
@@ -855,7 +867,12 @@ class PbpShower(Window):
     def __init__(self,cid):
         super().__init__('BiliTools - PBP Shower of cid{}'.format(cid),True,config['topmost'],config['alpha'])
 
-        self.pbp_data = biliapis.get_pbp(cid)
+        try:
+            self.pbp_data = biliapis.get_pbp(cid)
+        except biliapis.BiliError as e:
+            msgbox.showerror('','BiliError Code {}: {}'.format(e.code,e.msg))
+            self.close()
+            return
         self.length = len(self.pbp_data['data'])*self.pbp_data['step_sec']
 
         self.chart = tk.Canvas(self.window,height=400,width=800,bg='#ffffff')
@@ -1033,6 +1050,11 @@ class BlackroomWindow(Window):
         self.data_pool += biliapis.get_blackroom(self.loaded_page)
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
 
+    def load_img(self,page):
+        if type(self.data_pool[page-1]['user']['face']) == str:#检查是否加载过, 加载过的则不再加载
+            self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
+        self.task_queue.put_nowait(lambda:self.set_image(self.label_target_face,self.data_pool[page-1]['user']['face'],size=(50,50)))
+        
     def turn_page(self,page):
         if page > len(self.data_pool):
             page = len(self.data_pool)
@@ -1040,11 +1062,7 @@ class BlackroomWindow(Window):
             page = 1
         self.page = page
         #pdata = self.data_pool[page-1]
-        if type(self.data_pool[page-1]['user']['face']) == str:#检查是否加载过, 加载过的不再加载
-            self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
-        if len(self.image_library) >= 50:
-            self.image_library = []#清理内存
-        self.set_image(self.label_target_face,self.data_pool[page-1]['user']['face'],size=(50,50))
+        start_new_thread(self.load_img,(page,))
         self.label_target_face_text.grid_remove()
         self.label_target_name['text'] = self.data_pool[page-1]['user']['name']
         self.label_target_id['text'] = 'UID{}'.format(self.data_pool[page-1]['user']['uid'])

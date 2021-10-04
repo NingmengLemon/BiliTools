@@ -8,13 +8,6 @@ import _thread
 import queue
 import logging
 
-def print(*text,end='\n',sep=' '):
-    tmp = []
-    for part in text:
-        tmp += [str(part)]
-    sys.stdout.write(sep.join(tmp)+end)    
-    sys.stdout.flush()
-
 def tkImg(file=None,scale=1,size=()):
     try:
         with Image.open(file) as f:
@@ -58,7 +51,10 @@ class Window(object):#程序中所有常规窗口的父类
                 func()
             except Exception as e:
                 logging.error('Task Listener Caught an Error: '+str(e))
-        self.window.after(10,self.listen_task)
+        if self.task_queue.empty():
+            self.window.after(10,self.listen_task)
+        else:
+            self.window.after(1,self.listen_task)
 
     def config_widget(self,widget,option,value):#不要往这里面传image参数 以及不能用[]设置的参数
         if option == 'image':
