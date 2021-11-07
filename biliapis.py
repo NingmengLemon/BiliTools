@@ -16,6 +16,8 @@ import tkinter.messagebox as msgbox
 import tkinter.ttk as ttk
 import hashlib
 import logging
+import copy
+import winreg
 
 import requests
 from bs4 import BeautifulSoup
@@ -26,6 +28,10 @@ import bilicodes
 
 #av号统称为avid, bv号统称为bvid.
 #音频id统称为auid
+
+def get_desktop():
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders')
+    return winreg.QueryValueEx(key,"Desktop")[0]
 
 def make_md5(data):
     if type(data) != bytes:
@@ -66,6 +72,20 @@ class BiliError(Exception):
         
     def __str__(self):
         return self._final_msg
+
+def _replaceChr(text):
+    repChr = {'/':'／',
+              '*':'＊',
+              ':':'：',
+              '\\':'＼',
+              '>':'＞',
+              '<':'＜',
+              '|':'｜',
+              '?':'？',
+              '"':'＂'}
+    for t in list(repChr.keys()):
+        text = text.replace(t,repChr[t])
+    return text
 
 #requester
 def _ungzip(data):
@@ -132,9 +152,13 @@ def _post_request(url,data,headers=fake_headers_post):
     logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
     return response
 
-def post_data_json(url,data,headers=fake_headers_post):
+def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
     response = _post_request(url,data,headers)
-    return json.loads(response.data)
+    return response.data.decode(encoding, 'ignore')
+
+def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8'):
+    response = _post_request(url,data,headers)
+    return response.data
 
 def get_cookies(url):
     tmpcookiejar = cookiejar.MozillaCookieJar()
@@ -163,10 +187,6 @@ def clear_cookies():
     cookies = None
     if os.path.exists(local_cookiejar_path):
         os.remove(local_cookiejar_path)
-
-def quit_login():
-    global cookies
-    cookies = None
     
 def load_local_cookies():
     global cookies
@@ -188,44 +208,6 @@ def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
     opener.addheaders = _dict_to_headers(headers)
     request.install_opener(opener)
     request.urlretrieve(url,tofile,progressfunc)
-
-def download_with_requests(url,tofile,callbackfunc=None,use_cookies=True,headers=fake_headers_get):
-    if os.path.exists(tofile):
-        raise RuntimeError('File already exists.')
-    tmp_file = tofile+'.download'
-    #Load Header
-    #headers = fake_headers_get
-    if cookies and use_cookies:
-        cookies_dict = requests.utils.dict_from_cookiejar(cookies)
-    else:
-        cookies_dict = {}
-    #Get Response
-    response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
-    #Check Existed File
-    file_size = int(response.headers['content-length'])
-    if os.path.exists(tmp_file):
-        start_byte = os.path.getsize(tmp_file)
-    else:
-        start_byte = 0
-    if start_byte >= file_size:
-        callbackfunc(int(file_size/1024),1024,file_size)
-        os.rename(tmp_file,tofile)
-        return 0
-    #Download
-    headers['Range'] = f'bytes={start_byte}-{file_size}'
-    req = requests.get(url,headers=headers,stream=True,cookies=cookies_dict)
-    counter = 0
-    writemode = 'ab+'
-    with open(tmp_file,writemode) as f:
-        for chunk in req.iter_content(chunk_size=1024):
-            if chunk:
-                f.write(chunk)
-                f.flush()
-                counter += 1024
-                if callbackfunc:
-                    callbackfunc(int((start_byte+counter)/1024),1024,file_size)#与 urllib.request.urlretrieve() 的回传方法保持一致
-    os.rename(tmp_file,tofile)
-    return 0
     
 #Download GUI
 class DownloadWindow(object):
@@ -233,28 +215,27 @@ class DownloadWindow(object):
 releaseprog:释放进程
 askopen:完成后询问是否打开文件夹
 showwarning:显示警告(关闭此选项也会关闭askopen)
-use_fakeheaders:使用伪装请求头
 use_cookies:使用已加载的Cookies进行下载
 '''
-    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_fakeheaders=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True):
+    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True,headers=fake_headers_get):
         if not showwarning:
             askopen = False
         self.data = {
             'url':url,
             'topath':os.path.abspath(topath)+'\\',
-            'filename':filename,
+            'filename':_replaceChr(filename),
             'totalsize':0,
             'donesize':0,
             'percent':0,
             'condition':-1,#-1:未开始,0:进行中,1:成功,2:失败,3:用户中止
             'condition_str':'Waiting...',
             'user_stop':False,
-            'error_info':''
+            'error_info':'',
+            'headers':copy.deepcopy(headers)
             }
 
         self.options = {
             'askopen':askopen,
-            'fake_headers_get':use_fakeheaders,
             'cookies':use_cookies,
             'showwarning':showwarning
             }
@@ -339,6 +320,7 @@ use_cookies:使用已加载的Cookies进行下载
             if self.options['askopen']:
                 if msgbox.askyesno('','任务完成！\n打开输出目录？'):
                     os.system('explorer "%s"'%self.data['topath'])
+            logging.info('Download Task Finished, %d Bytes Received.'%data['totalsize'])
             self.close(True)
         elif reason == 2:
             self.data['condition'] = 2
@@ -355,6 +337,7 @@ use_cookies:使用已加载的Cookies进行下载
             self.close(True)
 
     def _download_thread(self):
+        logging.info('Starting a New Download Task.')
         tofile = self.data['topath'] + self.data['filename']
         url = self.data['url']
         if os.path.exists(tofile):
@@ -366,28 +349,17 @@ use_cookies:使用已加载的Cookies进行下载
             self.data['condition'] = -1
             #Load Header
             self.data['condition_str'] = 'Loading Headers & Cookies...'
-            if self.options['fake_headers_get']:
-                headers = fake_headers_get
             if cookies and self.options['cookies']:
-                cookies_dict = requests.utils.dict_from_cookiejar(cookies)
+                cookies_dict = requests.utils.dict_from_cookiejar(cookies) #CookieJar转Dict
             else:
                 cookies_dict = {}
             #Get Response
             self.data['condition_str'] = 'Checking File Size...'
-            response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
+            response = requests.get(url,stream=True,headers=self.data['headers'],cookies=cookies_dict)
+            file_size = int(response.headers['content-length'])
+            self.data['totalsize'] = file_size
             #Check Existed File
-            counter = 0
-            while self.data['totalsize'] == 0:
-                self.data['condition_str'] = 'Checking Existed File...'
-                file_size = int(response.headers['content-length'])
-                self.data['totalsize'] = file_size
-                counter += 1
-                if counter >= 3:
-                    self.data['error_info'] = 'File size received = 0 B'
-                    self.data['condition'] = 2
-                    self.data['condition_str'] = 'Error'
-                    return
-                    
+            self.data['condition_str'] = 'Checking Existed File...'
             if os.path.exists(tmp_file):
                 start_byte = os.path.getsize(tmp_file)
             else:
@@ -396,17 +368,16 @@ use_cookies:使用已加载的Cookies进行下载
                 os.rename(tmp_file,tofile)
             else:
                 #Download
-                headers['Range'] = f'bytes={start_byte}-{file_size}'
+                self.data['headers']['Range'] = f'bytes={start_byte}-{file_size}'
                 self.data['condition'] = 0
                 self.data['condition_str'] = 'Fetching Data...'
-                req = requests.get(url,headers=headers,stream=True,cookies=cookies_dict)
+                req = requests.get(url,headers=self.data['headers'],stream=True,cookies=cookies_dict)
                 counter = 0
                 writemode = 'ab+'
                 with open(tmp_file,writemode) as f:
                     for chunk in req.iter_content(chunk_size=1024):
                         if chunk:
                             f.write(chunk)
-                            f.flush()
                             counter += 1
                             self.data['donesize'] = start_byte+(counter*1024)
                             if self.data['user_stop']:
@@ -455,20 +426,6 @@ use_cookies:使用已加载的Cookies进行下载
             self.window.destroy()
         except:
             pass
-   
-def _replaceChr(text):
-    repChr = {'/':'／',
-              '*':'＊',
-              ':':'：',
-              '\\':'＼',
-              '>':'＞',
-              '<':'＜',
-              '|':'｜',
-              '?':'？',
-              '"':'＂'}
-    for t in list(repChr.keys()):
-        text = text.replace(t,repChr[t])
-    return text
 
 def second_to_time(sec):
     h = sec // 3600
@@ -477,6 +434,19 @@ def second_to_time(sec):
     s = sec % 60
     return '%d:%02d:%02d'%(h,m,s)
 
+def _is_url(url):
+    if re.match(r'^https?:/{2}\w.+$', url):
+        return True
+    else:
+        return False
+
+def _error_raiser(code,message=None):
+    if code != 0:
+        if message:
+            raise BiliError(code,message)
+        else:
+            raise BiliError(code,bilicodes.error_code[code])
+        
 #APIs
 def bvid_to_avid_online(bvid):
     data = get_content_str('https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
@@ -727,6 +697,21 @@ def get_video_tags(avid=None,bvid=None):
         tags.append(tag['tag_name'])
     return tags
 
+def get_online_nop(cid,avid=None,bvid=None):
+    '''Choose one parameter between avid and bvid'''
+    if avid != None:
+        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&aid=%s'%(cid,avid)
+    elif bvid != None:
+        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&bvid=%s'%(cid,bvid)
+    else:
+        raise RuntimeError('You must choose one between avid and bvid.')
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['message'])
+    data = data['data']
+    return {'total':data['total'],
+            'web':data['count']}
+
 def get_blackroom(page):
     data = get_content_str(f'https://api.bilibili.com/x/credit/blocked/list?jsonp=jsonp&otype=0&pn={page}')
     data = json.loads(data)['data']
@@ -779,18 +764,6 @@ def download_emotions(path='./emotions/',pause_time=1,show_process=False):
             print_('表情 %s id%s'%(i['text'],i['id']))
             time.sleep(pause_time)
 
-def _is_url(url):
-    if re.match(r'^https?:/{2}\w.+$', url):
-        return True
-    else:
-        return False
-
-def _error_raiser(code,message=None):
-    if code != 0:
-        if message:
-            raise BiliError(code,message)
-        else:
-            raise BiliError(code,bilicodes.error_code[code])
 
 def get_media_detail(ssid=None,epid=None,mdid=None):
     '''Choose one parameter from ssid, epid and mdid'''
@@ -885,12 +858,20 @@ def get_video_recommend(avid=None,bvid=None):
         res.append(_video_detail_handler(data_,False))
     return res
 
-def get_video_stream_dash(cid,avid=None,bvid=None):
+def get_video_stream_dash(cid,avid=None,bvid=None,dolby=False,hdr=False,_4k=False):
     '''Choose one parameter between avid and bvid'''
+    fnval = 16
+    if dolby:
+        fnval = fnval|256
+    if hdr:
+        fnval = fnval|64
+    if _4k:
+        fnval = fnval|128
+        
     if avid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=16&fourk=1'%(avid,cid)
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=1'%(avid,cid,fnval)
     elif bvid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=16&fourk=1'%(bvid,cid)
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=1'%(bvid,cid,fnval)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
     data = get_content_str(api)
@@ -920,24 +901,6 @@ def get_video_stream_dash(cid,avid=None,bvid=None):
         'video':video
         }
     return stream
-
-def get_login_info(): #Cookies is Required.
-    api = 'https://api.bilibili.com/x/web-interface/nav'
-    data = get_content_str(api)
-    data = json.loads(data)
-    _error_raiser(data['code'],data['message'])
-    data = data['data']
-    res = {
-        'uid':data['mid'],
-        'name':data['uname'],
-        'vip_type':{0:'非大会员',1:'月度大会员',2:'年度及以上大会员'}[data['vipType']],
-        'coin':data['money'],
-        'level':data['level_info']['current_level'],
-        'exp':data['level_info']['current_exp'],
-        'moral':data['moral'],#max=70
-        'face':data['face']
-        }
-    return res
 
 def get_user_info(uid):
     api = 'https://api.bilibili.com/x/space/acc/info?mid=%s'%uid
@@ -1122,7 +1085,16 @@ def get_bcc(cid,avid=None,bvid=None):
     data = json.loads(data)
     _error_raiser(data['code'],data['message'])
     data = data['data']['subtitle']['subtitles']
-    return data #######
+    res = []
+    for item in data:
+        res.append({
+            'id':item['id'],
+            'lang':item['lan_doc'],
+            'lang_abb':item['lan'],
+            'author_uid':item['author_mid'],
+            'url':'https:'+item['subtitle_url']
+            })
+    return res
 
 def bcc_to_srt(jsondata):
      srt_file = ''
@@ -1163,7 +1135,7 @@ def check_scan(oauthkey):
     header = fake_headers_post
     header['Host'] = 'passport.bilibili.com'
     header['Referer'] = "https://passport.bilibili.com/login"
-    data = post_data_json('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey})
+    data = json.loads(post_data_str('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey}))
     #-1：密钥错误 -2：密钥超时 -4：未扫描 -5：未确认
     status = data['status']
     if status:
@@ -1198,6 +1170,38 @@ def is_cookiejar_usable():
         return False
     else:
         return True
+
+def exit_login():
+    if not cookies:
+        raise RuntimeError('CookiesJar not Loaded.')
+    cookiesdict = requests.utils.dict_from_cookiejar(cookies)
+    if 'bili_jct' in cookiesdict:
+        data = post_data_str('https://passport.bilibili.com/login/exit/v2',{'biliCSRF':cookiesdict['bili_jct']})
+        if '请先登录' in data:
+            raise BiliError('NaN','Haven\'t Logined Yet.')
+        else:
+            data = json.loads(data)
+            return data
+    else:
+        raise BiliError('NaN','Haven\'t Logined Yet.')
+
+def get_login_info(): #Cookies is Required.
+    api = 'https://api.bilibili.com/x/web-interface/nav'
+    data = get_content_str(api)
+    data = json.loads(data)
+    _error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = {
+        'uid':data['mid'],
+        'name':data['uname'],
+        'vip_type':{0:'非大会员',1:'月度大会员',2:'年度及以上大会员'}[data['vipType']],
+        'coin':data['money'],
+        'level':data['level_info']['current_level'],
+        'exp':data['level_info']['current_exp'],
+        'moral':data['moral'],#max=70
+        'face':data['face']
+        }
+    return res
 ##########################
 
 def format_img(url,w=None,h=None,f=None):
@@ -1289,7 +1293,7 @@ def get_comment():
     pass #wait for building
 
 def get_shortlink(avid):
-    data = post_data_json('https://api.bilibili.com/x/share/click',data={
+    data = post_data_str('https://api.bilibili.com/x/share/click',data={
 	'build':9300,
 	'buvid':hashlib.md5(bytes(random.randint(1000,9999))).hexdigest(),
 	'oid':int(avid),
@@ -1298,6 +1302,7 @@ def get_shortlink(avid):
 	'share_id':"main.ugc-video-detail.0.0.pv",
 	'share_mode':1
         })
+    data = json.loads(data)
     _error_raiser(data['code'],data['message'])
     data = data['data']
     url = re.findall(r'(https?\://b23\.tv/[0-9A-Za-z]+)',data['content'])[0]
@@ -1315,3 +1320,5 @@ def get_pbp(cid):
         'debug':json.loads(data['debug'])
         }
     return res
+
+load_local_cookies()
