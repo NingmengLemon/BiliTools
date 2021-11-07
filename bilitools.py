@@ -16,6 +16,7 @@ import threading
 import queue
 import webbrowser
 import json
+import base64
 
 import qrcode
 
@@ -24,23 +25,32 @@ import biliapis
 import bilicodes
 import tooltip
 from basic_window import tkImg,Window
+import imglib
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev04'
+version = '2.0.0_Dev05'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 config_path = f'C:\\Users\\{user_name}\\bilitools_config.json'
 
 config = {
     'topmost':True,
-    'autologin':False,
     'alpha':1.0,# 0.0 - 1.0
     'explorer':'chrome',# chrome / firefox
     'filter_emoji':False,
-    'devmode':True #开发模式开关
+    'devmode':True, #开发模式开关
+    'video_download':{
+        'mode':'dash', # dash / mp4 / flv
+        'quality_dash':'highest',# highest / lowest / regular
+        'quality_flv':'highest',# 同上
+        'quality_mp4':'highest',# highest / lowest
+        'regular_dash':[], # qid01, qid02, qid03 ...
+        'regular_flv':[], # 同上
+        'regular_mp4':[], # 摆设, 目的是规避错误
+        },
     }
 #TODO: 设置保存与读取
 biliapis.filter_emoji = config['filter_emoji']
@@ -90,153 +100,150 @@ def makeQrcode(data):
     img.save(a,'png')
     return a #返回一个BytesIO对象
 
+def merge_media(audio_path,video_path,output_path):
+    #传入时要带后缀
+    return os.system('ffmpeg.exe -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_path,video_path,output_path))
+
 class MainWindow(Window):
     def __init__(self):
         super().__init__('BiliTools - Main',False,config['topmost'],config['alpha'])
 
-        self.frame_main = tk.Frame(self.window)
-        tk.Label(self.frame_main,text='随便输入点什么吧~').grid(column=0,row=0,sticky='w')
-        #主输入框
-        self.entry_source = ttk.Entry(self.frame_main,width=50,exportselection=0)
+        #Entry Area
+        self.frame_entry = tk.Frame(self.window)
+        self.frame_entry.grid(column=0,row=0,columnspan=3)
+        tk.Label(self.frame_entry,text='随便输入点什么吧~').grid(column=0,row=0,sticky='w')
+        self.entry_source = ttk.Entry(self.frame_entry,width=40)
         self.entry_source.grid(column=0,row=1)
-        self.entry_source.bind('<Return>',lambda x=0:self.start())
-        ttk.Button(self.frame_main,text='粘贴',command=lambda:self.set_entry(self.entry_source,text=clipboard.getText()),width=5).grid(column=1,row=1)
-        ttk.Button(self.frame_main,text='清空',command=lambda:self.entry_source.delete(0,'end'),width=5).grid(column=2,row=1)
-        ttk.Button(self.frame_main,text='开始',command=self.start,width=10).grid(column=1,row=2,columnspan=2)
-        #Tips Shower
-        self.label_tips = tk.Label(self.frame_main,text='Tips: -')
-        self.label_tips.grid(column=0,row=2,sticky='w')
+        #self.entry_source.bind('<Return>',lambda x=0:self.start())
+        ttk.Button(self.frame_entry,text='粘贴',command=lambda:self.set_entry(self.entry_source,text=clipboard.getText()),width=5).grid(column=1,row=1)
+        ttk.Button(self.frame_entry,text='清空',command=lambda:self.entry_source.delete(0,'end'),width=5).grid(column=2,row=1)
+        #Login Area
+        self.frame_login = tk.LabelFrame(self.window,text='用户信息')
+        self.frame_login.grid(column=0,row=1,sticky='wns',rowspan=2)
+        self.img_user_face_empty = tkImg(size=(120,120))
+        self.label_face = tk.Label(self.frame_login,text='',image=self.img_user_face_empty)
+        self.label_face.grid(column=0,row=0,sticky='nwe')
+        self.label_face_text = tk.Label(self.frame_login,text='未登录',bg='#ffffff',font=('Microsoft YaHei UI',8))#图片上的提示文本
+        self.label_face_text.grid(column=0,row=0)
+        self.frame_login_button = tk.Frame(self.frame_login)
+        self.frame_login_button.grid(column=0,row=1,sticky='nwe')
+        self.button_login = ttk.Button(self.frame_login_button,text='登录',width=13,command=self.login)
+        self.button_login.grid(column=0,row=0,sticky='w')
+        self.button_refresh = ttk.Button(self.frame_login_button,command=self.refresh_data,state='disabled')
+        self.set_image(self.button_refresh,imglib.refresh_sign,size=(17,17))
+        self.button_refresh.grid(column=1,row=0)
+        #Entry Mode Selecting
+        self.frame_entrymode = tk.LabelFrame(self.window,text='输入模式',width=50)
+        self.frame_entrymode.grid(column=1,row=1,sticky='enw',rowspan=2)
+        self.intvar_entrymode = tk.IntVar(self.window,0)#跳转0, 搜索1, 快速下载2
+        self.radiobutton_entrymode_jump = ttk.Radiobutton(self.frame_entrymode,value=0,variable=self.intvar_entrymode,text='跳转')
+        self.radiobutton_entrymode_jump.grid(column=0,row=0,sticky='w')
+        self.radiobutton_entrymode_search = ttk.Radiobutton(self.frame_entrymode,value=1,variable=self.intvar_entrymode,text='搜索',state='disabled')
+        self.radiobutton_entrymode_search.grid(column=0,row=1,sticky='w')
+        self.radiobutton_entrymode_fdown = ttk.Radiobutton(self.frame_entrymode,value=2,variable=self.intvar_entrymode,text='快速下载',state='disabled')
+        self.radiobutton_entrymode_fdown.grid(column=0,row=2,sticky='w')
+        
+        ttk.Button(self.window,text='开始',width=11,command=self.start).grid(column=2,row=1,sticky='ne')
+        #Basic Funcs
+        self.frame_basicfuncs = tk.Frame(self.window)
+        self.frame_basicfuncs.grid(column=2,row=2,sticky='se')
+        ttk.Button(self.frame_basicfuncs,text='设置',width=11,command=self.goto_config).grid(column=0,row=1)#等待建设
+        ttk.Button(self.frame_basicfuncs,text='关于',width=11,command=lambda:msgbox.showinfo('',about_info)).grid(column=0,row=2)
+        #Funcs Area
+        self.frame_funcarea = tk.LabelFrame(self.window,text='功能区')
+        self.frame_funcarea.grid(column=0,row=3,sticky='wnse',columnspan=3)
+        self.button_blackroom = ttk.Button(self.frame_funcarea,text='小黑屋',command=self.goto_blackroom)
+        self.button_blackroom.grid(column=0,row=0,sticky='w')
+        #Tips
+        self.label_tips = tk.Label(self.window,text='Tips: -')
+        self.label_tips.grid(column=0,row=4,sticky='w',columnspan=3)
         self.label_tips.bind('<Button-1>',lambda x=0:self.changeTips())
-        self.frame_main.grid(column=0,row=0,columnspan=2)
-
-        self.frame_userinfo = tk.LabelFrame(self.window,text='用户信息')
-        self.frame_userinfo.grid(column=0,row=1,sticky='w',columnspan=2)
-        #用户头像
-        self.img_user_face_empty = tkImg(size=(100,100))
-        self.label_face = tk.Label(self.frame_userinfo,text='',image=self.img_user_face_empty)
-        self.label_face.grid(column=0,row=0,rowspan=4)
-        self.label_face_text = tk.Label(self.frame_userinfo,text='未加载',bg='#ffffff',font=('Microsoft YaHei UI',8))#图片上的提示文本
-        self.label_face_text.grid(column=0,row=0,rowspan=4)
-        #用户名
-        self.label_username = tk.Label(self.frame_userinfo,text='-')
-        self.label_username.grid(column=1,row=0,sticky='w',columnspan=2)
-        #UID
-        self.label_uid = tk.Label(self.frame_userinfo,text='UID0')
-        self.label_uid.grid(column=1,row=1,sticky='w')
-        #Level
-        self.label_level = tk.Label(self.frame_userinfo,text='Lv.0')
-        self.label_level.grid(column=1,row=2,sticky='w')
-        #VIP
-        self.label_vip = tk.Label(self.frame_userinfo,text='非大会员')
-        self.label_vip.grid(column=1,row=3,sticky='w')
-        #Login Operation
-        self.button_login = ttk.Button(self.frame_userinfo,text='登录',command=self.login)
-        self.button_login.grid(column=0,row=4,sticky='w')
-        self.button_refresh = ttk.Button(self.frame_userinfo,text='刷新',command=self.refreshUserinfo,state='disabled')
-        self.button_refresh.grid(column=1,row=4,sticky='w')
-        ttk.Button(self.frame_userinfo,text='清除登录痕迹',command=self.clearLoginData).grid(column=0,row=5,columnspan=2)
-
-        self.frame_console = tk.LabelFrame(self.window,text='功能区')
-        self.frame_console.grid(column=1,row=1,sticky='e')
-        self.button_blackroom = ttk.Button(self.frame_console,text='小黑屋',command=self.goto_blackroom)
-        self.button_blackroom.grid(column=0,row=0)
-        ttk.Button(self.frame_console,text='关于',command=lambda:msgbox.showinfo('',about_info)).grid(column=0,row=1)
-
-        self.frame_config = tk.LabelFrame(self.window,text='全局设置')
-        self.frame_config.grid(column=0,row=2,columnspan=2)
-        #置顶
-        self.boolvar_topmost = tk.BooleanVar(value=config['topmost'])
-        ttk.Checkbutton(self.frame_config,variable=self.boolvar_topmost,onvalue=True,offvalue=False,text='置顶',command=self.applyConfig).grid(column=0,row=0,sticky='w')
-        #自动登录
-        self.boolvar_autologin = tk.BooleanVar(value=config['autologin'])
-        ttk.Checkbutton(self.frame_config,variable=self.boolvar_autologin,onvalue=True,offvalue=False,text='启动时自动尝试登录',command=self.applyConfig).grid(column=1,row=0,sticky='w')
-        #窗体透明度
-        self.frame_winalpha = tk.LabelFrame(self.frame_config,text='窗体不透明度')
-        self.doublevar_winalpha = tk.DoubleVar(value=config['alpha'])
-        self.label_winalpha_shower = tk.Label(self.frame_winalpha,text='% 3d%%'%(config['alpha']*100))
-        self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
-        self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.0,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha,command=lambda x=0:self.applyConfig())
-        self.scale_winalpha.grid(column=1,row=0,sticky='w')
-        self.frame_winalpha.grid(column=0,row=1,sticky='w')
-        self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
-        #过滤emoji
-        self.boolvar_filteremoji = tk.BooleanVar(value=config['filter_emoji'])
-        ttk.Checkbutton(self.frame_config,variable=self.boolvar_filteremoji,onvalue=True,offvalue=False,text='过滤Emoji',command=self.applyConfig).grid(column=1,row=1,sticky='w')
 
         self.changeTips()
-        if config['autologin']:
-            self.window.after(20,self.login)
+        self.login(True)
         self.entry_source.focus()
-        self.window.mainloop()
 
-    def goto_blackroom(self):
-        w = BlackroomWindow()
-            
-    def quitLogin(self):
-        biliapis.quit_login()
+    def _clear_face(self):
         self.label_face.configure(image=self.img_user_face_empty)
         self.label_face.image = self.img_user_face_empty
         self.label_face_text.grid()
-        self.label_username['text'] = '-'
-        self.label_uid['text'] = 'UID0'
-        self.label_level['text'] = 'Lv.0'
-        self.label_vip['text'] = '非大会员'
-        self.button_login['text'] = '登录'
-        self.button_login['command'] = self.login
-        self.button_refresh['state'] = 'disabled'
+        self.label_face.unbind('<Button-1>')
 
-    def clearLoginData(self):
-        if msgbox.askyesno('','这将会删除保存在程序中的登录数据.\n确认？'):
-            biliapis.clear_cookies()
-            self.quitLogin()
-
-    def login(self):
-        flag = 0
-        biliapis.load_local_cookies()
-        if biliapis.is_cookiejar_usable():
-            self.refreshUserinfo()
-            flag = 1
+    def _new_login(self):
+        self.window.wm_attributes('-topmost',False)
+        w = LoginWindow()
+        if w.status:
+            biliapis.load_local_cookies()
+            self.refresh_data()
         else:
-            self.window.wm_attributes('-topmost',False)
-            w = LoginWindow()
-            if w.status:
-                biliapis.load_local_cookies()
-                self.refreshUserinfo()
-                flag = 1
-            else:
-                msgbox.showwarning('','登录未完成.')
-            self.window.wm_attributes('-topmost',config['topmost'])
-        if flag != 0:
-            self.button_login['text'] = '退出登录'
-            self.button_login['command'] = self.quitLogin
-            self.button_refresh['state'] = 'normal'
-        return
-             
-    def refreshUserinfo(self):
+            msgbox.showwarning('','登录未完成.')
+            self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+        self.window.wm_attributes('-topmost',config['topmost'])
+
+    def refresh_data(self):
         def tmp():
-            tmp = biliapis.get_login_info()
-            #Face
-            face = biliapis.get_content_bytes(biliapis.format_img(tmp['face'],w=100,h=100))
-            face = BytesIO(face)
-            self.task_queue.put_nowait(lambda:self.set_image(self.label_face,face,(100,100)))
-            self.task_queue.put_nowait(lambda:self.label_face_text.grid_remove())
-            #Info
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_username,'text',tmp['name']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_uid,'text','UID%s'%tmp['uid']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_level,'text','Lv.%s'%tmp['level']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_vip,'text',tmp['vip_type']))
+            self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
+            self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='disabled'))
+            try:
+                data = biliapis.get_login_info()
+            except biliapis.BiliError as e:
+                if e.code == -101:
+                    self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.'))
+                    self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                    self.task_queue.put_nowait(self._clear_face)
+                    self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
+                    return
+                else:
+                    raise e
+            def load_user_info(user_data):
+                self.set_image(self.label_face,BytesIO(biliapis.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
+                self.label_face_text.grid_remove()
+                self.label_face.bind('<Button-1>',
+                                     lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text))
+            self.task_queue.put_nowait(lambda:load_user_info(data))
+            self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+            self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
+            self.task_queue.put_nowait(lambda:self.button_login.configure(text='退出登录',command=self.logout))
         start_new_thread(tmp,())
 
-    def applyConfig(self):
-        global config
-        config['topmost'] = self.boolvar_topmost.get()
-        config['autologin'] = self.boolvar_autologin.get()
-        config['alpha'] = round(self.doublevar_winalpha.get(),2)
-        config['filter_emoji'] = self.boolvar_filteremoji.get()
-        self.label_winalpha_shower['text'] = '% 3d%%'%(config['alpha']*100)
-        self.window.wm_attributes('-topmost',config['topmost'])
-        self.window.wm_attributes('-alpha',config['alpha'])
-        biliapis.filter_emoji = config['filter_emoji']
+    def login(self,init=False):
+        def tmp():
+            self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
+            if biliapis.is_cookiejar_usable():
+                self.refresh_data()
+                self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
+                self.task_queue.put_nowait(lambda:self.button_login.configure(text='退出登录',command=self.logout))
+            else:
+                if not init:
+                    self.task_queue.put_nowait(self._new_login)
+                else:
+                    self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                    self.task_queue.put_nowait(self._clear_face)
+                    self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
+        start_new_thread(tmp,())
+            
+    def logout(self):
+        self.button_login.configure(state='disabled')
+        try:
+            biliapis.exit_login()
+            biliapis.cookies.save()
+        except biliapis.BiliError:
+            msgbox.showwarning('','未登录.')
+            self.button_login.configure(text='退出登录',command=self.logout)
+            self.button_refresh.configure(state='normal')
+        else:
+            self.button_login.configure(text='登录',command=self.login)
+            self.task_queue.put_nowait(self._clear_face)
+            self.button_refresh.configure(state='disabled')
+        finally:
+            self.button_login.configure(state='normal')
+
+    def goto_blackroom(self):
+        w = BlackroomWindow()
+
+    def goto_config(self):
+        w = ConfigWindow()
 
     def changeTips(self,index=None):
         if index == None:
@@ -250,22 +257,118 @@ class MainWindow(Window):
         if not source:
             msgbox.showinfo('','你似乎没有输入任何内容......')
             return
-        source,flag = biliapis.parse_url(source)
-        if flag == 'unknown':
-            msgbox.showinfo('','无法解析......')
-        elif flag == 'auid':
-            w = AudioWindow(source)
-        elif flag == 'avid' or flag == 'bvid':
-            w = CommonVideoWindow(source)
-        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
+        mode = self.intvar_entrymode.get()
+        if mode == 0:#跳转模式
+            source,flag = biliapis.parse_url(source)
+            if flag == 'unknown':
+                msgbox.showinfo('','无法解析......')
+            elif flag == 'auid':
+                w = AudioWindow(source)
+            elif flag == 'avid' or flag == 'bvid':
+                w = CommonVideoWindow(source)
+            elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
+                pass
+            elif flag == 'cvid':
+                pass
+            elif flag == 'uid':
+                pass
+            else:
+                msgbox.showinfo('','暂不支持%s的解析'%flag)
+            return
+        elif mode == 1:#搜索模式
             pass
-        elif flag == 'cvid':
+        elif mode == 2:#快速下载模式
             pass
-        elif flag == 'uid':
-            pass
-        else:
-            msgbox.showinfo('','暂不支持%s的解析'%flag)
-        return
+
+    def applyConfig(self):
+        self.window.wm_attributes('-topmost',config['topmost'])
+        self.window.wm_attributes('-alpha',config['alpha'])
+
+class ConfigWindow(Window):
+    def __init__(self):
+        super().__init__('BiliToools - Config',True,config['topmost'],config['alpha'])
+        
+        #Basic
+        self.frame_basic = tk.LabelFrame(self.window,text='基础设置')
+        self.frame_basic.grid(column=0,row=0)
+        #Topmost
+        self.boolvar_topmost = tk.BooleanVar(self.window,config['topmost'])
+        self.checkbutton_topmost = ttk.Checkbutton(self.frame_basic,text='置顶',onvalue=True,offvalue=False,variable=self.boolvar_topmost)
+        self.checkbutton_topmost.grid(column=0,row=0,sticky='w')
+        #Alpha
+        self.frame_winalpha = tk.LabelFrame(self.frame_basic,text='窗体不透明度')
+        self.frame_winalpha.grid(column=0,row=1,sticky='w')
+        self.doublevar_winalpha = tk.DoubleVar(self.window,value=config['alpha'])
+        self.label_winalpha_shower = tk.Label(self.frame_winalpha,text='% 3d%%'%(config['alpha']*100))
+        self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
+        self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.0,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha)
+        self.scale_winalpha.grid(column=1,row=0,sticky='w')
+        self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
+        #Emoji Filter
+        self.frame_filteremoji = tk.Frame(self.frame_basic)
+        self.frame_filteremoji.grid(column=0,row=2,sticky='w')
+        self.boolvar_filteremoji = tk.BooleanVar(self.window,config['filter_emoji'])
+        self.checkbutton_filteremoji = ttk.Checkbutton(self.frame_filteremoji,text='过滤Emoji',onvalue=True,offvalue=False,variable=self.boolvar_filteremoji)
+        self.checkbutton_filteremoji.grid(column=0,row=0)
+        self.label_filteremoji_help = tk.Label(self.frame_filteremoji,text='')
+        self.set_image(self.label_filteremoji_help,imglib.help_sign,size=(18,18))
+        self.label_filteremoji_help.grid(column=1,row=0)
+        self.tooltip_filteremoji = tooltip.ToolTip(self.label_filteremoji_help,text='此功能专为某些不支持Emoji显示的设备添加 :)')
+
+        #Video
+        self.frame_video = tk.LabelFrame(self.window,text='视频下载设置')
+        self.frame_video.grid(column=1,row=0)
+        #Mode
+        self.stringvar_videomode = tk.StringVar(self.window,config['video_download']['mode'])
+        self.radiobutton_videomode_dash = ttk.Radiobutton(self.frame_video,text='DASH流',value='dash',variable=self.stringvar_videomode)
+        self.radiobutton_videomode_dash.grid(column=0,row=0,sticky='w')
+        self.radiobutton_videomode_flv = ttk.Radiobutton(self.frame_video,text='Flv',value='flv',variable=self.stringvar_videomode,state='disabled')
+        self.radiobutton_videomode_flv.grid(column=0,row=1,sticky='w')
+        self.frame_videomode_mp4 = tk.Frame(self.frame_video)
+        self.frame_videomode_mp4.grid(column=0,row=2,sticky='w')
+        self.radiobutton_videomode_mp4 = ttk.Radiobutton(self.frame_videomode_mp4,text='低清MP4',value='mp4',variable=self.stringvar_videomode,state='disabled')
+        self.radiobutton_videomode_mp4.grid(column=0,row=0)
+        self.label_videomode_mp4_info = tk.Label(self.frame_videomode_mp4,text='')
+        self.set_image(self.label_videomode_mp4_info,imglib.info_sign,size=(18,18))
+        self.label_videomode_mp4_info.grid(column=1,row=0)
+        self.tooltip_videomode_mp4 = tooltip.ToolTip(self.label_videomode_mp4_info,text='仅支持240P与320P, 且限速65KB/s')
+        #Strategy
+        self.frame_strategy = tk.LabelFrame(self.frame_video,text='下载策略')
+        self.frame_strategy.grid(column=0,row=3)
+        self.stringvar_strategy = tk.StringVar(self.window,config['video_download']['quality_%s'%(config['video_download']['mode'])])
+        ttk.Radiobutton(self.frame_strategy,text='最高画质',value='highest',variable=self.stringvar_strategy).grid(column=0,row=0,sticky='w')
+        ttk.Radiobutton(self.frame_strategy,text='最低画质',value='lowest',variable=self.stringvar_strategy).grid(column=0,row=1,sticky='w')
+        self.radiobutton_regular = ttk.Radiobutton(self.frame_strategy,text='自定义规则',value='regular',variable=self.stringvar_strategy)
+        self.radiobutton_regular.grid(column=0,row=2,sticky='w')
+        self.frame_regular = tk.Frame(self.frame_strategy)
+        self.frame_regular.grid(column=0,row=3)
+        if self.stringvar_videomode.get() == 'mp4':
+            self.radiobutton_regular.grid_remove()
+            self.frame_regular.grid_remove()
+        self.listbox_regular = tk.Listbox(self.frame_regular,width=10,height=8,selectmode='extended')
+        self.listbox_regular.grid(column=0,row=0,rowspan=6)
+        for item in config['video_download']['regular_%s'%(config['video_download']['mode'])]:
+            self.listbox_regular.insert('end',bilicodes.stream_dash_video_quality[item])
+        self.stringvar_quality = tk.StringVar(self.window,'320P')
+        self.optmenu_quality = ttk.OptionMenu(self.frame_regular,self.stringvar_quality,'320P',*list(bilicodes.stream_dash_video_quality.values()))
+        self.optmenu_quality.grid(column=1,row=0)
+        ttk.Button(self.frame_regular,text='从上方插入',command=lambda:self.listbox_regular.insert(0,self.stringvar_quality.get())).grid(column=1,row=1)
+        ttk.Button(self.frame_regular,text='从下方插入',command=lambda:self.listbox_regular.insert('end',self.stringvar_quality.get())).grid(column=1,row=2)
+        ttk.Separator(self.frame_regular).grid(column=1,row=3,sticky='we')
+        ttk.Button(self.frame_regular,text='删除选中').grid(column=1,row=4)
+        ttk.Button(self.frame_regular,text='删除全部',command=lambda:self.listbox_regular.delete(0,'end')).grid(column=1,row=5)        
+        tk.Label(self.frame_regular,text='优先级从上至下依次递减;\n在列表框上拖动以多选;\n滑动滚轮以上下翻动',justify='left').grid(column=0,row=6,columnspan=2,sticky='w')
+
+    def applyConfig(self):#
+        global config
+        config['topmost'] = self.boolvar_topmost.get()
+        config['autologin'] = self.boolvar_autologin.get()
+        config['alpha'] = round(self.doublevar_winalpha.get(),2)
+        config['filter_emoji'] = self.boolvar_filteremoji.get()
+        self.label_winalpha_shower['text'] = '% 3d%%'%(config['alpha']*100)
+        self.window.wm_attributes('-topmost',config['topmost'])
+        self.window.wm_attributes('-alpha',config['alpha'])
+        biliapis.filter_emoji = config['filter_emoji']
 
 class AudioWindow(Window):
     def __init__(self,auid):
@@ -448,7 +551,10 @@ class CommonVideoWindow(Window):
         self.text_title.grid(column=0,row=1,sticky='w')
         #warning info
         self.label_warning = tk.Label(self.frame_left_1,text='')
-        self.label_warning.grid(column=0,row=2,sticky='w')
+        self.set_image(self.label_warning,imglib.warning_sign)
+        self.label_warning.grid(column=0,row=2,sticky='e')
+        self.label_warning.grid_remove()
+        self.label_warning_tooltip = None
         #av
         self.label_avid = tk.Label(self.frame_left_1,text='AV0')
         self.label_avid.grid(column=0,row=3,sticky='w')
@@ -574,14 +680,17 @@ class CommonVideoWindow(Window):
             return
         tmplist = []
         parts = self.video_data['parts']
-        for part in parts:
-            tmplist.append([
-                part['title'],
-                biliapis.second_to_time(part['length']),
-                str(part['cid'])
-                ])
-        w = PartsChooser(tmplist)
-        target = w.return_values
+        if len(parts) > 1:
+            for part in parts:
+                tmplist.append([
+                    part['title'],
+                    biliapis.second_to_time(part['length']),
+                    str(part['cid'])
+                    ])
+            w = PartsChooser(tmplist)
+            target = w.return_values
+        else:
+            target = [0]
         for index in target:
             PbpShower(parts[index]['cid'])
 
@@ -619,7 +728,15 @@ class CommonVideoWindow(Window):
                 for item in stream:
                     qs += [item['quality']]
                 stream = stream[qs.index(max(qs))]
-                w = biliapis.DownloadWindow(stream['url'],path,replaceChr('{}_P{}_{}_cid{}_{}.aac'.format(title,index+1,bvid,cid,bilicodes.stream_dash_audio_quality[max(qs)])),False,topmost=config['topmost'])
+                w = biliapis.DownloadWindow(stream['url'],
+                                            path,
+                                            '{}_P{}_{}_cid{}_{}.aac'.format(
+                                                title,
+                                                index+1,
+                                                bvid,cid,
+                                                bilicodes.stream_dash_audio_quality[max(qs)]),
+                                            False,topmost=config['topmost']
+                                            )
             msgbox.showinfo('','Done.')
         except biliapis.BiliError as e:
             msgbox.showerror('','BiliError Occurred with Code %s:\n%s'%(e.code,e.msg))
@@ -682,16 +799,23 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda:self.config_widget(self.label_bvid,'text',data['bvid']))
             self.task_queue.put_nowait(lambda:self.set_text(self.text_title,lock=True,text=data['title']))
             #warning
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_warning,'text',data['warning_info']))
+            def fill_warning_info(warning_info):
+                if warning_info.strip():
+                    self.label_warning.grid()
+                    self.label_warning_tooltip = tooltip.ToolTip(self.label_warning,text=warning_info)
+                    self.label_warning.bind('<Button-1>',lambda e=None,t=warning_info:msgbox.showinfo('',t))
+            self.task_queue.put_nowait(lambda wi=data['warning_info']:fill_warning_info(wi))
             #stat
             stat = data['stat']
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_view,'text',stat['view']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_like,'text',stat['like']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_coin,'text',stat['coin']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_collect,'text',stat['collect']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_share,'text',stat['share']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_dmkcount,'text',stat['danmaku']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_cmtcount,'text',stat['reply']))
+            def fill_stat(statdata):
+                self.label_view['text'] = statdata['view']
+                self.label_like['text'] = statdata['like']
+                self.label_coin['text'] = statdata['coin']
+                self.label_collect['text'] = statdata['collect']
+                self.label_share['text'] = statdata['share']
+                self.label_dmkcount['text'] = statdata['danmaku']
+                self.label_cmtcount['text'] = statdata['reply']
+            self.task_queue.put_nowait(lambda sd=stat:fill_stat(sd))
             #up
             up = data['uploader']
             self.task_queue.put_nowait(lambda:self.config_widget(self.label_uploader_name,'text',up['name']))
@@ -713,11 +837,13 @@ class CommonVideoWindow(Window):
             start_new_thread(load_img)
             #parts
             parts = data['parts']
-            counter = 0
-            for line in parts:
-                counter += 1
-                self.task_queue.put_nowait(lambda n=str(counter),t=line['title'],l=biliapis.second_to_time(line['length']):self.tview_parts.insert("","end",values=(n,t,l)))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_parts_counter,'text','共 %d 个分P'%counter))
+            def fill_partlist(plist):
+                counter = 0
+                for line in parts:
+                    counter += 1
+                    self.tview_parts.insert("","end",values=(str(counter),line['title'],biliapis.second_to_time(line['length'])))
+                self.label_parts_counter['text'] = '共 %d 个分P'%counter
+            self.task_queue.put_nowait(lambda:fill_partlist(parts))
             #tags
             if tags:
                 tagtext = '#'+'# #'.join(tags)+'#'
@@ -728,17 +854,15 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda:self.fill_recommends(-1))
         start_new_thread(tmp,())
 
-    def fill_recommends(self,page=1):#在加载完成后调用时传入-1
+    def fill_recommends(self,page=1):#在加载完成后第一次调用时传入-1
         if not self.obj_rec:
             #防止特殊情况下推荐视频数为0
             self.button_rec_next.grid_remove()
             self.button_rec_back.grid_remove()
+            self.text_tags['height'] = 20
             return
         self.button_rec_next['state'] = 'disabled'
         self.button_rec_back['state'] = 'disabled'
-        if not self.obj_rec:#保险措施
-            self._prepare_recommend()
-            page = -1
         if page != -1:
             for item in self.obj_rec[self.rec_page-1]:
                 item[0].grid_remove()
@@ -816,7 +940,7 @@ class LoginWindow(object):
         
         self.label_imgshower = tk.Label(self.window,text='',image=self.qrcode_img)
         self.label_imgshower.pack()
-        self.label_text = tk.Label(self.window,text='未获取',font=(15))
+        self.label_text = tk.Label(self.window,text='未获取',font=('Microsoft YaHei UI',15))
         self.label_text.pack(pady=10)
         self.button_refresh = ttk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
         self.button_refresh.pack()
@@ -843,8 +967,6 @@ class LoginWindow(object):
         self.label_text['text'] = {0:'登录成功',-1:'密钥错误',-2:'二维码已超时',-4:'使用B站手机客户端扫描此二维码',-5:'在手机上确认登录'}[self.condition]
         if self.condition == 0:
             cookiejar = biliapis.make_cookiejar(self.final_url)
-            if os.path.exists(os.path.abspath('./cookies.txt')):
-                os.remove(os.path.abspath('./cookies.txt'))
             cookiejar.save(os.path.abspath('./cookies.txt'))
             logging.debug('Cookie File saved to '+os.path.abspath('./cookies.txt'))
             self.window.after(1000,self.close)
@@ -943,7 +1065,7 @@ class PartsChooser(Window):
         #例如:
         #[
         # ['Wdnmd',99999,233333,'H.265'],
-        # ['nyanyanyanyanya',88888,'55555555','Flash Video']
+        # ['nyanyanyanyanya',88888,55555555,'Flash Video']
         #]
         self.columns = columns
         self.part_list = part_list
@@ -1073,6 +1195,30 @@ class BlackroomWindow(Window):
             self.label_treatment['text'] = '封禁 {} 天'.format(self.data_pool[page-1]['punish']['days'])
         self.set_text(self.sctext_content,True,text=self.data_pool[page-1]['punish']['content'])
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
+
+class SingleVideoDownloader(Window):
+    def __init__(self,bvid,pnumbers=[],path=os.path.abspath('./'),quality=1):
+        '''
+        quality = 0 / 1 / [quality_id1,quality_id2...quality_idn]
+            如果传入 1 则为最高画质;
+            如果传入 0 则为最低画质;
+            如果传入列表, 则按照列表里quality_id的顺序匹配画质,
+                若没有匹配的画质, 则下载最高画质.
+        pnumbers 为空列表时下载全部分P, 不为空时下载所指定的分P.
+        '''
+        super().__init__('BiliTools - VideoDownloader',True,config['topmost'],config['alpha'])
+
+        tk.Label(self.window,text='目标:').grid(column=0,row=0,sticky='e')
+        self.label_target = tk.Label(self.window,text='-')
+        self.label_target.grid(column=1,row=0,sticky='w')
+        tk.Label(self.window,text='画质:').grid(column=0,row=1,sticky='e')
+        self.label_quality = tk.Label(self.window,text='-')
+        self.label_quality.grid(column=1,row=1,sticky='w')
+        
+        self.video_data = biliapis.get_video_detail(bvid=bvid)
+        self.topath = path
+        
+        
 
 if __name__ == '__main__' and not config['devmode']:
     logging.info('Program Running.')

@@ -178,6 +178,7 @@ error_code = {
     -689:"版权限制",
     -701:"扣节操失败",
     -8888:"服务器错误",
+    -2202:"CSRF请求非法",
     7201006:'音频未找到或已下架',
     72000000:'请求错误',
     72010027:'版权音乐重定向',
@@ -187,7 +188,6 @@ error_code = {
 }
 
 stream_dash_video_quality = {
-    6:'240P',
     16:'360P',
     32:'480P',
     64:'720P',
@@ -195,14 +195,39 @@ stream_dash_video_quality = {
     80:'1080P',
     112:'1080P+',
     116:'1080P60',
-    120:'4K'
+    120:'4K',
+    125:'HDR'
     }
+
+stream_dash_video_quality_ = {v: k for k, v in stream_dash_video_quality.items()}
+
+stream_flv_video_quality = {
+    16:'360P',
+    32:'480P',
+    64:'720P',
+    74:'720P60',
+    80:'1080P',
+    112:'1080P+',
+    116:'1080P60',
+    120:'4K',
+    }
+
+stream_flv_video_quality_ = {v: k for k, v in stream_flv_video_quality.items()}
+
+stream_mp4_video_quality = {
+    6:'240P',
+    16:'360P'
+    }
+
+stream_mp4_video_quality_ = {v: k for k, v in stream_mp4_video_quality.items()}
 
 stream_dash_audio_quality = {
     30216:'64K',
     30232:'132K',
     30280:'192K'
     }
+
+stream_dash_audio_quality_ = {v: k for k, v in stream_dash_audio_quality.items()}
 
 media_type = {
     1:'番剧',
