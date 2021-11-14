@@ -551,7 +551,9 @@ class AudioWindow(Window):
             path = filedialog.askdirectory(title='保存至')
             if path:
                 stream = biliapis.get_audio_stream(auid=self.auid,quality=2)
+                self.window.attributes('-disabled',1)
                 w = biliapis.DownloadWindow(stream['url'],path,filename)
+                self.window.attributes('-disabled',0)
         else:
             msgbox.showwarning('','加载未完成')
         if self.is_alive:
@@ -849,6 +851,7 @@ class CommonVideoWindow(Window):
                 for item in stream:
                     qs += [item['quality']]
                 stream = stream[qs.index(max(qs))]
+                self.window.attributes('-disabled',1)
                 w = biliapis.DownloadWindow(stream['url'],
                                             path,
                                             '{}_P{}_{}_cid{}_{}.aac'.format(
@@ -858,6 +861,7 @@ class CommonVideoWindow(Window):
                                                 bilicodes.stream_dash_audio_quality[max(qs)]),
                                             False,topmost=config['topmost']
                                             )
+                self.window.attributes('-disabled',0)
             msgbox.showinfo('','Done.')
         except biliapis.BiliError as e:
             msgbox.showerror('','BiliError Occurred with Code %s:\n%s'%(e.code,e.msg))
@@ -891,7 +895,9 @@ class CommonVideoWindow(Window):
         mode = config['video_download']['mode']
         quality = config['video_download'][mode]['quality']
         try:
+            self.window.attributes('-disabled',1)
             SingleVideoDownloader(bvid,path,quality,indexes,mode)
+            self.window.attributes('-disabled',0)
         except Exception as e:
             raise e #
         finally:
@@ -1498,7 +1504,7 @@ class SingleVideoDownloader(Window):
                     mstatus = merge_media(os.path.join(self.topath,tmpname_audio),
                                           os.path.join(self.topath,tmpname_video),
                                           os.path.join(self.topath,final_filename))
-                    if mstatus:
+                    if not mstatus:
                         try:
                             os.remove(os.path.join(self.topath,tmpname_audio))
                             os.remove(os.path.join(self.topath,tmpname_video))
