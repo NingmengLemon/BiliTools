@@ -216,8 +216,9 @@ releaseprog:释放进程
 askopen:完成后询问是否打开文件夹
 showwarning:显示警告(关闭此选项也会关闭askopen)
 use_cookies:使用已加载的Cookies进行下载
+iconic:最小化打开
 '''
-    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True,headers=fake_headers_get):
+    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True,headers=fake_headers_get,iconic=False):
         if not showwarning:
             askopen = False
         self.data = {
@@ -246,6 +247,8 @@ use_cookies:使用已加载的Cookies进行下载
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.wm_attributes('-topmost',topmost)
+        if iconic:
+            self.window.state('icon')
 
         #定义组件
         self.widgets = {
@@ -320,7 +323,7 @@ use_cookies:使用已加载的Cookies进行下载
             if self.options['askopen']:
                 if msgbox.askyesno('','任务完成！\n打开输出目录？'):
                     os.system('explorer "%s"'%self.data['topath'])
-            logging.info('Download Task Finished, %d Bytes Received.'%data['totalsize'])
+            logging.info('Download Task Finished, %d Bytes Received.'%self.data['totalsize'])
             self.close(True)
         elif reason == 2:
             self.data['condition'] = 2
@@ -342,7 +345,8 @@ use_cookies:使用已加载的Cookies进行下载
         url = self.data['url']
         if os.path.exists(tofile):
             self.data['error_info'] = 'File already Exists.'
-            self.data['condition'] = 2
+            self.data['condition'] = 1
+            self.data['condition_str'] = 'Done.'
             return
         tmp_file = tofile+'.download'
         try:
@@ -883,14 +887,14 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby=False,hdr=False,_4k=Fals
         audio.append({
             'quality':au['id'],#对照表bilicodes.stream_dash_audio_quality
             'url':au['baseUrl'],
-            'type':au['codecs'],
+            'encoding':au['codecs'],
             })
     video = []
     for vi in data['video']:
         video.append({
             'quality':vi['id'],#对照表bilicodes.stream_dash_video_quality
             'url':vi['baseUrl'],
-            'type':vi['codecs'],
+            'encoding':vi['codecs'],
             'width':vi['width'],
             'height':vi['height'],
             'frame_rate':vi['frameRate'],
