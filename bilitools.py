@@ -17,6 +17,7 @@ import queue
 import webbrowser
 import json
 import base64
+import subprocess
 
 import qrcode
 
@@ -44,12 +45,18 @@ config = {
     'devmode':True, #开发模式开关
     'video_download':{
         'mode':'dash', # dash / mp4 / flv
-        'quality_dash':'highest',# highest / lowest / regular
-        'quality_flv':'highest',# 同上
-        'quality_mp4':'highest',# highest / lowest
-        'regular_dash':[], # qid01, qid02, qid03 ...
-        'regular_flv':[], # 同上
-        'regular_mp4':[], # 摆设, 目的是规避错误
+        'dash':{
+            'quality':'highest',# highest / lowest / regular
+            'regular':[]# qid01, qid02, qid03 ...
+            },
+        'flv':{
+            'quality':'highest',# highest / lowest / regular
+            'regular':[]# qid01, qid02, qid03 ...
+            },
+        'mp4':{
+            'quality':'highest',# highest / lowest
+            'regular':[]# 摆设, 目的是规避错误
+            }
         },
     }
 #TODO: 设置保存与读取
@@ -62,12 +69,17 @@ logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
 
 tips = [
         '欢迎使用基于Bug开发的BiliTools（',
-        '最简单的方法就是直接在这里粘贴网址',
         '不管怎样，你得先告诉我你要去哪儿啊',
         'Bug是此程序的核心部分',
         '鸽子是此程序的作者的本体（咕',
         '想要反馈Bug？那你得先找到作者再说',
-        'No one knows CREATING BUGs better than me！'
+        'No one knows CREATING BUGs better than me！',
+        '有一个程序员前来修Bug',
+        '给我来一份烫烫烫的锟斤拷',
+        '我好不容易写好一次, 你却崩溃得这么彻底',
+        '（`Oω|',
+        '钢板和锉刀你更喜欢哪一个？',
+        '点我是可以刷新Tips哒ヾ(•ω•`)o'
         ]
 
 about_info = '\n'.join([
@@ -92,6 +104,9 @@ def replaceChr(text):
         text = text.replace(t,repChr[t])
     return text
 
+def check_ffmpeg():
+    return not bool(os.popen('ffmpeg.exe -h').close())
+
 def makeQrcode(data):
     qr = qrcode.QRCode()
     qr.add_data(data)
@@ -100,9 +115,11 @@ def makeQrcode(data):
     img.save(a,'png')
     return a #返回一个BytesIO对象
 
-def merge_media(audio_path,video_path,output_path):
-    #传入时要带后缀
-    return os.system('ffmpeg.exe -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_path,video_path,output_path))
+def merge_media(audio_file,video_file,output_file): #传入时要带后缀
+    return bool(os.popen('ffmpeg.exe -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file)).close())
+
+def convert_audio(from_file,to_file):
+    return bool(os.popen('ffmpeg.exe -i "{}" -acodec libmp3lame "{}"'.format(from_file,to_file)).close())
 
 class MainWindow(Window):
     def __init__(self):
@@ -140,7 +157,7 @@ class MainWindow(Window):
         self.radiobutton_entrymode_jump.grid(column=0,row=0,sticky='w')
         self.radiobutton_entrymode_search = ttk.Radiobutton(self.frame_entrymode,value=1,variable=self.intvar_entrymode,text='搜索',state='disabled')
         self.radiobutton_entrymode_search.grid(column=0,row=1,sticky='w')
-        self.radiobutton_entrymode_fdown = ttk.Radiobutton(self.frame_entrymode,value=2,variable=self.intvar_entrymode,text='快速下载',state='disabled')
+        self.radiobutton_entrymode_fdown = ttk.Radiobutton(self.frame_entrymode,value=2,variable=self.intvar_entrymode,text='快速下载')
         self.radiobutton_entrymode_fdown.grid(column=0,row=2,sticky='w')
         
         ttk.Button(self.window,text='开始',width=11,command=self.start).grid(column=2,row=1,sticky='ne')
@@ -162,6 +179,8 @@ class MainWindow(Window):
         self.changeTips()
         self.login(True)
         self.entry_source.focus()
+
+        self.window.mainloop()
 
     def _clear_face(self):
         self.label_face.configure(image=self.img_user_face_empty)
@@ -244,6 +263,8 @@ class MainWindow(Window):
 
     def goto_config(self):
         w = ConfigWindow()
+        self.window.wm_attributes('-topmost',config['topmost'])
+        self.window.wm_attributes('-alpha',config['alpha'])
 
     def changeTips(self,index=None):
         if index == None:
@@ -258,8 +279,8 @@ class MainWindow(Window):
             msgbox.showinfo('','你似乎没有输入任何内容......')
             return
         mode = self.intvar_entrymode.get()
+        source,flag = biliapis.parse_url(source)
         if mode == 0:#跳转模式
-            source,flag = biliapis.parse_url(source)
             if flag == 'unknown':
                 msgbox.showinfo('','无法解析......')
             elif flag == 'auid':
@@ -278,11 +299,38 @@ class MainWindow(Window):
         elif mode == 1:#搜索模式
             pass
         elif mode == 2:#快速下载模式
-            pass
-
-    def applyConfig(self):
-        self.window.wm_attributes('-topmost',config['topmost'])
-        self.window.wm_attributes('-alpha',config['alpha'])
+            if flag == 'unknown':
+                msgbox.showinfo('','无法解析......')
+            elif flag == 'avid' or flag == 'bvid':
+                if flag == 'avid':
+                    video_data = biliapis.get_video_detail(avid=source)
+                else:
+                    video_data = biliapis.get_video_detail(bvid=source)
+                path = filedialog.askdirectory(title='选择保存位置')
+                if not path:
+                    return
+                parts = video_data['parts']
+                bvid = video_data['bvid']
+                title = video_data['title']
+                if len(parts) > 1:
+                    tmp = []
+                    for part in parts:
+                        tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+                    indexes = PartsChooser(tmp).return_values
+                    if not indexes:
+                        return
+                else:
+                    indexes = [0]
+                mode = config['video_download']['mode']
+                quality = config['video_download'][mode]['quality']
+                try:
+                    SingleVideoDownloader(bvid,path,quality,indexes,mode)
+                except Exception as e:
+                    raise e #
+                finally:
+                    return
+            else:
+                msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
 class ConfigWindow(Window):
     def __init__(self):
@@ -290,7 +338,7 @@ class ConfigWindow(Window):
         
         #Basic
         self.frame_basic = tk.LabelFrame(self.window,text='基础设置')
-        self.frame_basic.grid(column=0,row=0)
+        self.frame_basic.grid(column=0,row=0,sticky='nw')
         #Topmost
         self.boolvar_topmost = tk.BooleanVar(self.window,config['topmost'])
         self.checkbutton_topmost = ttk.Checkbutton(self.frame_basic,text='置顶',onvalue=True,offvalue=False,variable=self.boolvar_topmost)
@@ -301,7 +349,7 @@ class ConfigWindow(Window):
         self.doublevar_winalpha = tk.DoubleVar(self.window,value=config['alpha'])
         self.label_winalpha_shower = tk.Label(self.frame_winalpha,text='% 3d%%'%(config['alpha']*100))
         self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
-        self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.0,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha)
+        self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.3,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha,command=lambda coor:self.label_winalpha_shower.configure(text='% 3d%%'%(round(float(coor),2)*100)))
         self.scale_winalpha.grid(column=1,row=0,sticky='w')
         self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
         #Emoji Filter
@@ -311,64 +359,133 @@ class ConfigWindow(Window):
         self.checkbutton_filteremoji = ttk.Checkbutton(self.frame_filteremoji,text='过滤Emoji',onvalue=True,offvalue=False,variable=self.boolvar_filteremoji)
         self.checkbutton_filteremoji.grid(column=0,row=0)
         self.label_filteremoji_help = tk.Label(self.frame_filteremoji,text='')
-        self.set_image(self.label_filteremoji_help,imglib.help_sign,size=(18,18))
+        self.set_image(self.label_filteremoji_help,imglib.help_sign,size=(16,16))
         self.label_filteremoji_help.grid(column=1,row=0)
         self.tooltip_filteremoji = tooltip.ToolTip(self.label_filteremoji_help,text='此功能专为某些不支持Emoji显示的设备添加 :)')
 
-        #Video
+        #Video Download
         self.frame_video = tk.LabelFrame(self.window,text='视频下载设置')
-        self.frame_video.grid(column=1,row=0)
+        self.frame_video.grid(column=1,row=0,sticky='nw')
         #Mode
         self.stringvar_videomode = tk.StringVar(self.window,config['video_download']['mode'])
-        self.radiobutton_videomode_dash = ttk.Radiobutton(self.frame_video,text='DASH流',value='dash',variable=self.stringvar_videomode)
-        self.radiobutton_videomode_dash.grid(column=0,row=0,sticky='w')
-        self.radiobutton_videomode_flv = ttk.Radiobutton(self.frame_video,text='Flv',value='flv',variable=self.stringvar_videomode,state='disabled')
+        self.frame_videomode_dash = tk.Frame(self.frame_video)
+        self.frame_videomode_dash.grid(column=0,row=0,sticky='w')
+        self.radiobutton_videomode_dash = ttk.Radiobutton(self.frame_videomode_dash,text='DASH流',value='dash',variable=self.stringvar_videomode,command=self.change_videomode)
+        self.radiobutton_videomode_dash.grid(column=0,row=0)
+        self.label_videomode_dash_info = tk.Label(self.frame_videomode_dash,text='')
+        self.set_image(self.label_videomode_dash_info,imglib.info_sign,size=(18,18))
+        self.label_videomode_dash_info.grid(column=1,row=0)
+        self.tooltip_videomode_dash = tooltip.ToolTip(self.label_videomode_dash_info,text='需要FFmpeg的支持.')
+        self.radiobutton_videomode_flv = ttk.Radiobutton(self.frame_video,text='Flv',value='flv',variable=self.stringvar_videomode,command=self.change_videomode,state='disabled')
         self.radiobutton_videomode_flv.grid(column=0,row=1,sticky='w')
         self.frame_videomode_mp4 = tk.Frame(self.frame_video)
         self.frame_videomode_mp4.grid(column=0,row=2,sticky='w')
-        self.radiobutton_videomode_mp4 = ttk.Radiobutton(self.frame_videomode_mp4,text='低清MP4',value='mp4',variable=self.stringvar_videomode,state='disabled')
+        self.radiobutton_videomode_mp4 = ttk.Radiobutton(self.frame_videomode_mp4,text='低清MP4',value='mp4',variable=self.stringvar_videomode,command=self.change_videomode,state='disabled')
         self.radiobutton_videomode_mp4.grid(column=0,row=0)
         self.label_videomode_mp4_info = tk.Label(self.frame_videomode_mp4,text='')
         self.set_image(self.label_videomode_mp4_info,imglib.info_sign,size=(18,18))
         self.label_videomode_mp4_info.grid(column=1,row=0)
-        self.tooltip_videomode_mp4 = tooltip.ToolTip(self.label_videomode_mp4_info,text='仅支持240P与320P, 且限速65KB/s')
+        self.tooltip_videomode_mp4 = tooltip.ToolTip(self.label_videomode_mp4_info,text='仅支持240P与360P, 且限速65KB/s')
         #Strategy
         self.frame_strategy = tk.LabelFrame(self.frame_video,text='下载策略')
         self.frame_strategy.grid(column=0,row=3)
-        self.stringvar_strategy = tk.StringVar(self.window,config['video_download']['quality_%s'%(config['video_download']['mode'])])
-        ttk.Radiobutton(self.frame_strategy,text='最高画质',value='highest',variable=self.stringvar_strategy).grid(column=0,row=0,sticky='w')
-        ttk.Radiobutton(self.frame_strategy,text='最低画质',value='lowest',variable=self.stringvar_strategy).grid(column=0,row=1,sticky='w')
-        self.radiobutton_regular = ttk.Radiobutton(self.frame_strategy,text='自定义规则',value='regular',variable=self.stringvar_strategy)
+        self.stringvar_strategy = tk.StringVar(self.window,config['video_download'][config['video_download']['mode']]['quality'])
+        self.radiobutton_highest = ttk.Radiobutton(self.frame_strategy,text='最高画质',value='highest',variable=self.stringvar_strategy,command=self.change_strategy)
+        self.radiobutton_highest.grid(column=0,row=0,sticky='w')
+        self.radiobutton_lowest = ttk.Radiobutton(self.frame_strategy,text='最低画质',value='lowest',variable=self.stringvar_strategy,command=self.change_strategy)
+        self.radiobutton_lowest.grid(column=0,row=1,sticky='w')
+        self.radiobutton_regular = ttk.Radiobutton(self.frame_strategy,text='自定义规则',value='regular',variable=self.stringvar_strategy,command=self.change_strategy)
         self.radiobutton_regular.grid(column=0,row=2,sticky='w')
         self.frame_regular = tk.Frame(self.frame_strategy)
         self.frame_regular.grid(column=0,row=3)
+        self.listbox_regular = tk.Listbox(self.frame_regular,width=10,height=8,selectmode='extended')
+        self.listbox_regular.grid(column=0,row=0,rowspan=5)
+        for item in config['video_download'][config['video_download']['mode']]['regular']:
+            self.listbox_regular.insert('end',bilicodes.stream_dash_video_quality[item])
+        self.stringvar_quality = {'dash':tk.StringVar(self.window,'360P'),
+                                  'flv':tk.StringVar(self.window,'360P'),
+                                  'mp4':tk.StringVar(self.window,'360P')}
+        self.optmenu_quality = {'dash':ttk.OptionMenu(self.frame_regular,self.stringvar_quality['dash'],'360P',*list(bilicodes.stream_dash_video_quality.values())),
+                                'flv':ttk.OptionMenu(self.frame_regular,self.stringvar_quality['flv'],'360P',*list(bilicodes.stream_flv_video_quality.values())),
+                                'mp4':ttk.OptionMenu(self.frame_regular,self.stringvar_quality['mp4'],'360P',*list(bilicodes.stream_mp4_video_quality.values()))}
+        self.quality_codes = {'dash':bilicodes.stream_dash_video_quality,
+                            'flv':bilicodes.stream_flv_video_quality,
+                            'mp4':bilicodes.stream_mp4_video_quality,
+                            'dash_':bilicodes.stream_dash_video_quality_,
+                            'flv_':bilicodes.stream_flv_video_quality_,
+                            'mp4_':bilicodes.stream_mp4_video_quality_}
+        for widget_name in self.optmenu_quality.keys():
+            self.optmenu_quality[widget_name].grid(column=1,row=0)
+            if widget_name != config['video_download']['mode']:
+                self.optmenu_quality[widget_name].grid_remove()
+        ttk.Button(self.frame_regular,text='从上方插入',command=lambda:self.listbox_regular.insert(0,self.stringvar_quality[self.stringvar_videomode.get()].get())).grid(column=1,row=1,sticky='sw')
+        ttk.Button(self.frame_regular,text='从下方插入',command=lambda:self.listbox_regular.insert('end',self.stringvar_quality[self.stringvar_videomode.get()].get())).grid(column=1,row=2,sticky='nw')
+        ttk.Button(self.frame_regular,text='删除选中',command=lambda:self.listbox_regular.delete('active')).grid(column=1,row=3,sticky='sw')
+        ttk.Button(self.frame_regular,text='删除全部',command=lambda:self.listbox_regular.delete(0,'end')).grid(column=1,row=4,sticky='nw')
+        ttk.Button(self.frame_regular,text='保存策略设置',command=self.save_strategy).grid(column=0,row=5,columnspan=2,sticky='w')
+        self.text_regular_help = tk.Label(self.frame_regular,text='如何使用？',font=('Microsoft YaHei UI',8),fg='#2080f0')
+        self.text_regular_help.grid(column=0,row=6,sticky='w')
+        self.text_regular_help.bind('<Button-1>',self.show_regular_help)
         if self.stringvar_videomode.get() == 'mp4':
             self.radiobutton_regular.grid_remove()
             self.frame_regular.grid_remove()
-        self.listbox_regular = tk.Listbox(self.frame_regular,width=10,height=8,selectmode='extended')
-        self.listbox_regular.grid(column=0,row=0,rowspan=6)
-        for item in config['video_download']['regular_%s'%(config['video_download']['mode'])]:
-            self.listbox_regular.insert('end',bilicodes.stream_dash_video_quality[item])
-        self.stringvar_quality = tk.StringVar(self.window,'320P')
-        self.optmenu_quality = ttk.OptionMenu(self.frame_regular,self.stringvar_quality,'320P',*list(bilicodes.stream_dash_video_quality.values()))
-        self.optmenu_quality.grid(column=1,row=0)
-        ttk.Button(self.frame_regular,text='从上方插入',command=lambda:self.listbox_regular.insert(0,self.stringvar_quality.get())).grid(column=1,row=1)
-        ttk.Button(self.frame_regular,text='从下方插入',command=lambda:self.listbox_regular.insert('end',self.stringvar_quality.get())).grid(column=1,row=2)
-        ttk.Separator(self.frame_regular).grid(column=1,row=3,sticky='we')
-        ttk.Button(self.frame_regular,text='删除选中').grid(column=1,row=4)
-        ttk.Button(self.frame_regular,text='删除全部',command=lambda:self.listbox_regular.delete(0,'end')).grid(column=1,row=5)        
-        tk.Label(self.frame_regular,text='优先级从上至下依次递减;\n在列表框上拖动以多选;\n滑动滚轮以上下翻动',justify='left').grid(column=0,row=6,columnspan=2,sticky='w')
+        if self.stringvar_strategy.get() != 'regular':
+            self.frame_regular.grid_remove()
 
-    def applyConfig(self):#
+        # Save or Cancel
+        self.frame_soc = tk.Frame(self.window)
+        self.frame_soc.grid(column=1,row=1,sticky='se')
+        ttk.Button(self.frame_soc,text='取消',width=5,command=self.close).grid(column=0,row=0)
+        ttk.Button(self.frame_soc,text='保存',width=5,command=self.save_config).grid(column=1,row=0)
+
+        self.window.mainloop()
+
+    def save_strategy(self):
+        global config
+        mode = self.stringvar_videomode.get()
+        config['video_download'][mode]['quality'] = self.stringvar_strategy.get()
+        for item in list(self.listbox_regular.get(0,'end')):
+            config['video_download'][mode]['regular'].append(self.quality_codes[mode+'_'][item])
+
+    def change_videomode(self):
+        var_mode = self.stringvar_videomode.get()
+        var_strategy = self.stringvar_strategy.get()
+        if var_mode == 'mp4':
+            self.radiobutton_regular.grid_remove()
+        else:
+            self.radiobutton_regular.grid()
+            self.listbox_regular.delete(0,'end')
+            for item in config['video_download'][var_mode]['regular']:
+                self.listbox_regular.insert('end',self.quality_codes[var_mode][item])
+        self.stringvar_strategy.set(config['video_download'][var_mode]['quality'])
+        self.change_strategy()
+        for widget_name in self.optmenu_quality.keys():
+            if widget_name == var_mode:
+                self.optmenu_quality[widget_name].grid()
+            else:
+                self.optmenu_quality[widget_name].grid_remove()
+
+    def change_strategy(self):
+        if self.stringvar_strategy.get() == 'regular' and self.stringvar_videomode.get() != 'mp4':
+            self.frame_regular.grid()
+        else:
+            self.frame_regular.grid_remove()
+
+    def show_regular_help(self,event=None):
+        text = '待填充 (`Ov|'
+        msgbox.showinfo('',text)
+
+    def apply_config(self):#
         global config
         config['topmost'] = self.boolvar_topmost.get()
-        config['autologin'] = self.boolvar_autologin.get()
         config['alpha'] = round(self.doublevar_winalpha.get(),2)
         config['filter_emoji'] = self.boolvar_filteremoji.get()
-        self.label_winalpha_shower['text'] = '% 3d%%'%(config['alpha']*100)
-        self.window.wm_attributes('-topmost',config['topmost'])
-        self.window.wm_attributes('-alpha',config['alpha'])
         biliapis.filter_emoji = config['filter_emoji']
+        self.save_strategy()
+
+    def save_config(self):
+        self.apply_config()
+        self.close()
 
 class AudioWindow(Window):
     def __init__(self,auid):
@@ -425,7 +542,7 @@ class AudioWindow(Window):
         self.frame_operation.grid(column=0,row=8,columnspan=2)
 
         self.refresh_data()
-        #self.window.mainloop()
+        self.window.mainloop()
 
     def download_audio(self):
         self.button_download_audio['state'] = 'disabled'
@@ -592,6 +709,8 @@ class CommonVideoWindow(Window):
         self.button_open_in_ex.grid(column=0,row=0)
         self.button_download_audio = ttk.Button(self.frame_operation,text='下载音频',command=self.download_audio)
         self.button_download_audio.grid(column=1,row=0)
+        self.button_download_video = ttk.Button(self.frame_operation,text='下载视频',command=self.download_video)
+        self.button_download_video.grid(column=2,row=0)
         #左起第2列
         self.frame_left_2 = tk.Frame(self.window)
         self.frame_left_2.grid(column=1,row=0)
@@ -674,6 +793,8 @@ class CommonVideoWindow(Window):
         self.update_debug_info()
         self.refresh_data()
 
+        self.window.mainloop()
+
     def show_pbp(self):
         if not self.video_data:
             msgbox.showwarning('','加载尚未完成')
@@ -743,7 +864,39 @@ class CommonVideoWindow(Window):
         except Exception as e:
             msgbox.showerror('','Error Occurred:\n'+str(e))
         finally:
-            self.button_download_audio['state'] = 'normal'
+            if self.is_alive:
+                self.button_download_audio['state'] = 'normal'
+            return
+
+    def download_video(self):
+        if not self.video_data:
+            msgbox.showwarning('','加载尚未完成')
+            return
+        self.button_download_video['state'] = 'disabled'
+        path = filedialog.askdirectory(title='选择保存位置')
+        if not path:
+            return
+        parts = self.video_data['parts']
+        bvid = self.video_data['bvid']
+        title = self.video_data['title']
+        if len(parts) > 1:
+            tmp = []
+            for part in parts:
+                tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+            indexes = PartsChooser(tmp).return_values
+            if not indexes:
+                return
+        else:
+            indexes = [0]
+        mode = config['video_download']['mode']
+        quality = config['video_download'][mode]['quality']
+        try:
+            SingleVideoDownloader(bvid,path,quality,indexes,mode)
+        except Exception as e:
+            raise e #
+        finally:
+            if self.is_alive:
+                self.button_download_video['state'] = 'normal'
             return
 
     def jump_by_recommend(self,abvid):
@@ -1034,6 +1187,8 @@ class PbpShower(Window):
         self.label_rtlength = tk.Label(self.frame_datashower,text='--------')
         self.label_rtlength.grid(column=1,row=1,sticky='w')
 
+        self.window.mainloop()
+
     def move_away(self,event):
         self.chart.itemconfig(self.x_scanline,state='hidden')
         self.chart.itemconfig(self.y_scanline,state='hidden')
@@ -1167,6 +1322,8 @@ class BlackroomWindow(Window):
         self.load_data()
         self.turn_page(self.page)
 
+        self.window.mainloop()
+
     def load_data(self):
         self.loaded_page += 1
         self.data_pool += biliapis.get_blackroom(self.loaded_page)
@@ -1197,29 +1354,199 @@ class BlackroomWindow(Window):
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
 
 class SingleVideoDownloader(Window):
-    def __init__(self,bvid,pnumbers=[],path=os.path.abspath('./'),quality=1):
+    def __init__(self,bvid,path=os.path.abspath('./'),quality='highest',pnumbers=[],mode='dash'):
         '''
-        quality = 0 / 1 / [quality_id1,quality_id2...quality_idn]
-            如果传入 1 则为最高画质;
-            如果传入 0 则为最低画质;
-            如果传入列表, 则按照列表里quality_id的顺序匹配画质,
-                若没有匹配的画质, 则下载最高画质.
+        quality = 'highest' / 'lowest' / 'regular'
+            如果传入 highest 则为最高画质;
+            如果传入 lowest 则为最低画质;
+            如果传入 regular 则从config中读取优先级列表
         pnumbers 为空列表时下载全部分P, 不为空时下载所指定的分P.
         '''
-        super().__init__('BiliTools - VideoDownloader',True,config['topmost'],config['alpha'])
-
-        tk.Label(self.window,text='目标:').grid(column=0,row=0,sticky='e')
-        self.label_target = tk.Label(self.window,text='-')
-        self.label_target.grid(column=1,row=0,sticky='w')
-        tk.Label(self.window,text='画质:').grid(column=0,row=1,sticky='e')
-        self.label_quality = tk.Label(self.window,text='-')
-        self.label_quality.grid(column=1,row=1,sticky='w')
-        
         self.video_data = biliapis.get_video_detail(bvid=bvid)
         self.topath = path
-        
-        
+        self.pnumbers = pnumbers
+        #self.mode = mode.lower()
+        self.mode = 'dash'#其他模式没摸好
+        self.quality = quality
 
-if __name__ == '__main__' and not config['devmode']:
+        super().__init__('BiliTools - VideoDownloader',True,config['topmost'],config['alpha'])
+
+        #BasicInfo
+        self.frame_basic = tk.Frame(self.window)
+        self.frame_basic.grid(column=0,row=0,sticky='w')
+        tk.Label(self.frame_basic,text='目标:').grid(column=0,row=0,sticky='e')
+        tk.Label(self.frame_basic,text=bvid).grid(column=1,row=0,sticky='w')
+        tk.Label(self.frame_basic,text='标题:').grid(column=0,row=1,sticky='e')
+        self.entry_title = ttk.Entry(self.frame_basic,width=60)
+        self.entry_title.insert('end',self.video_data['title'])
+        self.entry_title['state'] = 'disabled'
+        self.entry_title.grid(column=1,row=1,sticky='w')
+        tk.Label(self.frame_basic,text='画质:').grid(column=0,row=2,sticky='e')
+        tk.Label(self.frame_basic,text=config['video_download'][mode]['quality'].upper()).grid(column=1,row=2,sticky='w')
+        tk.Label(self.frame_basic,text='方式:').grid(column=0,row=3,sticky='e')
+        tk.Label(self.frame_basic,text=config['video_download']['mode'].upper()).grid(column=1,row=3,sticky='w')
+        if not check_ffmpeg() and self.mode == 'dash':
+            msbox.showerror('','FFmpeg不可用.')
+            self.close()
+            return
+        #Table
+        self.table_data = []
+        columns = {'number':'序号',
+                   'title':'标题',
+                   'cid':'Cid',
+                   'quality':'画质',
+                   'encoding':'编码',
+                   'status:':'状态'}
+        columns_widths = [40,180,80,60,100,70]
+        self.frame_table = tk.Frame(self.window)
+        self.frame_table.grid(column=0,row=1,sticky='w')
+        self.scbar_y = tk.Scrollbar(self.frame_table,orient='vertical')
+        self.scbar_x = tk.Scrollbar(self.frame_table,orient='horizontal')
+        self.table = ttk.Treeview(self.frame_table,show="headings",columns=tuple(columns.keys()),yscrollcommand=self.scbar_y.set,xscrollcommand=self.scbar_x.set,height=10)
+        self.table.grid(column=0,row=0)
+        self.scbar_y['command'] = self.table.yview
+        self.scbar_x['command'] = self.table.xview
+        self.scbar_y.grid(column=1,row=0,sticky='wns')
+        self.scbar_x.grid(column=0,row=1,sticky='nwe')
+        i = 0
+        for column in columns.keys():
+            self.table.column(column,width=columns_widths[i],anchor='w')
+            self.table.heading(column,text=columns[column],anchor='w')
+            i += 1
+        #Tip
+        tk.Label(self.window,text='请耐心等待, 不要关闭本窗口/下载窗口/本窗口的父窗口.\n详细的下载进度可以在弹出的下载窗口中查看.',justify='left').grid(column=0,row=2,sticky='w')
+        #Fill Data
+        parts = self.video_data['parts']
+        self.prepared_data = []
+        if pnumbers:
+            indexes = pnumbers
+        else:
+            indexes = range(0,len(parts))
+        i = 0
+        for index in indexes:
+            i += 1
+            p = parts[index]
+            self.table_data.append([str(i),p['title'],p['cid'],'','','待处理'])
+            self.table.insert("","end",values=tuple(self.table_data[-1]))
+            self.prepared_data += [p]
+        #Here we go
+        self.auto_refresh_table()
+        index = 0
+        for pdata in self.prepared_data:
+            if self.mode == 'dash':
+                hdr = False
+                _4k = False
+                if config['video_download']['dash']['quality'] == 'highest':
+                    hdr = True
+                    _4k = True
+                elif config['video_download']['dash']['quality'] == 'regular':
+                    if bilicodes.stream_dash_video_quality_['HDR'] in config['video_download']['dash']['regular']:
+                        hdr = True
+                    if bilicodes.stream_dash_video_quality_['4K'] in config['video_download']['dash']['regular']:
+                        _4k = True
+                streams = biliapis.get_video_stream_dash(pdata['cid'],bvid=self.video_data['bvid'],hdr=hdr,_4k=_4k)
+                #print('取流完毕')
+                vstream = self.match_dash_quality(streams['video'])
+                aqs = []
+                for stream in streams['audio']:
+                    aqs.append(stream['quality'])
+                astream = streams['audio'][aqs.index(max(aqs))]
+                #print('画质匹配完毕: '+bilicodes.stream_dash_video_quality[vstream['quality']])
+                #更新数据
+                #3画质 4编码 5状态
+                self.table_data[index][3] = bilicodes.stream_dash_video_quality[vstream['quality']]
+                self.table_data[index][4] = vstream['encoding']
+                #生成文件名
+                tmpname_audio = '{}_{}_audiostream.aac'.format(self.video_data['bvid'],
+                                                       pdata['cid'])
+                tmpname_video = '{}_{}_{}_videostream.mp4'.format(self.video_data['bvid'],
+                                                       pdata['cid'],vstream['quality'])
+                final_filename = replaceChr('{}_{}_P{}_{}_{}.mp4'.format(self.video_data['title'],self.video_data['bvid'],
+                                                                         self.video_data['parts'].index(pdata)+1,pdata['title'],
+                                                                         bilicodes.stream_dash_video_quality[vstream['quality']]))
+                if os.path.exists(os.path.join(self.topath,final_filename)):
+                    self.table_data[index][5] = '跳过'
+                    continue
+                #print('文件名生成完毕')
+                #音频流
+                self.table_data[index][5] = '下载音频流'
+                aw = biliapis.DownloadWindow(astream['url'],self.topath,tmpname_audio,showwarning=False,iconic=True)
+                astatus = aw.data['condition']
+                aeinfo = aw.data['error_info']
+                if astatus == 3:
+                    logging.warning('AudioStream Downloading Task was Stopped by User.')
+                elif astatus == 2:
+                    logging.error('An Error Occurred while AudioStream Downloading Task Running: '+aeinfo)
+                else:
+                    astatus = 1
+                #print('音频流下载完毕')
+                #视频流
+                self.table_data[index][5] = '下载视频流'
+                vw = biliapis.DownloadWindow(vstream['url'],self.topath,tmpname_video,showwarning=False,iconic=True)
+                vstatus = vw.data['condition']
+                veinfo = vw.data['error_info']
+                if vstatus == 3:
+                    logging.warning('VideoStream Downloading Task was Stopped by User.')
+                elif vstatus == 2:
+                    logging.error('An Error Occurred while VideoStream Downloading Task Running: '+aeinfo)
+                else:
+                    vstatus = 1
+                #print('视频流下载完毕')
+                #混流
+                if astatus == 1 and vstatus == 1:
+                    self.table_data[index][5] = '混流'
+                    mstatus = merge_media(os.path.join(self.topath,tmpname_audio),
+                                          os.path.join(self.topath,tmpname_video),
+                                          os.path.join(self.topath,final_filename))
+                    if mstatus:
+                        try:
+                            os.remove(os.path.join(self.topath,tmpname_audio))
+                            os.remove(os.path.join(self.topath,tmpname_video))
+                        except:
+                            pass
+                else:
+                    logging.warning('A/V Merging Canceled because of the Reason above.')
+                #print('混流完毕')
+                self.table_data[index][5] = '完成'
+                
+            index += 1
+        msgbox.showinfo('','完成')
+        self.close()
+
+    def auto_refresh_table(self):#更新依据: self.table_data
+        #先删掉所有旧项
+        obj = self.table.get_children()
+        for o in obj:
+            self.table.delete(o)
+        #再填充新的数据
+        for line in self.table_data:
+            self.table.insert("","end",values=tuple(line))
+
+        self.window.after(100,self.auto_refresh_table)
+
+    def match_dash_quality(self,streams):#传入的是videostreams
+        quality = self.quality.lower()
+        mode = self.mode.lower()
+        qs = []
+        for stream in streams:
+            qs.append(stream['quality'])
+        if quality == 'highest':
+            return streams[qs.index(max(qs))]
+        elif quality == 'lowest':
+            return streams[qs.index(min(qs))]
+        elif config['video_download'][mode]['regular']:
+            res = None
+            for q in config['video_download'][mode]['regular']:
+                if q in qs:
+                    res = q
+                    break
+            if res == None:
+                return streams[qs.index(max(qs))]
+            else:
+                return streams[qs.index(res)]
+        else:
+            return streams[qs.index(max(qs))]
+
+if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
     logging.info('Program Running.')
     w = MainWindow()
