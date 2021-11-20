@@ -431,6 +431,39 @@ iconic:最小化打开
         except:
             pass
 
+def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_get):#yield:donesize,totalsize,percent
+    file = os.path.join(os.path.abspath(path),_replaceChr(filename))
+    if os.path.exists(file):
+        yield 0,0,100.000
+    tmpfile = file+'.download'
+    if use_cookies and cookies:
+        cookies_dict = requests.utils.dict_from_cookiejar(cookies)
+    else:
+        cookies_dict = {}
+    headers = copy.deepcopy(headers)
+    response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
+    filesize = int(response.headers['content-length'])
+    if os.path.exists(tmpfile):
+        start_byte = os.path.getsize(tmpfile)
+    else:
+        start_byte = 0
+    if start_byte >= filesize:
+        os.rename(tmpfile,file)
+        yield start_byte,filesize,100.000
+    else:
+        headers['Range'] = f'bytes={start_byte}-{filesize}'
+        req = requests.get(url,headers=headers,stream=True,cookies=cookies_dict)
+        counter = 0
+        writemode = 'ab+'
+        with open(tmpfile,writemode) as f:
+            for chunk in req.iter_content(chunk_size=1024):
+                if chunk:
+                    f.write(chunk)
+                    counter += 1
+                    yield start_byte+(counter*1024),filesize,round((start_byte+(counter*1024))/filesize*100,3)
+        os.rename(tmpfile,file)
+        yield filesize,filesize,100.000
+
 def second_to_time(sec):
     h = sec // 3600
     sec = sec % 3600
@@ -802,31 +835,42 @@ def get_media_detail(ssid=None,epid=None,mdid=None):
             'url':ep['link']
             })
     sections = []
-    for sec in data['section']:
-        sections_ = []
-        for sec_ in sec['episodes']:
-            sections_.append({
-                'avid':sec_['aid'],
-                'bvid':sec_['bvid'],
-                'cid':sec_['cid'],
-                'epid':sec_['id'],
-                'cover':sec_['cover'],
-                'title':sec_['title'],
-                'url':sec_['share_url']
+    if 'section' in data:
+        for sec in data['section']:
+            sections_ = []
+            for sec_ in sec['episodes']:
+                sections_.append({
+                    'avid':sec_['aid'],
+                    'bvid':sec_['bvid'],
+                    'cid':sec_['cid'],
+                    'epid':sec_['id'],
+                    'cover':sec_['cover'],
+                    'title':sec_['title'],
+                    'url':sec_['share_url']
+                    })
+            sections.append({
+                'title':sec['title'],
+                'episodes':sections_
                 })
-        sections.append({
-            'title':sec['title'],
-            'episodes':sections_
-            })
+    upinfo = None
+    if 'up_info' in data:
+        upinfo = {
+            'uid':data['up_info']['mid'],
+            'face':data['up_info']['avatar'],
+            'follower':data['up_info']['follower'],
+            'name':data['up_info']['uname']
+            }
+        
     result = {
         'bgpic':data['bkg_cover'],
         'cover':data['cover'],
-        'episodes':episodes,
+        'episodes':episodes,#正片内容
         'description':data['evaluate'],
         'mdid':data['media_id'],
+        'ssid':data['season_id'],
         'record':data['record'],
         'title':data['title'],
-        'sections':sections,
+        'sections':sections,#非正片内容, 可能没有
         'stat':{
             'coin':data['stat']['coins'],
             'danmaku':data['stat']['danmakus'],
@@ -836,12 +880,7 @@ def get_media_detail(ssid=None,epid=None,mdid=None):
             'share':data['stat']['share'],
             'view':data['stat']['views']
             },
-        'uploader':{
-            'uid':data['up_info']['mid'],
-            'face':data['up_info']['avatar'],
-            'follower':data['up_info']['follower'],
-            'name':data['up_info']['uname']
-        }
+        'uploader':upinfo#可能没有
     }
     return result
 
@@ -936,6 +975,7 @@ def get_audio_stream(auid,quality=3,platform='web',uid=0):
     res = {
         'auid':data['sid'],
         'quality':{-1:'192K试听',0:'128K',1:'192K',2:'320K',3:'FLAC'}[data['type']],
+        'quality_id':data['type'],
         'size':data['size'],#(Byte)
         'url':data['cdns'][0],
         'title':data['title'],
