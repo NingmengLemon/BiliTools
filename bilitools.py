@@ -108,7 +108,7 @@ def makeQrcode(data):
     return a #返回一个BytesIO对象
 
 def merge_media(audio_file,video_file,output_file): #传入时要带后缀
-    return not bool(os.popen('ffmpeg.exe -hide_banner -i "{}" -i "{}" -vcodec {} -acodec {} "{}"'.format(audio_file,video_file,vcodec,acodec,output_file)).close())
+    return not bool(os.popen('ffmpeg.exe -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file)).close())
 
 def convert_audio(inputfile,audio_format='mp3'):
     path,filename = os.path.split(file)
@@ -119,6 +119,7 @@ class DownloadManager(object):
     def __init__(self):
         self.window = None
         self.task_queue = queue.Queue()
+        self.refresh_loop_schedule = None
         self.table_columns = {
             'number':'序号',
             'title':'标题',
@@ -131,7 +132,7 @@ class DownloadManager(object):
             'saveto':'保存至',
             'status':'状态'
             }
-        self.table_columns_widths = [40,180,180,100,70,60,60,60,100,150]
+        self.table_columns_widths = [40,200,180,100,70,80,60,60,100,150]
         
         self.table_display_list = [] #多维列表注意, 对应Treview的内容, 每项格式见table_columns
         self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common),选项(字典,包含从task_receiver传入的除源以外的**args)]
@@ -351,7 +352,7 @@ path: 输出位置
                         tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])
                         tmpdict['index'] = len(self.data_objs)
                         self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),video_data['title'],part['title'],'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,''])
+                        self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,''])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
             elif 'ssid' in options or 'mdid' in options or 'epid' in options:
                 pass
@@ -421,7 +422,7 @@ path: 输出位置
             self.label_stat_threadnum = tk.Label(self.frame_stat,text='0')
             self.label_stat_threadnum.grid(column=1,row=4,sticky='w')
             #操作面板
-            #等会儿再搞
+            #下次一定
         
             self.auto_refresh_table()
             
@@ -443,12 +444,15 @@ path: 输出位置
             self.label_stat_runningtask['text'] = str(len(self.running_indexes))
             self.label_stat_threadnum['text'] = str(self.thread_counter)
             #准备下一次循环
-            self.window.after(100,self.auto_refresh_table)
+            self.refresh_loop_schedule = self.window.after(100,self.auto_refresh_table)
         else:
             pass
 
     def hide(self):
         if self.window:
+            if self.refresh_loop_schedule:
+                self.window.after_cancel(self.refresh_loop_schedule)
+                self.refresh_loop_schedule = None
             self.window.destroy()
             self.window = None
 
@@ -636,7 +640,28 @@ class MainWindow(Window):
             if flag == 'unknown':
                 msgbox.showinfo('','无法解析......')
             elif flag == 'avid' or flag == 'bvid':
-                pass
+                path = filedialog.askdirectory(title='选择保存位置')
+                if not path:
+                    return
+                video_data = biliapis.get_video_detail(**{flag:source})
+                parts = video_data['parts']
+                bvid = video_data['bvid']
+                title = video_data['title']
+                if len(parts) > 1:
+                    tmp = []
+                    for part in parts:
+                        tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+                    indexes = PartsChooser(tmp).return_values
+                    if not indexes:
+                        return
+                else:
+                    indexes = [0]
+                download_manager.task_receiver('video',path,bvid=video_data['bvid'],pids=indexes)
+            elif flag == 'auid':
+                path = filedialog.askdirectory(title='选择保存位置')
+                if not path:
+                    return
+                download_manager.task_receiver('audio',path,auid=source)
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
@@ -1040,7 +1065,7 @@ class CommonVideoWindow(Window):
                 return
         else:
             indexes = [0]
-        download_manager.task_receiver('video',path,pids=indexes,audiostream_only=True)
+        download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes,audiostream_only=True)
         if self.is_alive:
             self.button_download_audio['state'] = 'normal'
 
@@ -1064,7 +1089,7 @@ class CommonVideoWindow(Window):
                 return
         else:
             indexes = [0]
-        download_manager.task_receiver('video',path,pids=indexes)
+        download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes)
         if self.is_alive:
             self.button_download_audio['state'] = 'normal'
 
