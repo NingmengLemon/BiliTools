@@ -1526,5 +1526,4 @@ class BlackroomWindow(Window):
 
 if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
     logging.info('Program Running.')
-    #w = MainWindow()
-    download_manager.task_receiver('video','D:/',avid=99999999,pids=[3],audiostream_only=True,audio_convert='mp3')
+    w = MainWindow()    
