@@ -201,26 +201,6 @@ stream_dash_video_quality = {
 
 stream_dash_video_quality_ = {v: k for k, v in stream_dash_video_quality.items()}
 
-stream_flv_video_quality = {
-    16:'360P',
-    32:'480P',
-    64:'720P',
-    74:'720P60',
-    80:'1080P',
-    112:'1080P+',
-    116:'1080P60',
-    120:'4K',
-    }
-
-stream_flv_video_quality_ = {v: k for k, v in stream_flv_video_quality.items()}
-
-stream_mp4_video_quality = {
-    6:'240P',
-    16:'360P'
-    }
-
-stream_mp4_video_quality_ = {v: k for k, v in stream_mp4_video_quality.items()}
-
 stream_dash_audio_quality = {
     30216:'64K',
     30232:'132K',
