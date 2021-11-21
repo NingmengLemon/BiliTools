@@ -829,8 +829,8 @@ def get_media_detail(ssid=None,epid=None,mdid=None):
             'cid':ep['cid'],
             'epid':ep['id'],
             'cover':ep['cover'],
-            'title':ep['title'],
-            'title_completed':ep['long_title'],
+            'title_short':ep['title'],
+            'title':ep['long_title'],
             'time_publish':ep['pub_time'],
             'url':ep['link']
             })
