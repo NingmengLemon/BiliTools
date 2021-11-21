@@ -107,12 +107,15 @@ def makeQrcode(data):
     img.save(a,'png')
     return a #返回一个BytesIO对象
 
-def merge_media(audio_file,video_file,output_file): #传入时要带后缀
-    return not bool(os.popen('ffmpeg.exe -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file)).close())
+def merge_media(audio_file,video_file,output_file,video_encoding='copy'): #传入时要带后缀
+    return not bool(os.popen('ffmpeg.exe -hide_banner -i "{}" -i "{}" -vcodec {} -acodec copy "{}"'.format(audio_file,video_file,video_encoding,output_file)).close())
 
-def convert_audio(inputfile,audio_format='mp3'):
-    path,filename = os.path.split(file)
-    outfile = os.path.join(path,os.path.splitext(filename)[0]+'.'+audio_format)
+def convert_audio(inputfile,outfile=None,audio_format='mp3'):#outfile的后缀名由audio_format决定
+    if outfile:
+        outfile = '{}.{}'.format(outfile,audio_format)
+    else:
+        path,filename = os.path.split(file)
+        outfile = os.path.join(path,os.path.splitext(filename)[0]+'.'+audio_format)
     return not bool(os.popen('ffmpeg.exe -hide_banner -i "{}" "{}"'.format(inputfile,outfile)).close())
 
 class DownloadManager(object):
@@ -223,13 +226,17 @@ class DownloadManager(object):
             self._edit_display_list(index,'size','{} MB'.format(round(stream['size']/(1024**2),2)))
             #下载
             tmp_filename = replaceChr('{}_{}.aac'.format(auid,stream['quality_id']))
-            final_filename = replaceChr('{}_{}.aac'.format(audio_info['title'],stream['quality']))
+            final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里
             session = biliapis.download_yield(stream['url'],tmp_filename,path,)
             for donesize,totalsize,percent in session:
                 self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
             #进一步处理
-            os.rename(os.path.join(path,tmp_filename),
-                      os.path.join(path,final_filename))
+            self._edit_display_list(index,'status','转码')
+            ffstatus = convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
+            try:
+                os.remove(os.path.join(path,tmp_filename))
+            except:
+                pass
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status',e.msg)
@@ -248,7 +255,6 @@ class DownloadManager(object):
     def _video_download_thread(self,index,cid,bvid,title,path,video_encoding='copy',audio_format='mp3',audiostream_only=False,quality_regular=[],**trash):#放在子线程里运行
         #此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
         #此处index为task_receiver为其分配的在tabled_display_list中的索引
-        #TODO: Format Converting
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
@@ -265,7 +271,7 @@ class DownloadManager(object):
             tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
             tmpname_video = '{}_{}_{}_videostream.mp4'.format(bvid,cid,vstream['quality'])
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
-            final_filename_audio_only = replaceChr('{}_{}.aac'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
+            final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
             #Audio Stream
             size = 0
             a_session = biliapis.download_yield(astream['url'],tmpname_audio,path)
@@ -276,7 +282,12 @@ class DownloadManager(object):
             #Video Stream
             if audiostream_only:
                 self._edit_display_list(index,'status','混流/转码')
-                os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only))
+                convert_audio((os.path.join(path,tmpname_audio),
+                               os.path.join(path,final_filename_audio_only),audio_format))
+                try:
+                    os.remove(os.path.join(path,tmpname_audio))
+                except:
+                    pass
             else:
                 v_session = biliapis.download_yield(vstream['url'],tmpname_video,path)
                 for donesize,totalsize,percent in v_session:
@@ -287,7 +298,7 @@ class DownloadManager(object):
                 self._edit_display_list(index,'status','混流/转码')
                 ffstatus = merge_media(os.path.join(path,tmpname_audio),
                             os.path.join(path,tmpname_video),
-                            os.path.join(path,final_filename))
+                            os.path.join(path,final_filename),video_encoding)
                 try:
                     os.remove(os.path.join(path,tmpname_audio))
                     os.remove(os.path.join(path,tmpname_video))
@@ -312,11 +323,14 @@ class DownloadManager(object):
     def task_receiver(self,mode,path,**options):
         '''mode: 下载模式, 必须从video/audio/common里选一个.
 path: 输出位置
-若mode为video, 则必须指定[avid/bvid,pids(分P索引列表)]或[mdid/ssid/epid],
--附加参数: audiostream_only,video_encoding,audio_format,quality_regular
+若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid],
+-通用附加参数: audiostream_only,video_encoding,audio_format,quality_regular
+-avid/bvid专用附加参数:pids(分P索引列表,可为空)
+-mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
+--section_index不指定时, epindexes指正片内的索引; 超出索引范围操作无效
 若mode为audio, 则必须指定auid,
 -附加参数: audio_format
-若mode为common, 则必须指定url, 无附加参数.
+若mode为common, 则必须指定url和filename, 无附加参数.
 '''#格式转换还在摸
         self.show()
         mode = mode.lower()
@@ -345,17 +359,60 @@ path: 输出位置
                 pre_opts['path'] = path
                 #分发任务
                 for pid in pids:
-                    if pid < len(video_data['parts']):
+                    if pid < len(video_data['parts']) and pid > 0:
                         part = video_data['parts'][pid]
                         tmpdict = copy.deepcopy(pre_opts)
                         tmpdict['cid'] = part['cid']
-                        tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])
+                        tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
                         tmpdict['index'] = len(self.data_objs)
                         self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,''])
+                        self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
             elif 'ssid' in options or 'mdid' in options or 'epid' in options:
-                pass
+                if 'mdid' in options:
+                    bangumi_data = biliapis.get_media_detail(mdid=options['mdid'])
+                elif 'ssid' in options:
+                    bangumi_data = biliapis.get_media_detail(ssid=options['ssid'])
+                else:
+                    bangumi_data = biliapis.get_media_detail(epid=options['epid'])
+                main_title = bangumi_data['title']
+                #选择正片/番外
+                if 'section_index' in options:
+                    if options['section_index'] > len(bangumi_data['sections'])-1 or options['section_index'] < 0:
+                        episodes = bangumi_data['episodes']
+                        sstitle = '正片'
+                    else:
+                        section = bangumi_data['sections'][options['section_index']]
+                        sstitle = section['title']
+                        episodes = section['episodes']
+                else:
+                    episodes = bangumi_data['episodes']
+                    sstitle = '正片'
+                #提取EP
+                if 'epindexes' in options:
+                    epindexes = options['epindexes']
+                else:
+                    epindexes = []
+                if not epindexes:
+                    epindexes = list(range(0,len(episodes)))
+                #提取参数
+                pre_opts = {}
+                for key in ['audiostream_only','video_encoding','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
+                    if key in options:
+                        pre_opts[key] = options[key]
+                pre_opts['path'] = path
+                #分发任务
+                for epindex in epindexes:
+                    if epindex < len(episodes) and epindex > 0:
+                        episode = episodes[epindex]
+                        tmpdict = copy.deepcopy(pre_opts)
+                        tmpdict['title'] = '{}_{}_{}.{}'.format(main_title,sstitle,epindex+1,episode['title'])#文件名格式编辑在这里
+                        tmpdict['cid'] = episode['cid']
+                        tmpdict['bvid'] = episode['bvid']
+                        tmpdict['index'] = len(self.data_objs)
+                        self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
+                        self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','未知',path,'待处理'])
+                        self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
         elif mode == 'audio':
             tmpdict = {
                 'index':len(self.data_objs),
@@ -365,7 +422,7 @@ path: 输出位置
             if 'audio_format' in options:
                 tmpdict['audio_format'] = options['audio_format']
             self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
-            self.table_display_list.append([str(len(self.data_objs)),'','','','音频下载','','','',path,''])
+            self.table_display_list.append([str(len(self.data_objs)),'','','','音频下载','','','',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
         elif mode == 'common':
             tmpdict = {
@@ -375,11 +432,14 @@ path: 输出位置
                 'path':path
                 }
             self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
-            self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','',path,''])
+            self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
         
     def show(self):
-        if not self.window:#构建GUI
+        if self.window:#构建GUI
+            self.window.iconify()
+            self.window.deiconify()
+        else:
             self.window = tk.Tk()
             self.window.title('BiliTools - Download Manager')
             self.window.resizable(height=False,width=False)
@@ -444,7 +504,7 @@ path: 输出位置
             self.label_stat_runningtask['text'] = str(len(self.running_indexes))
             self.label_stat_threadnum['text'] = str(self.thread_counter)
             #准备下一次循环
-            self.refresh_loop_schedule = self.window.after(100,self.auto_refresh_table)
+            self.refresh_loop_schedule = self.window.after(100+10*len(self.table_display_list),self.auto_refresh_table)
         else:
             pass
 
@@ -496,6 +556,11 @@ class MainWindow(Window):
         self.radiobutton_entrymode_search.grid(column=0,row=1,sticky='w')
         self.radiobutton_entrymode_fdown = ttk.Radiobutton(self.frame_entrymode,value=2,variable=self.intvar_entrymode,text='快速下载')
         self.radiobutton_entrymode_fdown.grid(column=0,row=2,sticky='w')
+
+        self.frame_sysfuncs = tk.Frame(self.window)
+        self.frame_sysfuncs.grid(column=1,row=2,sticky='s')
+        ttk.Button(self.frame_sysfuncs,text='下载姬',width=15,command=download_manager.show).grid(column=0,row=0)
+        ttk.Button(self.frame_sysfuncs,text='批处理',width=15,command=self.goto_batch).grid(column=0,row=1)
         
         ttk.Button(self.window,text='开始',width=11,command=self.start).grid(column=2,row=1,sticky='ne')
         #Basic Funcs
@@ -503,7 +568,6 @@ class MainWindow(Window):
         self.frame_basicfuncs.grid(column=2,row=2,sticky='se')
         ttk.Button(self.frame_basicfuncs,text='设置',width=11,command=self.goto_config).grid(column=0,row=1)#等待建设
         ttk.Button(self.frame_basicfuncs,text='关于',width=11,command=lambda:msgbox.showinfo('',about_info)).grid(column=0,row=2)
-        ttk.Button(self.frame_basicfuncs,text='下载姬',width=11,command=download_manager.show).grid(column=0,row=3)
         #Funcs Area
         self.frame_funcarea = tk.LabelFrame(self.window,text='功能区')
         self.frame_funcarea.grid(column=0,row=3,sticky='wnse',columnspan=3)
@@ -599,6 +663,9 @@ class MainWindow(Window):
     def goto_blackroom(self):
         w = BlackroomWindow()
 
+    def goto_batch(self):
+        w = BatchWindow()
+
     def goto_config(self):
         w = ConfigWindow()
         self.window.wm_attributes('-topmost',config['topmost'])
@@ -632,14 +699,14 @@ class MainWindow(Window):
             elif flag == 'uid':
                 pass
             else:
-                msgbox.showinfo('','暂不支持%s的解析'%flag)
+                msgbox.showinfo('','暂不支持%s的跳转'%flag)
             return
         elif mode == 1:#搜索模式
             pass
         elif mode == 2:#快速下载模式
             if flag == 'unknown':
                 msgbox.showinfo('','无法解析......')
-            elif flag == 'avid' or flag == 'bvid':
+            elif flag == 'avid' or flag == 'bvid':#普通视频
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
                     return
@@ -657,14 +724,69 @@ class MainWindow(Window):
                 else:
                     indexes = [0]
                 download_manager.task_receiver('video',path,bvid=video_data['bvid'],pids=indexes)
-            elif flag == 'auid':
+            elif flag == 'auid':#音频
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
                     return
                 download_manager.task_receiver('audio',path,auid=source)
+            elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':#番
+                path = filedialog.askdirectory(title='选择保存位置')
+                if not path:
+                    return
+                bangumi_data = biliapis.get_media_detail(**{flag:source})
+                episodes = bangumi_data['episodes']
+                title = bangumi_data['title']
+                if len(episodes) > 0:
+                    tmp = []
+                    for episode in episodes:
+                        tmp += [[episode['title'],'-','-']]
+                    indexes = PartsChooser(tmp).return_values
+                    if not indexes:
+                        return
+                else:
+                    msgbox.showinfo('','没有正片')
+                    return
+                download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],epindexes=indexes)
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
+class BatchWindow(Window):
+    def __init__(self):
+        super().__init__('BiliToools - Batch',True,config['topmost'],config['alpha'])
+
+        #Main Entry
+        tk.Label(self.window,text='每行一个网址, 仅支持批量下载普通视频.\n所有分P均会被下载.\n可能会出现未响应的情况, 请耐心等待.',justify='left').grid(column=0,row=0,sticky='w')
+        self.scrollbar_x = ttk.Scrollbar(self.window,orient=tk.HORIZONTAL)
+        self.entry_main = scrolledtext.ScrolledText(self.window,width=70,height=20,wrap='none',xscrollcommand=self.scrollbar_x.set)
+        self.entry_main.grid(column=0,row=1)
+        self.scrollbar_x.grid(column=0,row=2,sticky='we')
+        self.scrollbar_x['command'] = self.entry_main.xview
+
+        self.boolvar_audiomode = tk.BooleanVar(self.window,False)
+        self.checkbutton_audiomode = ttk.Checkbutton(self.window,text='仅抽取音轨',variable=self.boolvar_audiomode,onvalue=True,offvalue=False)
+        self.checkbutton_audiomode.grid(column=0,row=3,sticky='w')
+
+        self.button_start = ttk.Button(self.window,text='走你',command=self.start)
+        self.button_start.grid(column=0,row=3,sticky='e')
+
+        self.window.mainloop()
+
+    def start(self,text=None):
+        if not text:
+            text = self.entry_main.get(1.0,'end')
+        path = filedialog.askdirectory(title='输出至')
+        if not path:
+            return
+        if text:
+            audiomode = self.boolvar_audiomode.get()
+            self.close()
+            lines = text.split('\n')
+            for line in lines:
+                if line:
+                    source,flag = biliapis.parse_url(line)
+                    if flag in ['avid','bvid']:
+                        download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
+            
 class ConfigWindow(Window):
     def __init__(self):
         super().__init__('BiliToools - Config',True,config['topmost'],config['alpha'])
@@ -960,8 +1082,13 @@ class CommonVideoWindow(Window):
         self.button_show_pbp.grid(column=0,row=1)
         #desc
         tk.Label(self.frame_left_2,text='简介↑').grid(column=0,row=2,sticky='nw')
-        self.sctext_desc = scrolledtext.ScrolledText(self.frame_left_2,width=40,height=15,state='disabled')
-        self.sctext_desc.grid(column=0,row=1)
+        self.frame_desc = tk.Frame(self.frame_left_2)
+        self.frame_desc.grid(column=0,row=1)
+        self.scrollbar_desc_x = ttk.Scrollbar(self.frame_desc,orient=tk.HORIZONTAL)
+        self.scrollbar_desc_x.grid(column=0,row=1,sticky='we')
+        self.sctext_desc = scrolledtext.ScrolledText(self.frame_desc,width=40,height=15,state='disabled',wrap='none',xscrollcommand=self.scrollbar_desc_x.set)
+        self.scrollbar_desc_x['command'] = self.sctext_desc.xview
+        self.sctext_desc.grid(column=0,row=0)
         #parts
         tk.Label(self.frame_left_2,text='↓分P').grid(column=0,row=2,sticky='se',padx=20)
         self.frame_parts = tk.Frame(self.frame_left_2)
