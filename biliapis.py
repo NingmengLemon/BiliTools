@@ -1,5 +1,6 @@
 from http import cookiejar
 from urllib import request, parse, error
+import socket
 import os
 import re
 import sys
@@ -64,6 +65,8 @@ local_cookiejar_path = os.path.abspath('./cookies.txt')
 
 chrome_path = 'C:\\Users\\%s\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'%user_name
 
+timeout = 15
+
 class BiliError(Exception):
     def __init__(self,code,msg):
         self.code = code
@@ -119,10 +122,10 @@ def _get_response(url, headers=fake_headers_get):
 
     if headers:
         response = opener.open(
-            request.Request(url, headers=headers), None
+            request.Request(url, headers=headers), None, timeout=timeout
         )
     else:
-        response = opener.open(url)
+        response = opener.open(url, timeout=timeout)
 
     data = response.read()
     if response.info().get('Content-Encoding') == 'gzip':
@@ -140,9 +143,9 @@ def _post_request(url,data,headers=fake_headers_post):
         opener = request.build_opener()
     params = parse.urlencode(data).encode()
     if headers:
-        response = opener.open(request.Request(url,data=params,headers=headers))
+        response = opener.open(request.Request(url,data=params,headers=headers), timeout=timeout)
     else:
-        response = opener.open(request.Request(url,data=params))
+        response = opener.open(request.Request(url,data=params), timeout=timeout)
     data = response.read()
     if response.info().get('Content-Encoding') == 'gzip':
         data = _ungzip(data)
