@@ -54,7 +54,8 @@ config = {
         'audio':{
             'convert':'mp3'
             },
-        'max_thread_num':4
+        'max_thread_num':4,
+        'progress_backup_path':'./progress_backup.json'
         },
     }
 #TODO: 设置保存与读取
@@ -104,8 +105,8 @@ def load_config(fp=config_path):
     else:
         dump_config(fp)
 
-def start_new_thread(func,args=(),kwargs=None,name=None):
-    threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
+def start_new_thread(func,args=(),kwargs=None,name=None,daemon=True):
+    threading.Thread(target=func,args=args,kwargs=kwargs,name=name,daemon=daemon).start()
 
 def replaceChr(text):
     repChr = {'/':'／','*':'＊',':':'：','\\':'＼','>':'＞',
@@ -156,14 +157,66 @@ class DownloadManager(object):
         #只有task_receiver有添加新项的权限
         #各个download_thread只有写入/读取权限
         #auto_refresh_table只有读取权限
-        start_new_thread(self.auto_thread_starter)
+        start_new_thread(self.auto_thread_starter) #启动线程启动器
+        if os.path.exists(config['download']['progress_backup_path']):
+            if os.path.getsize(config['download']['progress_backup_path']) >= 50:
+                self.show()
+                if msgbox.askyesno('PrgRecovery','恢复下载进度？'):
+                    self.load_progress(config['download']['progress_backup_path'])
+                self.hide()
+
+    def load_progress(self,file=config['download']['progress_backup_path']):
+        if os.path.exists(file):
+            pgr = json.load(open(file,'r',encoding='utf-8',errors='ignore'))
+            for reindex in range(0,len(pgr['objs'])):
+                obj = pgr['objs'][reindex]
+                dlist = pgr['displaylist'][reindex]
+                obj[2] = copy.deepcopy(obj[2])
+                obj[2]['index'] = len(self.data_objs)
+                obj[0] = len(self.data_objs)+1
+                dlist[0] = str(len(self.data_objs)+1)
+                dlist[-1] = '待处理'
+                self.data_objs.append(obj)
+                self.table_display_list.append(dlist)
+                if obj[1] == 'video':
+                    self.task_queue.put_nowait(lambda args=obj[2]:self._video_download_thread(**args))
+                if obj[1] == 'audio':
+                    self.task_queue.put_nowait(lambda args=obj[2]:self._audio_download_thread(**args))
+                elif obj[1] == 'common':
+                    self.task_queue.put_nowait(lambda args=obj[2]:self._common_download_thread(**args))
+            logging.debug('{} Progress Obj Loaded from {}'.format(len(pgr['objs']),file))
+        logging.debug('Progress File not Exists.')
+                
+
+    def save_progress(self,path=config['download']['progress_backup_path']):
+        pgr = {
+            'objs':[],
+            'displaylist':[]
+            }
+        for index in range(0,len(self.data_objs)):
+            if index in self.failed_indexes:
+                pgr['objs'] += [self.data_objs[index]]
+                pgr['displaylist'] += [self.table_display_list[index]]
+            elif index in self.running_indexes:
+                pgr['objs'] += [self.data_objs[index]]
+                pgr['displaylist'] += [self.table_display_list[index]]
+            elif index in self.done_indexes:
+                continue
+            else:
+                pgr['objs'] += [self.data_objs[index]]
+                pgr['displaylist'] += [self.table_display_list[index]]
+        json.dump(pgr,open(path,'w+',encoding='utf-8',errors='ignore'))
+        logging.debug('{} Progress Objs Saved to {}'.format(len(pgr['objs']),path))
         
     def auto_thread_starter(self):#放在子线程里运行
         while True:
             if self.thread_counter < config['download']['max_thread_num'] and not self.task_queue.empty():
                 func = self.task_queue.get_nowait()
                 start_new_thread(func) #线程计数器由开启的download_thread来修改
-            time.sleep(0.5)
+                time.sleep(0.5)
+                self.save_progress()
+            else:
+                time.sleep(0.5)
 
     def match_dash_quality(self,videostreams,audiostreams,regular=config['download']['video']['quality_regular']):
         videostream = None
@@ -215,6 +268,7 @@ class DownloadManager(object):
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
             self.thread_counter -= 1
+            self.save_progress()
 
     def _audio_download_thread(self,index,auid,path,audio_format='mp3',**trash):
         #跟下面辣个函数差不多, 流程稍微简单些
@@ -235,19 +289,23 @@ class DownloadManager(object):
             #下载
             tmp_filename = replaceChr('{}_{}.aac'.format(auid,stream['quality_id']))
             final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里
-            session = biliapis.download_yield(stream['url'],tmp_filename,path,)
-            for donesize,totalsize,percent in session:
-                self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
-            #进一步处理
-            if audio_format and audio_format not in ['aac','copy']:
-                self._edit_display_list(index,'status','转码')
-                ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
-                try:
-                    os.remove(os.path.join(path,tmp_filename))
-                except:
-                    pass
+            if os.path.exists(final_filename+'.'+audio_format):
+                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
             else:
-                os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
+                session = biliapis.download_yield(stream['url'],tmp_filename,path,)
+                for donesize,totalsize,percent in session:
+                    self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
+                #进一步处理
+                if audio_format and audio_format not in ['aac','copy']:
+                    self._edit_display_list(index,'status','转码')
+                    ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
+                    try:
+                        os.remove(os.path.join(path,tmp_filename))
+                    except:
+                        pass
+                else:
+                    os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
+            self._edit_display_list(index,'status','完成')
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+e.msg)
@@ -258,10 +316,10 @@ class DownloadManager(object):
                 raise e
         else:
             self.done_indexes.append(index)
-            self._edit_display_list(index,'status','完成')
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
             self.thread_counter -= 1
+            self.save_progress()
 
     def _video_download_thread(self,index,cid,bvid,title,path,video_encoding='copy',audio_format='mp3',audiostream_only=False,quality_regular=[],**trash):#放在子线程里运行
         #此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
@@ -283,41 +341,47 @@ class DownloadManager(object):
             tmpname_video = '{}_{}_{}_videostream.mp4'.format(bvid,cid,vstream['quality'])
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
             final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
-            #Audio Stream
-            size = 0
-            a_session = biliapis.download_yield(astream['url'],tmpname_audio,path)
-            for donesize,totalsize,percent in a_session:
-                self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
-            size += totalsize
-            #Video Stream
-            if audiostream_only:
-                self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
-                if audio_format and audio_format not in ['aac','copy']:
+            if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
+                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
+            elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
+                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
+            else:
+                #Audio Stream
+                size = 0
+                a_session = biliapis.download_yield(astream['url'],tmpname_audio,path)
+                for donesize,totalsize,percent in a_session:
+                    self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
+                size += totalsize
+                #Video Stream
+                if audiostream_only:
+                    self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
+                    if audio_format and audio_format not in ['aac','copy']:
+                        self._edit_display_list(index,'status','混流/转码')
+                        ffdriver.convert_audio(os.path.join(path,tmpname_audio),
+                                      os.path.join(path,final_filename_audio_only),audio_format)
+                        try:
+                            os.remove(os.path.join(path,tmpname_audio))
+                        except:
+                            pass
+                    else:
+                        os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
+                else:
+                    v_session = biliapis.download_yield(vstream['url'],tmpname_video,path)
+                    for donesize,totalsize,percent in v_session:
+                        self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
+                    size += totalsize
+                    self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
+                    #Mix
                     self._edit_display_list(index,'status','混流/转码')
-                    ffdriver.convert_audio(os.path.join(path,tmpname_audio),
-                                  os.path.join(path,final_filename_audio_only),audio_format)
+                    ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
+                                           os.path.join(path,tmpname_video),
+                                           os.path.join(path,final_filename),video_encoding)
                     try:
                         os.remove(os.path.join(path,tmpname_audio))
+                        os.remove(os.path.join(path,tmpname_video))
                     except:
                         pass
-                else:
-                    os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
-            else:
-                v_session = biliapis.download_yield(vstream['url'],tmpname_video,path)
-                for donesize,totalsize,percent in v_session:
-                    self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
-                size += totalsize
-                self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
-                #Mix
-                self._edit_display_list(index,'status','混流/转码')
-                ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
-                                       os.path.join(path,tmpname_video),
-                                       os.path.join(path,final_filename),video_encoding)
-                try:
-                    os.remove(os.path.join(path,tmpname_audio))
-                    os.remove(os.path.join(path,tmpname_video))
-                except:
-                    pass
+                self._edit_display_list(index,'status','完成')
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+e.msg)
@@ -328,11 +392,10 @@ class DownloadManager(object):
                 raise e
         else:
             self.done_indexes.append(index)
-            self._edit_display_list(index,'status','完成')
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
             self.thread_counter -= 1
-            
+            self.save_progress()
 
     def task_receiver(self,mode,path,**options):
         '''mode: 下载模式, 必须从video/audio/common里选一个.
@@ -454,6 +517,7 @@ path: 输出位置
             self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
             self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
+        self.save_progress()
 
     def retry_all_failed(self):
         if self.failed_indexes:
@@ -472,7 +536,7 @@ path: 输出位置
         data = self.data_objs[index]
         for name in ['size','quality']:
             self._edit_display_list(index,name,'')
-        self._edit_display_list(index,'status','等待重启')
+        self._edit_display_list(index,'status','待处理')
         if data[1] == 'video':
             self.task_queue.put_nowait(lambda args=data[2]:self._video_download_thread(**args))
         elif data[1] == 'audio':
@@ -482,8 +546,8 @@ path: 输出位置
         
     def show(self):
         if self.window:#构建GUI
-            self.window.iconify()
-            self.window.deiconify()
+            if self.window.state() == 'iconic':
+                self.window.deiconify()
         else:
             self.window = tk.Tk()
             self.window.title('BiliTools - Download Manager')
@@ -515,8 +579,8 @@ path: 输出位置
             tk.Label(self.frame_stat,text='已完成:')    .grid(column=0,row=1,sticky='e')
             tk.Label(self.frame_stat,text='运行中:')    .grid(column=0,row=2,sticky='e')
             tk.Label(self.frame_stat,text='失败:')      .grid(column=0,row=3,sticky='e')
-            tk.Label(self.frame_stat,text='线程数:').grid(column=0,row=4,sticky='e')
-            tk.Label(self.frame_stat,text='队列长度:').grid(column=0,row=5,sticky='e')
+            tk.Label(self.frame_stat,text='线程数:')    .grid(column=0,row=4,sticky='e')
+            tk.Label(self.frame_stat,text='队列长度:')  .grid(column=0,row=5,sticky='e')
             self.label_stat_totaltask = tk.Label(self.frame_stat,text='0')
             self.label_stat_totaltask.grid(column=1,row=0,sticky='w')
             self.label_stat_donetask = tk.Label(self.frame_stat,text='0')
@@ -563,7 +627,7 @@ path: 输出位置
             self.label_stat_threadnum['text'] = '{} / {}'.format(self.thread_counter,config['download']['max_thread_num'])
             self.label_stat_queuelen['text'] = str(self.task_queue.qsize())
             #准备下一次循环
-            self.refresh_loop_schedule = self.window.after(100+10*len(self.table_display_list),self.auto_refresh_table)
+            self.refresh_loop_schedule = self.window.after(100+5*len(self.table_display_list),self.auto_refresh_table)
         else:
             pass
 
