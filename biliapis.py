@@ -41,8 +41,8 @@ def make_md5(data):
     logging.debug('Made md5, result='+res)
     return res
 
-def start_new_thread(func,args=(),kwargs=None,name=None):
-    threading.Thread(target=func,args=args,kwargs=kwargs,name=name).start()
+def start_new_thread(func,args=(),kwargs=None,name=None,daemon=True):
+    threading.Thread(target=func,args=args,kwargs=kwargs,name=name,daemon=daemon).start()
 
 #requester's pre-data
 filter_emoji = False
@@ -212,7 +212,7 @@ def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
     request.install_opener(opener)
     request.urlretrieve(url,tofile,progressfunc)
     
-#Download GUI
+#Download GUI(旧版)-->新版在bilitools.py里
 class DownloadWindow(object):
     '''topmost:窗口置顶
 releaseprog:释放进程
@@ -434,38 +434,43 @@ iconic:最小化打开
         except:
             pass
 
-def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_get):#yield:donesize,totalsize,percent
+def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_get,check=True):#yield:donesize,totalsize,percent
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
     if os.path.exists(file):
         yield 0,0,100.000
-    tmpfile = file+'.download'
-    if use_cookies and cookies:
-        cookies_dict = requests.utils.dict_from_cookiejar(cookies)
     else:
-        cookies_dict = {}
-    headers = copy.deepcopy(headers)
-    response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
-    filesize = int(response.headers['content-length'])
-    if os.path.exists(tmpfile):
-        start_byte = os.path.getsize(tmpfile)
-    else:
-        start_byte = 0
-    if start_byte >= filesize:
-        os.rename(tmpfile,file)
-        yield start_byte,filesize,100.000
-    else:
-        headers['Range'] = f'bytes={start_byte}-{filesize}'
-        req = requests.get(url,headers=headers,stream=True,cookies=cookies_dict)
-        counter = 0
-        writemode = 'ab+'
-        with open(tmpfile,writemode) as f:
-            for chunk in req.iter_content(chunk_size=1024):
-                if chunk:
-                    f.write(chunk)
-                    counter += 1
-                    yield start_byte+(counter*1024),filesize,round((start_byte+(counter*1024))/filesize*100,3)
-        os.rename(tmpfile,file)
-        yield filesize,filesize,100.000
+        tmpfile = file+'.download'
+        if use_cookies and cookies:
+            cookies_dict = requests.utils.dict_from_cookiejar(cookies)
+        else:
+            cookies_dict = {}
+        headers = copy.deepcopy(headers)
+        response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
+        filesize = int(response.headers['content-length'])
+        if os.path.exists(tmpfile):
+            start_byte = os.path.getsize(tmpfile)
+        else:
+            start_byte = 0
+        if start_byte >= filesize:
+            os.rename(tmpfile,file)
+            yield start_byte,filesize,100.000
+        else:
+            headers['Range'] = f'bytes={start_byte}-{filesize}'
+            req = requests.get(url,headers=headers,stream=True,cookies=cookies_dict)
+            counter = 0
+            writemode = 'ab+'
+            with open(tmpfile,writemode) as f:
+                for chunk in req.iter_content(chunk_size=512):
+                    if chunk:
+                        f.write(chunk)
+                        counter += 1
+                        yield start_byte+(counter*512),filesize,round((start_byte+(counter*512))/filesize*100,3)
+            if check:
+                if os.path.getsize(tmpfile) != filesize:
+                    os.remove(tmpfile)
+                    raise RuntimeError('File Verification Failed')
+            os.rename(tmpfile,file)
+            yield filesize,filesize,100.000
 
 def second_to_time(sec):
     h = sec // 3600
