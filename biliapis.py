@@ -211,228 +211,18 @@ def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
     opener.addheaders = _dict_to_headers(headers)
     request.install_opener(opener)
     request.urlretrieve(url,tofile,progressfunc)
-    
-#Download GUI(旧版)-->新版在bilitools.py里
-class DownloadWindow(object):
-    '''topmost:窗口置顶
-releaseprog:释放进程
-askopen:完成后询问是否打开文件夹
-showwarning:显示警告(关闭此选项也会关闭askopen)
-use_cookies:使用已加载的Cookies进行下载
-iconic:最小化打开
-'''
-    def __init__(self,url,topath='./',filename='Unknown',askopen=True,use_cookies=True,topmost=True,releaseprog=False,showwarning=True,headers=fake_headers_get,iconic=False):
-        if not showwarning:
-            askopen = False
-        self.data = {
-            'url':url,
-            'topath':os.path.abspath(topath)+'\\',
-            'filename':_replaceChr(filename),
-            'totalsize':0,
-            'donesize':0,
-            'percent':0,
-            'condition':-1,#-1:未开始,0:进行中,1:成功,2:失败,3:用户中止
-            'condition_str':'Waiting...',
-            'user_stop':False,
-            'error_info':'',
-            'headers':copy.deepcopy(headers)
-            }
 
-        self.options = {
-            'askopen':askopen,
-            'cookies':use_cookies,
-            'showwarning':showwarning
-            }
-        
-        #定义窗口
-        self.window = tk.Tk()
-        self.window.title('Downloader')
-        self.window.resizable(height=False,width=False)
-        self.window.protocol('WM_DELETE_WINDOW',self.close)
-        self.window.wm_attributes('-topmost',topmost)
-        if iconic:
-            self.window.state('icon')
-
-        #定义组件
-        self.widgets = {
-            'text1':tk.Label(self.window,text='文件名:'),
-            'label_filename':tk.Label(self.window,text='Unknown'),
-            'text2':tk.Label(self.window,text='源:'),
-            'label_url':tk.Label(self.window,text='-'),
-            'text3':tk.Label(self.window,text='保存至:'),
-            'label_topath':tk.Label(self.window,text='-'),
-            'text5':tk.Label(self.window,text='文件大小:'),
-            'label_size':tk.Label(self.window,text='0 B'),
-            'text6':tk.Label(self.window,text='已下载大小:'),
-            'label_donesize':tk.Label(self.window,text='0 B'),
-            'text7':tk.Label(self.window,text='状态:'),
-            'label_condition':tk.Label(self.window,text='Waiting...'),
-            'progressbar':ttk.Progressbar(self.window,orient='horizontal',length=400,mode='determinate',maximum=10000,value=0),
-            'label_percent':tk.Label(self.window,text='0.00%'),
-
-            '_grid_table':[#(name,column,row,columnspan,sticky)
-                ('text1',0,0,1,'w'),('label_filename',1,0,3,'w'),
-                ('text2',0,1,1,'w'),('label_url',1,1,3,'w'),
-                ('text3',0,2,1,'w'),('label_topath',1,2,3,'w'),
-                ('text5',0,3,1,'w'),('label_size',1,3,3,'w'),
-                ('text6',0,4,1,'w'),('label_donesize',1,4,3,'w'),
-                ('text7',0,5,1,'w'),('label_condition',1,5,3,'w'),
-                ('progressbar',0,6,3,'w'),('label_percent',3,6,1,'e')
-                ]
-            }
-        
-        #放置组件
-        for coor in self.widgets['_grid_table']:
-            self.widgets[coor[0]].grid(column=coor[1],row=coor[2],columnspan=coor[3],sticky=coor[4])
-        
-        self.widgets['label_filename']['text'] = self.data['filename']
-        self.widgets['label_url']['text'] = self._cut(self.data['url'])
-        self.widgets['label_topath']['text'] = self._cut(self.data['topath'])
-        self._autofresh()
-        start_new_thread(self._download_thread,())
-        if not releaseprog:
-            self.window.mainloop()
-
-    def _cut(self,string,max_length=75):
-        if len(string) > max_length:
-            return string[:max_length]+'...'
-        else:
-            return string
-
-    def _autofresh(self):
-        self.widgets['label_condition']['text'] = self.data['condition_str']
-        if self.data['condition'] == -1:
-            self.window.after(50,self._autofresh)
-        elif self.data['condition'] == 0:
-            if self.data['totalsize'] != 0:
-                self.data['percent'] = self.data['donesize']/self.data['totalsize']*100
-            else:
-                self.data['percent'] = 0
-            self.widgets['label_size']['text'] = self._convert_size(self.data['totalsize'])
-            self.widgets['label_donesize']['text'] = self._convert_size(self.data['donesize'])
-            self.widgets['label_percent']['text'] = '%.2f%%'%self.data['percent']
-            self.widgets['progressbar']['value'] = int(self.data['percent']*100)
-            #print('%.2f%%'%self.data['percent'])
-            self.window.after(50,self._autofresh)
-        else:
-            self._over(self.data['condition'])
-
-    def _over(self,reason=1):#reason = 1,2,3
-        if reason == 1:
-            self.widgets['label_donesize']['text'] = self._convert_size(self.data['totalsize'])
-            self.widgets['label_percent']['text'] = '100.00%'
-            self.widgets['progressbar']['value'] = 10000
-            self.data['condition'] = 1
-            if self.options['askopen']:
-                if msgbox.askyesno('','任务完成！\n打开输出目录？'):
-                    os.system('explorer "%s"'%self.data['topath'])
-            logging.info('Download Task Finished, %d Bytes Received.'%self.data['totalsize'])
-            self.close(True)
-        elif reason == 2:
-            self.data['condition'] = 2
-            self.data['condition_str'] = 'Error'
-            error = self.data['error_info']
-            if self.options['showwarning']:
-                msgbox.showerror('','发生错误：\n'+str(error))
-            self.close(True)
-        elif reason == 3:
-            self.data['condition'] = 3
-            self.data['user_stop'] = True
-            if self.options['showwarning']:
-                msgbox.showinfo('','用户终止了操作。\n当前已下载字节数：'+str(self.data['donesize']))
-            self.close(True)
-
-    def _download_thread(self):
-        logging.info('Starting a New Download Task.')
-        tofile = self.data['topath'] + self.data['filename']
-        url = self.data['url']
-        if os.path.exists(tofile):
-            self.data['error_info'] = 'File already Exists.'
-            self.data['condition'] = 1
-            self.data['condition_str'] = 'Done.'
-            return
-        tmp_file = tofile+'.download'
-        try:
-            self.data['condition'] = -1
-            #Load Header
-            self.data['condition_str'] = 'Loading Headers & Cookies...'
-            if cookies and self.options['cookies']:
-                cookies_dict = requests.utils.dict_from_cookiejar(cookies) #CookieJar转Dict
-            else:
-                cookies_dict = {}
-            #Get Response
-            self.data['condition_str'] = 'Checking File Size...'
-            response = requests.get(url,stream=True,headers=self.data['headers'],cookies=cookies_dict)
-            file_size = int(response.headers['content-length'])
-            self.data['totalsize'] = file_size
-            #Check Existed File
-            self.data['condition_str'] = 'Checking Existed File...'
-            if os.path.exists(tmp_file):
-                start_byte = os.path.getsize(tmp_file)
-            else:
-                start_byte = 0
-            if start_byte >= file_size:
-                os.rename(tmp_file,tofile)
-            else:
-                #Download
-                self.data['headers']['Range'] = f'bytes={start_byte}-{file_size}'
-                self.data['condition'] = 0
-                self.data['condition_str'] = 'Fetching Data...'
-                req = requests.get(url,headers=self.data['headers'],stream=True,cookies=cookies_dict)
-                counter = 0
-                writemode = 'ab+'
-                with open(tmp_file,writemode) as f:
-                    for chunk in req.iter_content(chunk_size=1024):
-                        if chunk:
-                            f.write(chunk)
-                            counter += 1
-                            self.data['donesize'] = start_byte+(counter*1024)
-                            if self.data['user_stop']:
-                                break
-                if not self.data['user_stop']:
-                    os.rename(tmp_file,tofile)
-            
-        except Exception as e:
-            self.data['error_info'] = str(e)
-            self.data['condition'] = 2
-            self.data['condition_str'] = 'Error'
-            return
-        else:
-            if self.data['user_stop']:
-                self.data['condition'] = 3
-                self.data['condition_str'] = 'User Stopped.'
-                return
-            else:
-                self.data['condition'] = 1
-                self.data['condition_str'] = 'Done.'
-                return
-
-    def _convert_size(self,size):#单位:Byte
-        if size < 1024:
-            return '%.2f B'%size
-        size /= 1024
-        if size < 1024:
-            return '%.2f KB'%size
-        size /= 1024
-        if size < 1024:
-            return '%.2f MB'%size
-        size /= 1024
-        return '%.2f GB'%size
-
-    def close(self,force=False):
-        if not force:
-            cond = self.data['condition']
-            if cond == -1 or cond == 0:
-                if msgbox.askyesno('','任务未完成，真的要退出吗？'):
-                    self._over(3)
-                    return
-                else:
-                    return
-        try:
-            self.window.quit()
-            self.window.destroy()
-        except:
-            pass
+def convert_size(self,size):#单位:Byte
+    if size < 1024:
+        return '%.2f B'%size
+    size /= 1024
+    if size < 1024:
+        return '%.2f KB'%size
+    size /= 1024
+    if size < 1024:
+        return '%.2f MB'%size
+    size /= 1024
+    return '%.2f GB'%size
 
 def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_get,check=True):#yield:donesize,totalsize,percent
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
@@ -447,6 +237,7 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
         headers = copy.deepcopy(headers)
         response = requests.get(url,stream=True,headers=headers,cookies=cookies_dict)
         filesize = int(response.headers['content-length'])
+        response.close()
         if os.path.exists(tmpfile):
             start_byte = os.path.getsize(tmpfile)
         else:
@@ -465,10 +256,11 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
                         f.write(chunk)
                         counter += 1
                         yield start_byte+(counter*512),filesize,round((start_byte+(counter*512))/filesize*100,3)
+            req.close()
             if check:
                 if os.path.getsize(tmpfile) != filesize:
                     os.remove(tmpfile)
-                    raise RuntimeError('File Verification Failed')
+                    raise RuntimeError('File Size not Match')
             os.rename(tmpfile,file)
             yield filesize,filesize,100.000
 

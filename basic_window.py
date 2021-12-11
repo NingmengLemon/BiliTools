@@ -3,33 +3,12 @@ import tkinter.messagebox as msgbox
 import tkinter.filedialog as filedialog
 import tkinter.scrolledtext as scrolledtext
 import tkinter.ttk as ttk
-from PIL import Image,ImageTk
-import _thread
 import queue
 import logging
-
-def tkImg(file=None,scale=1,size=()):
-    try:
-        with Image.open(file) as f:
-            width = f.size[0]
-            height = f.size[1]
-            if size == ():
-                tmp = f.resize((int(width*scale),int(height*scale)),Image.ANTIALIAS)
-            else:
-                tmp = f.resize((int(size[0]),int(size[1])),Image.ANTIALIAS)
-        img = ImageTk.PhotoImage(tmp)
-        return img
-    except Exception as e:
-        if size == ():
-            f = Image.new('RGB',(300,300),(255,255,255))
-        else:
-            f = Image.new('RGB',size,(255,255,255))
-        return ImageTk.PhotoImage(f)
 
 class Window(object):#程序中所有常规窗口的父类
     def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象
-        self.image_library = [] #将tkimage存在这里
         self.is_alive = True
         load_status = False
 
@@ -56,16 +35,10 @@ class Window(object):#程序中所有常规窗口的父类
         else:
             self.window.after(1,self.listen_task)
 
-    def config_widget(self,widget,option,value):#不要往这里面传image参数 以及不能用[]设置的参数
+    def config_widget(self,widget,option,value):#不要往这里面传image参数
         if option == 'image':
             return
         widget[option] = value
-
-    def set_image(self,widget,image_bytesio,size=()):
-        self.image_library.append(tkImg(image_bytesio,size=size))
-        index = len(self.image_library)-1
-        widget.configure(image=self.image_library[index])
-        widget.image = self.image_library[index]
 
     def set_entry(self,entry,lock=False,text=''):
         entry['state'] = 'normal'
