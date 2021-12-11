@@ -1,7 +1,88 @@
 from tkinter import ttk
-from tkinter import Toplevel
+import tkinter as tk
+from PIL import Image,ImageTk
 
-class TipWindow(Toplevel):
+def tkImg(file=None,scale=1,size=()):
+    if file:
+        with Image.open(file) as f:
+            width = f.size[0]
+            height = f.size[1]
+            if size == ():
+                tmp = f.resize((int(width*scale),int(height*scale)),Image.ANTIALIAS)
+            else:
+                tmp = f.resize((int(size[0]),int(size[1])),Image.ANTIALIAS)
+        img = ImageTk.PhotoImage(tmp)
+        return img
+    else:
+        if size == ():
+            f = Image.new('RGB',(300,300),(255,255,255))
+        else:
+            f = Image.new('RGB',size,(255,255,255))
+        return ImageTk.PhotoImage(f)
+
+class ImageButton(ttk.Button):
+    def __init__(self,master,width=20,height=20,image_bytesio=None,**kwargs):
+        super().__init__(master,**kwargs)
+        self._params = {
+            'width':width,
+            'height':height,
+            'image_bytesio':image_bytesio
+            }
+        self._tkimg = None
+        self._update()
+
+    def _update(self):
+        if self._params['image_bytesio']:
+            self._tkimg = tkImg(self._params['image_bytesio'],size=(self._params['width'],self._params['height']))
+        else:
+            self._tkimg = tkImg(size=(self._params['width'],self._params['height']))
+        self.configure(image=self._tkimg)
+        self.image = self._tkimg
+
+    def clear(self):
+        self._params['image_bytesio'] = None
+        self._update()
+
+    def set(self,image_bytesio,width=None,height=None):
+        if width:
+            self._params['width'] = width
+        if height:
+            self._params['height'] = height
+        self._params['image_bytesio'] = image_bytesio
+        self._update()
+
+class ImageLabel(tk.Label):
+    def __init__(self,master,width=300,height=300,image_bytesio=None,**kwargs):
+        super().__init__(master,**kwargs)
+        self._params = {
+            'width':width,
+            'height':height,
+            'image_bytesio':image_bytesio
+            }
+        self._tkimg = None
+        self._update()
+
+    def _update(self):
+        if self._params['image_bytesio']:
+            self._tkimg = tkImg(self._params['image_bytesio'],size=(self._params['width'],self._params['height']))
+        else:
+            self._tkimg = tkImg(size=(self._params['width'],self._params['height']))
+        self.configure(image=self._tkimg)
+        self.image = self._tkimg
+
+    def clear(self):
+        self._params['image_bytesio'] = None
+        self._update()
+
+    def set(self,image_bytesio,width=None,height=None):
+        if width:
+            self._params['width'] = width
+        if height:
+            self._params['height'] = height
+        self._params['image_bytesio'] = image_bytesio
+        self._update()
+
+class _TipWindow(tk.Toplevel):
     def __init__(self, master, **kw):
         """创建一个带有工具提示文本的 topoltip 窗口"""
         super().__init__(master, **kw)
@@ -18,7 +99,7 @@ class TipWindow(Toplevel):
         self.overrideredirect(True)
         ## 保持在主窗口的上面
         self.attributes("-toolwindow", 1)  # 也可以使用 `-topmost`
-        self.attributes("-alpha", 0.92857142857)    # 设置透明度为 13/14
+        self.attributes("-alpha", 0.928)    # 设置透明度为 13/14
 
     def _label_params(self, text, textvariable):
         '''创建用来显示的标签'''
@@ -26,7 +107,7 @@ class TipWindow(Toplevel):
             'textvariable': textvariable,
             'text': text,
             'justify': 'left',
-            'background': 'lightyellow',
+            'background': '#ffffff',
             'relief': 'solid',
             'borderwidth': 1
         }
@@ -34,11 +115,7 @@ class TipWindow(Toplevel):
 
 
 class ToolTip:
-    '''针对指定的 widget 创建一个 tooltip
-    参考：https://stackoverflow.com/a/36221216 
-        以及 https://pysimplegui.readthedocs.io/en/latest/
-    '''
-
+    '''针对指定的 widget 创建一个 tooltip'''
     def __init__(self, widget, text=None, textvariable=None, timeout=300, offset=(0, -20), **kw):
         # 设置 用户参数
         self.widget = widget
@@ -85,7 +162,7 @@ class ToolTip:
         if self.tip_window:
             return
         else:
-            self.tip_window = TipWindow(self.widget)
+            self.tip_window = _TipWindow(self.widget)
             self.tip_window.wm_attributes('-topmost',True)
             new_x, new_y = self.wm_geometry()
             self.tip_window.wm_geometry("+%d+%d" % (new_x, new_y))

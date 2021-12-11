@@ -25,8 +25,8 @@ import qrcode
 import clipboard
 import biliapis
 import bilicodes
-import tooltip
-from basic_window import tkImg,Window
+import custom_widgets as cusw
+from basic_window import Window
 import imglib
 import ffmpeg_driver as ffdriver
 
@@ -58,7 +58,6 @@ config = {
         'progress_backup_path':'./progress_backup.json'
         },
     }
-#TODO: 设置保存与读取
 biliapis.filter_emoji = config['filter_emoji']
 #日志模块设置
 logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
@@ -153,12 +152,8 @@ class DownloadManager(object):
         self.failed_indexes = [] #存放失败任务在data_objs中的索引
         self.running_indexes = [] #存放运行中的任务在data_objs中的索引
         self.done_indexes = [] #存放已完成任务在data_objs中的索引
-        #以上对象的读写权限注意:
-        #只有task_receiver有添加新项的权限
-        #各个download_thread只有写入/读取权限
-        #auto_refresh_table只有读取权限
         start_new_thread(self.auto_thread_starter) #启动线程启动器
-        if os.path.exists(config['download']['progress_backup_path']):
+        if os.path.exists(config['download']['progress_backup_path']) and (not config['devmode'] or '-run_window' in sys.argv):
             if os.path.getsize(config['download']['progress_backup_path']) >= 50:
                 self.show()
                 if msgbox.askyesno('PrgRecovery','恢复下载进度？'):
@@ -651,14 +646,13 @@ class MainWindow(Window):
         tk.Label(self.frame_entry,text='随便输入点什么吧~').grid(column=0,row=0,sticky='w')
         self.entry_source = ttk.Entry(self.frame_entry,width=40)
         self.entry_source.grid(column=0,row=1)
-        #self.entry_source.bind('<Return>',lambda x=0:self.start())
+        self.entry_source.bind('<Return>',lambda x=0:self.start())
         ttk.Button(self.frame_entry,text='粘贴',command=lambda:self.set_entry(self.entry_source,text=clipboard.getText()),width=5).grid(column=1,row=1)
         ttk.Button(self.frame_entry,text='清空',command=lambda:self.entry_source.delete(0,'end'),width=5).grid(column=2,row=1)
         #Login Area
         self.frame_login = tk.LabelFrame(self.window,text='用户信息')
         self.frame_login.grid(column=0,row=1,sticky='wns',rowspan=2)
-        self.img_user_face_empty = tkImg(size=(120,120))
-        self.label_face = tk.Label(self.frame_login,text='',image=self.img_user_face_empty)
+        self.label_face = cusw.ImageLabel(self.frame_login,width=120,height=120)
         self.label_face.grid(column=0,row=0,sticky='nwe')
         self.label_face_text = tk.Label(self.frame_login,text='未登录',bg='#ffffff',font=('Microsoft YaHei UI',8))#图片上的提示文本
         self.label_face_text.grid(column=0,row=0)
@@ -666,8 +660,7 @@ class MainWindow(Window):
         self.frame_login_button.grid(column=0,row=1,sticky='nwe')
         self.button_login = ttk.Button(self.frame_login_button,text='登录',width=13,command=self.login)
         self.button_login.grid(column=0,row=0,sticky='w')
-        self.button_refresh = ttk.Button(self.frame_login_button,command=self.refresh_data,state='disabled')
-        self.set_image(self.button_refresh,imglib.refresh_sign,size=(17,17))
+        self.button_refresh = cusw.ImageButton(self.frame_login_button,width=17,height=17,image_bytesio=imglib.refresh_sign,command=self.refresh_data,state='disabled')
         self.button_refresh.grid(column=1,row=0)
         #Entry Mode Selecting
         self.frame_entrymode = tk.LabelFrame(self.window,text='输入模式',width=50)
@@ -708,8 +701,7 @@ class MainWindow(Window):
         self.window.mainloop()
 
     def _clear_face(self):
-        self.label_face.configure(image=self.img_user_face_empty)
-        self.label_face.image = self.img_user_face_empty
+        self.label_face.clear()
         self.label_face_text.grid()
         self.label_face.unbind('<Button-1>')
 
@@ -740,7 +732,7 @@ class MainWindow(Window):
                 else:
                     raise e
             def load_user_info(user_data):
-                self.set_image(self.label_face,BytesIO(biliapis.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
+                self.label_face.set(BytesIO(biliapis.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
                 self.label_face_text.grid_remove()
                 self.label_face.bind('<Button-1>',
                                      lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text))
@@ -927,17 +919,17 @@ class ConfigWindow(Window):
         self.label_winalpha_shower.grid(column=0,row=0,sticky='w')
         self.scale_winalpha = ttk.Scale(self.frame_winalpha,from_=0.3,to=1.0,orient=tk.HORIZONTAL,variable=self.doublevar_winalpha,command=lambda coor:self.label_winalpha_shower.configure(text='% 3d%%'%(round(float(coor),2)*100)))
         self.scale_winalpha.grid(column=1,row=0,sticky='w')
-        self.tooltip_winalpha = tooltip.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
+        self.tooltip_winalpha = cusw.ToolTip(self.frame_winalpha,text='注意，不透明度调得过低会影响操作体验')
         #Emoji Filter
         self.frame_filteremoji = tk.Frame(self.frame_basic)
         self.frame_filteremoji.grid(column=0,row=2,sticky='w')
         self.boolvar_filteremoji = tk.BooleanVar(self.window,config['filter_emoji'])
         self.checkbutton_filteremoji = ttk.Checkbutton(self.frame_filteremoji,text='过滤Emoji',onvalue=True,offvalue=False,variable=self.boolvar_filteremoji)
         self.checkbutton_filteremoji.grid(column=0,row=0)
-        self.label_filteremoji_help = tk.Label(self.frame_filteremoji,text='')
-        self.set_image(self.label_filteremoji_help,imglib.help_sign,size=(16,16))
+        self.label_filteremoji_help = cusw.ImageLabel(self.frame_filteremoji,width=16,height=16)
+        self.label_filteremoji_help.set(imglib.help_sign)
         self.label_filteremoji_help.grid(column=1,row=0)
-        self.tooltip_filteremoji = tooltip.ToolTip(self.label_filteremoji_help,text='此功能专为某些不支持Emoji显示的设备添加 :)')
+        self.tooltip_filteremoji = cusw.ToolTip(self.label_filteremoji_help,text='此功能专为某些不支持Emoji显示的设备添加 :)')
 
         #Download
         self.frame_download = tk.LabelFrame(self.window,text='下载设置')
@@ -983,15 +975,14 @@ class AudioWindow(Window):
         super().__init__('BiliToools - Audio',True,config['topmost'],config['alpha'])
 
         #cover
-        self.img_cover_empty = tkImg(size=(300,300))
-        self.label_cover_shower = tk.Label(self.window,image=self.img_cover_empty)
+        self.label_cover_shower = cusw.ImageLabel(self.window,width=300,height=300)
         self.label_cover_shower.grid(column=0,row=0,rowspan=4,sticky='w')
         self.label_cover_text = tk.Label(self.window,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_cover_text.grid(column=0,row=0,rowspan=4)
         #audio name
         self.text_name = tk.Text(self.window,font=('Microsoft YaHei UI',10,'bold'),width=37,height=2,state='disabled',bg='#f0f0f0',bd=0)
         self.text_name.grid(column=0,row=4)
-        self.tooltip_name = tooltip.ToolTip(self.text_name)
+        self.tooltip_name = cusw.ToolTip(self.text_name)
         #id
         self.label_auid = tk.Label(self.window,text='auID0')
         self.label_auid.grid(column=0,row=5,sticky='e')
@@ -1001,8 +992,7 @@ class AudioWindow(Window):
         self.sctext_desc.grid(column=0,row=7,sticky='w')
         #uploader
         self.frame_uploader = tk.LabelFrame(self.window,text='UP主')
-        self.img_upface_empty = tkImg(size=(50,50))
-        self.label_uploader_face = tk.Label(self.frame_uploader,image=self.img_upface_empty)#up头像
+        self.label_uploader_face = cusw.ImageLabel(self.frame_uploader,width=50,height=50)#up头像
         self.label_uploader_face.grid(column=0,row=0,rowspan=2)
         self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_uploader_face_text.grid(column=0,row=0,rowspan=2)
@@ -1104,9 +1094,9 @@ class AudioWindow(Window):
             #image
             cover = BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['cover'],w=300,h=300)))
             face = BytesIO(biliapis.get_content_bytes(biliapis.format_img(updata['face'],w=50,h=50)))
-            self.task_queue.put_nowait(lambda:self.set_image(self.label_cover_shower,cover,(300,300)))
+            self.task_queue.put_nowait(lambda:self.label_cover_shower.set(cover))
             self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
-            self.task_queue.put_nowait(lambda:self.set_image(self.label_uploader_face,face,(50,50)))
+            self.task_queue.put_nowait(lambda:self.label_uploader_face.set(face))
             self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
             self.load_status = True
         start_new_thread(tmp,())
@@ -1138,8 +1128,7 @@ class CommonVideoWindow(Window):
         self.frame_left_1 = tk.Frame(self.window)
         self.frame_left_1.grid(column=0,row=0)
         #封面
-        self.img_cover_empty = tkImg(size=(380,232))#！
-        self.label_cover = tk.Label(self.frame_left_1,image=self.img_cover_empty)
+        self.label_cover = cusw.ImageLabel(self.frame_left_1,width=380,height=232)
         self.label_cover.grid(column=0,row=0)
         self.label_cover_text = tk.Label(self.frame_left_1,text='加载中',bg='#ffffff')
         self.label_cover_text.grid(column=0,row=0)
@@ -1147,8 +1136,8 @@ class CommonVideoWindow(Window):
         self.text_title = tk.Text(self.frame_left_1,bg='#f0f0f0',bd=0,height=2,width=46,state='disabled',font=('Microsoft YaHei UI',10,'bold'))
         self.text_title.grid(column=0,row=1,sticky='w')
         #warning info
-        self.label_warning = tk.Label(self.frame_left_1,text='')
-        self.set_image(self.label_warning,imglib.warning_sign)
+        self.label_warning = cusw.ImageLabel(self.frame_left_1,width=50,height=50)
+        self.label_warning.set(imglib.warning_sign)
         self.label_warning.grid(column=0,row=2,sticky='e')
         self.label_warning.grid_remove()
         self.label_warning_tooltip = None
@@ -1196,8 +1185,7 @@ class CommonVideoWindow(Window):
         self.frame_left_2.grid(column=1,row=0)
         #uploader
         self.frame_uploader = tk.LabelFrame(self.frame_left_2,text='UP主')
-        self.img_upface_empty = tkImg(size=(50,50))
-        self.label_uploader_face = tk.Label(self.frame_uploader,image=self.img_upface_empty)#up头像
+        self.label_uploader_face = cusw.ImageLabel(self.frame_uploader,width=50,height=50)#up头像
         self.label_uploader_face.grid(column=0,row=0,rowspan=2)
         self.label_uploader_face_text = tk.Label(self.frame_uploader,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_uploader_face_text.grid(column=0,row=0,rowspan=2)
@@ -1256,7 +1244,6 @@ class CommonVideoWindow(Window):
         self.rec_page = 1 #初始页数(必须为1)
         self.rec_spage_objnum = 5 #每页项数
         self.recommend = None #相关视频数据
-        self.img_rec_empty = tkImg(size=(114,69))
         
         self.frame_rec_control = tk.Frame(self.frame_left_3)
         self.frame_rec_control.grid(column=0,row=2)
@@ -1274,8 +1261,10 @@ class CommonVideoWindow(Window):
         tk.Label(self.frame_debug,text='Queue:').grid(column=3,row=0)
         self.label_queue_count = tk.Label(self.frame_debug,text='0')
         self.label_queue_count.grid(column=4,row=0)
-
-        self.update_debug_info()
+        if config['devmode']:
+            self.update_debug_info()
+        else:
+            self.frame_debug.grid_remove()
         self.refresh_data()
 
         self.window.mainloop()
@@ -1366,7 +1355,7 @@ class CommonVideoWindow(Window):
                 self.obj_rec[i].append([])
                 #相关视频的单个对象的布局. 牵扯到很多代码, 不要轻易改动.
                 self.obj_rec[i][o].append(tk.Frame(self.frame_rec))#frame
-                self.obj_rec[i][o].append(tk.Label(self.obj_rec[i][o][0],image=self.img_rec_empty))#cover
+                self.obj_rec[i][o].append(cusw.ImageLabel(self.obj_rec[i][o][0],width=114,height=69))#cover
                 self.obj_rec[i][o].append(tk.Text(self.obj_rec[i][o][0],bg='#f0f0f0',bd=0,height=2,width=30,state='disabled'))#title
                 self.obj_rec[i][o].append(tk.Label(self.obj_rec[i][o][0],text='-'))#uploader
                 self.obj_rec[i][o].append(tk.Label(self.obj_rec[i][o][0],text='-'))#bvid
@@ -1405,7 +1394,7 @@ class CommonVideoWindow(Window):
             def fill_warning_info(warning_info):
                 if warning_info.strip():
                     self.label_warning.grid()
-                    self.label_warning_tooltip = tooltip.ToolTip(self.label_warning,text=warning_info)
+                    self.label_warning_tooltip = cusw.ToolTip(self.label_warning,text=warning_info)
                     self.label_warning.bind('<Button-1>',lambda e=None,t=warning_info:msgbox.showinfo('',t))
             self.task_queue.put_nowait(lambda wi=data['warning_info']:fill_warning_info(wi))
             #stat
@@ -1432,10 +1421,10 @@ class CommonVideoWindow(Window):
             #img
             def load_img():
                 self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['picture'],w=380))):
-                                           self.set_image(self.label_cover,img,size=(380,232)))
+                                           self.label_cover.set(img))
                 self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
                 self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(up['face'],w=50,h=50))):
-                                           self.set_image(self.label_uploader_face,img,size=(50,50)))
+                                           self.label_uploader_face.set(img))
                 self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
             start_new_thread(load_img)
             #parts
@@ -1479,20 +1468,20 @@ class CommonVideoWindow(Window):
         else:
             def tmp_(o_,c_):
                 self.task_queue.put_nowait(lambda w=o_[1],img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.recommend[c_]['picture'],w=114,h=69))):
-                                           self.set_image(w,img,size=(114,69)))
+                                           w.set(img))
                 self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:self.set_text(w,text=t,lock=True))
                 self.task_queue.put_nowait(lambda w=o_[3],t=self.recommend[c_]['uploader']['name']:self.config_widget(w,'text',t))
                 self.task_queue.put_nowait(lambda w=o_[4],t=self.recommend[c_]['bvid']:self.config_widget(w,'text',t))
                 #绑定tooltip
-                self.task_queue.put_nowait(lambda w=o_[1]:o_.append(tooltip.ToolTip(w,text='点击跳转到此视频')))
-                self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:o_.append(tooltip.ToolTip(w,text=t)))
+                self.task_queue.put_nowait(lambda w=o_[1]:o_.append(cusw.ToolTip(w,text='点击跳转到此视频')))
+                self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:o_.append(cusw.ToolTip(w,text=t)))
                 self.task_queue.put_nowait(lambda w=o_[3],t='%s\nUID%s'%(self.recommend[c_]['uploader']['name'],self.recommend[c_]['uploader']['uid']):
-                                           o_.append(tooltip.ToolTip(w,text=t)))
+                                           o_.append(cusw.ToolTip(w,text=t)))
                 self.task_queue.put_nowait(lambda w=o_[4],t='%s\nav%s\n播放: %s\n弹幕: %s\n评论: %s'%(self.recommend[c_]['bvid'],
                                                                                                 self.recommend[c_]['avid'],
                                                                                                 self.recommend[c_]['stat']['view'],
                                                                                                 self.recommend[c_]['stat']['danmaku'],
-                                                                                                self.recommend[c_]['stat']['reply']):o_.append(tooltip.ToolTip(w,text=t)))
+                                                                                                self.recommend[c_]['stat']['reply']):o_.append(cusw.ToolTip(w,text=t)))
             c = (page-1)*self.rec_spage_objnum
             for o in self.obj_rec[page-1]:
                 if c >= len(self.recommend):
@@ -1536,12 +1525,11 @@ class LoginWindow(object):
 
         self.login_url = None
         self.oauthkey = None
-        self.qrcode_img = tkImg(size=(300,300))
         self.status = False
         self.condition = None
         self.final_url = None
         
-        self.label_imgshower = tk.Label(self.window,text='',image=self.qrcode_img)
+        self.label_imgshower = cusw.ImageLabel(self.window,width=300,height=300)
         self.label_imgshower.pack()
         self.label_text = tk.Label(self.window,text='未获取',font=('Microsoft YaHei UI',15))
         self.label_text.pack(pady=10)
@@ -1556,10 +1544,7 @@ class LoginWindow(object):
         self.button_refresh['state'] = 'disabled'
         self.label_text['text'] = '正在刷新'
         self.login_url,self.oauthkey = biliapis.get_login_url()
-        tmp = makeQrcode(self.login_url)
-        self.qrcode_img = tkImg(tmp,size=(300,300))
-        self.label_imgshower.configure(image=self.qrcode_img)
-        self.label_imgshower.image = self.qrcode_img
+        self.label_imgshower.set(makeQrcode(self.login_url))
         self.start_autocheck()
 
     def start_autocheck(self):
@@ -1576,9 +1561,7 @@ class LoginWindow(object):
             return
         elif self.condition == -2:
             self.button_refresh['state'] = 'normal'
-            self.qrcode_img = tkImg(size=(300,300))
-            self.label_imgshower.configure(image=self.qrcode_img)
-            self.label_imgshower.image = self.qrcode_img
+            self.label_imgshower.clear()
             return
         elif self.condition == -4 or self.condition == -5:
             self.window.after(2000,self.start_autocheck)
@@ -1737,8 +1720,7 @@ class BlackroomWindow(Window):
         #Target
         self.frame_target = tk.Frame(self.frame_content)
         self.frame_target.grid(column=0,row=0)
-        self.img_targetface_empty = tkImg(size=(50,50))
-        self.label_target_face = tk.Label(self.frame_target,image=self.img_targetface_empty)#用户头像
+        self.label_target_face = cusw.ImageLabel(self.frame_target,width=50,height=50)#用户头像
         self.label_target_face.grid(column=0,row=0,rowspan=2)
         self.label_target_face_text = tk.Label(self.frame_target,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_target_face_text.grid(column=0,row=0,rowspan=2)
@@ -1782,7 +1764,7 @@ class BlackroomWindow(Window):
     def load_img(self,page):
         if type(self.data_pool[page-1]['user']['face']) == str:#检查是否加载过, 加载过的则不再加载
             self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
-        self.task_queue.put_nowait(lambda:self.set_image(self.label_target_face,self.data_pool[page-1]['user']['face'],size=(50,50)))
+        self.task_queue.put_nowait(lambda:self.label_target_face.set(self.data_pool[page-1]['user']['face']))
         
     def turn_page(self,page):
         if page > len(self.data_pool):
@@ -1802,6 +1784,10 @@ class BlackroomWindow(Window):
             self.label_treatment['text'] = '封禁 {} 天'.format(self.data_pool[page-1]['punish']['days'])
         self.set_text(self.sctext_content,True,text=self.data_pool[page-1]['punish']['content'])
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
+
+class BangumiWindow(object):
+    def __init__(self,**ids):
+        pass
 
 
 if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
