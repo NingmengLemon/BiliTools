@@ -971,6 +971,7 @@ class ConfigWindow(Window):
 class AudioWindow(Window):
     def __init__(self,auid):
         self.auid = int(auid)
+        self.audio_data = None
         
         super().__init__('BiliToools - Audio',True,config['topmost'],config['alpha'])
 
@@ -1028,11 +1029,11 @@ class AudioWindow(Window):
         path = filedialog.askdirectory(title='保存至')
         if path:
             download_manager.task_receiver('audio',path,auid=self.auid)
-        if self.is_alive:
-            self.button_download_cover['state'] = 'normal'
+        self.button_download_cover['state'] = 'normal'
 
     def download_cover(self):
-        if self.load_status:
+        self.button_download_lyrics['state'] = 'disabled'
+        if self.audio_data:
             filename = replaceChr(self.title)+'.jpg'
             path = filedialog.askdirectory(title='保存至')
             if path:
@@ -1042,11 +1043,12 @@ class AudioWindow(Window):
                 msgbox.showinfo('','完成')
         else:
             msgbox.showwarning('','加载未完成')
+        self.button_download_lyrics['state'] = 'normal'
         return
 
     def download_lyrics(self):
         self.button_download_lyrics['state'] = 'disabled'
-        if self.load_status:
+        if self.audio_data:
             filename = replaceChr(self.title)+'.lrc'
             path = filedialog.askdirectory(title='保存至')
             if path:
@@ -1059,8 +1061,7 @@ class AudioWindow(Window):
                     msgbox.showinfo('','完成')
         else:
             msgbox.showwarning('','加载未完成')
-        if self.is_alive:
-            self.button_download_lyrics['state'] = 'normal'
+        self.button_download_lyrics['state'] = 'normal'
         return
         
     def refresh_data(self):
@@ -1070,6 +1071,7 @@ class AudioWindow(Window):
                 self.task_queue.put_nowait(self.close)
                 return
             data = biliapis.get_audio_info(self.auid)
+            self.audio_data = data
             self.title = data['title']
             self.task_queue.put_nowait(lambda:self.set_text(self.text_name,text=data['title'],lock=True))
             self.task_queue.put_nowait(lambda:self.tooltip_name.change_text(data['title']))
@@ -1098,7 +1100,6 @@ class AudioWindow(Window):
             self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
             self.task_queue.put_nowait(lambda:self.label_uploader_face.set(face))
             self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
-            self.load_status = True
         start_new_thread(tmp,())
 
     def check_usable(self):
@@ -1136,7 +1137,7 @@ class CommonVideoWindow(Window):
         self.text_title = tk.Text(self.frame_left_1,bg='#f0f0f0',bd=0,height=2,width=46,state='disabled',font=('Microsoft YaHei UI',10,'bold'))
         self.text_title.grid(column=0,row=1,sticky='w')
         #warning info
-        self.label_warning = cusw.ImageLabel(self.frame_left_1,width=50,height=50)
+        self.label_warning = cusw.ImageLabel(self.frame_left_1,width=22,height=18)
         self.label_warning.set(imglib.warning_sign)
         self.label_warning.grid(column=0,row=2,sticky='e')
         self.label_warning.grid_remove()
@@ -1313,8 +1314,7 @@ class CommonVideoWindow(Window):
                 indexes = [0]
             if indexes:
                 download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes,audiostream_only=True)
-        if self.is_alive:
-            self.button_download_audio['state'] = 'normal'
+        self.button_download_audio['state'] = 'normal'
 
     def download_video(self):
         if not self.video_data:
@@ -1335,8 +1335,7 @@ class CommonVideoWindow(Window):
                 indexes = [0]
             if indexes:
                 download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes)
-        if self.is_alive:
-            self.button_download_audio['state'] = 'normal'
+        self.button_download_audio['state'] = 'normal'
 
     def jump_by_recommend(self,abvid):
         if abvid != '-' and abvid.strip():
