@@ -9,8 +9,6 @@ import logging
 class Window(object):#程序中所有常规窗口的父类
     def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象
-        self.is_alive = True
-        load_status = False
 
         if toplevel:
             self.window = tk.Toplevel()
@@ -65,7 +63,6 @@ class Window(object):#程序中所有常规窗口的父类
     def close(self):
         self.window.quit()
         self.window.destroy()
-        self.is_aive = False
 
     def start_window(self,winobj,args=()):
         w = winobj(args)

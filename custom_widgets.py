@@ -43,12 +43,13 @@ class ImageButton(ttk.Button):
         self._params['image_bytesio'] = None
         self._update()
 
-    def set(self,image_bytesio,width=None,height=None):
+    def set(self,image_bytesio=None,width=None,height=None):
         if width:
             self._params['width'] = width
         if height:
             self._params['height'] = height
-        self._params['image_bytesio'] = image_bytesio
+        if image_bytesio:
+            self._params['image_bytesio'] = image_bytesio
         self._update()
 
 class ImageLabel(tk.Label):

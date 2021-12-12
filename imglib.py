@@ -1,5 +1,38 @@
 from base64 import b64decode
-from io import BytesIO
+from io import BytesIO,StringIO
+#from svglib.svglib import svg2rlg
+#from reportlab.graphics import renderPM
+#from PIL import Image
+
+'''
+def convert_svg(svgstring):
+    sio = StringIO(svgstring)
+    d = svg2rlg(sio)
+    img = renderPM.drawToPIL(d).convert('RGBA') #svg转pil
+    
+    pixdata = img.load() #去掉背景
+    for y in range(img.size[1]):
+        for x in range(img.size[0]):
+            if pixdata[x, y][0] > 220 and pixdata[x, y][1] > 220 and pixdata[x, y][2] > 220 and pixdata[x, y][3] > 220:
+                pixdata[x, y] = (255, 255, 255, 0)
+
+    bio = BytesIO()
+    img.save(bio,format='png')
+    return bio
+'''
+#这用SVG多是一件美事啊----可惜用不起
+
+_warning_sign_svg = '''
+<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg" version="1.1" xml:space="preserve">
+ <g>
+  <title>Layer 1</title>
+  <path class="st0" d="m182.5,52.9l-165,285.8c-7.8,13.5 1.9,30.3 17.5,30.3l330,0c15.6,0 25.3,-16.8 17.5,-30.3l-165,-285.8c-7.8,-13.5 -27.2,-13.5 -35,0z" fill="#E78B1F" id="svg_1"/>
+  <polygon class="st1" points="213.4,276.9 186.6,276.9 184.5,134.9 215.5,134.9 " fill="#FFFFFF" id="svg_2"/>
+  <path fill="#FFFFFF" opacity="undefined" d="m186.39999,301.60001l27.3,0l0,27.3l-27.3,0l0,-27.3z" id="svg_3"/>
+ </g>
+
+</svg>
+'''
 
 _warning_sign_b64 = 'iVBORw0KGgoAAAANSUhEUgAAABYAAAASCAYAAABfJS4tAAAACXBIWXMAAAsTAAALEwEAmpwYAAAKTWlDQ1BQaG90b3Nob3AgSUNDIHByb2ZpbGUAAHjanVN3WJP3Fj7f92UPVkLY8LGXbIEAIiOsCMgQWaIQkgBhh\
 BASQMWFiApWFBURnEhVxILVCkidiOKgKLhnQYqIWotVXDjuH9yntX167+3t+9f7vOec5/zOec8PgBESJpHmomoAOVKFPDrYH49PSMTJvYACFUjgBCAQ5svCZwXFAADwA3l4fnSwP/wBr28AAgBw1S4kEsfh/4O6UCZXACCRAOAiEucLAZBSAMg\
@@ -110,6 +143,7 @@ g3h3CmF5IAodRyKpt3jwNenfTi9on1y1agXAcrGEEF4pOBPsCEolOfGTl+C7WNGyjLyfpjx7ABrc3Lu+
 OyIUh4ynO5yq1nSuuzMCtAkplxtdAttqR5q2TV5/GmGBzsO3O/5i4fSwpqV9D+Al5VYeAZ7ysz2rjMdSYGmuu3NYRDTKdt+TbnJnvv9sB9rDy4C0CyRlOblhBpxoJ8J5yM/27BXSno/xxxqjw0KoQYToMtr7QtqB71UgQr7/5jjif3Ml+nMAPW\
 0KcJFMcOUAAAAASUVORK5CYII='
 
+#warning_sign = convert_svg(_warning_sign_svg)
 warning_sign = BytesIO(b64decode(_warning_sign_b64))
 refresh_sign = BytesIO(b64decode(_refresh_sign_b64))
 help_sign = BytesIO(b64decode(_help_sign_b64))

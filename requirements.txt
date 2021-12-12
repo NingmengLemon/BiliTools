@@ -3,5 +3,4 @@ requests
 pillow
 qrcode
 beautifulsoup4
-cairosvg
 emoji
