@@ -1,5 +1,6 @@
 from tkinter import ttk
 import tkinter as tk
+import io
 from PIL import Image,ImageTk
 
 def tkImg(file=None,scale=1,size=()):

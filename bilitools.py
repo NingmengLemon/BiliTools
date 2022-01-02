@@ -867,7 +867,7 @@ class MainWindow(Window):
 
 class BatchWindow(Window):
     def __init__(self):
-        super().__init__('BiliToools - Batch',True,config['topmost'],config['alpha'])
+        super().__init__('BiliTools - Batch',True,config['topmost'],config['alpha'])
 
         #Main Entry
         tk.Label(self.window,text='每行一个网址, 仅支持批量下载普通视频.\n所有分P均会被下载.\n可能会出现未响应的情况, 请耐心等待.',justify='left').grid(column=0,row=0,sticky='w')
@@ -902,7 +902,7 @@ class BatchWindow(Window):
             
 class ConfigWindow(Window):
     def __init__(self):
-        super().__init__('BiliToools - Config',True,config['topmost'],config['alpha'])
+        super().__init__('BiliTools - Config',True,config['topmost'],config['alpha'])
         
         #Basic
         self.frame_basic = tk.LabelFrame(self.window,text='基础设置')
@@ -973,7 +973,7 @@ class AudioWindow(Window):
         self.auid = int(auid)
         self.audio_data = None
         
-        super().__init__('BiliToools - Audio',True,config['topmost'],config['alpha'])
+        super().__init__('BiliTools - Audio',True,config['topmost'],config['alpha'])
 
         #cover
         self.label_cover_shower = cusw.ImageLabel(self.window,width=300,height=300)
@@ -1335,7 +1335,7 @@ class CommonVideoWindow(Window):
                 indexes = [0]
             if indexes:
                 download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes)
-        self.button_download_audio['state'] = 'normal'
+        self.button_download_video['state'] = 'normal'
 
     def jump_by_recommend(self,abvid):
         if abvid != '-' and abvid.strip():
