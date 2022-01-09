@@ -11,6 +11,7 @@ import threading
 import hashlib
 import math
 import random
+import atexit
 from io import BytesIO
 import tkinter as tk
 import tkinter.messagebox as msgbox
@@ -23,12 +24,15 @@ import winreg
 import requests
 from bs4 import BeautifulSoup
 import emoji
+import brotli
 
 from basic_window import Window
 import bilicodes
 
 #av号统称为avid, bv号统称为bvid.
-#音频id统称为auid
+#媒体编号有mdid,epid,ssid
+#音频id称为auid
+#漫画id称为mcid, 漫画章节id有epid, 为避免歧义,称为mcepid
 
 def get_desktop():
     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders')
@@ -105,6 +109,9 @@ def _undeflate(data):
     decompressobj = zlib.decompressobj(-zlib.MAX_WBITS)
     return decompressobj.decompress(data)+decompressobj.flush()
 
+def _unbrotli(data):
+    return brotli.decompress(data)
+
 def _dict_to_headers(dict_to_conv):
     keys = list(dict_to_conv.keys())
     values = list(dict_to_conv.values())
@@ -132,6 +139,8 @@ def _get_response(url, headers=fake_headers_get):
         data = _ungzip(data)
     elif response.info().get('Content-Encoding') == 'deflate':
         data = _undeflate(data)
+    elif response.info().get('Content-Encoding') == 'br':
+        data = _unbrotli(data)
     response.data = data
     logging.debug('Get Response from: '+url)
     return response
@@ -151,6 +160,8 @@ def _post_request(url,data,headers=fake_headers_post):
         data = _ungzip(data)
     elif response.info().get('Content-Encoding') == 'deflate':
         data = _undeflate(data)
+    elif response.info().get('Content-Encoding') == 'br':
+        data = _unbrotli(data)
     response.data = data
     logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
     return response
@@ -200,10 +211,11 @@ def load_local_cookies():
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
 
+@atexit.register
 def refresh_local_cookies():
     global cookies
     if cookies:
-        cookies.save()
+        cookies.save(local_cookiejar_path)
 
 #Download Operation
 def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
@@ -838,33 +850,46 @@ def get_audio_lyrics(auid):
 def parse_url(url):
     if 'b23.tv' in url:#短链接重定向
         url = get_redirect_url(url)
-    res = re.findall(r'au([0-9]+)',url,re.I)#音频id
+    #音频id
+    res = re.findall(r'au([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'auid'
-    res = re.findall(r'BV[a-zA-Z0-9]{10}',url,re.I)#bv号
+    #bv号
+    res = re.findall(r'BV[a-zA-Z0-9]{10}',url,re.I)
     if res:
         return res[0],'bvid'
-    res = re.findall(r'av([0-9]+)',url,re.I)#av号
+    #av号
+    res = re.findall(r'av([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'avid'
-    res = re.findall(r'cv([0-9]+)',url,re.I)#专栏号
+    #专栏号
+    res = re.findall(r'cv([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'cvid'
-    res = re.findall(r'md([0-9]+)',url,re.I)#单剧集id
+    #整个剧集的id
+    res = re.findall(r'md([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'mdid'
-    res = re.findall(r'ss([0-9]+)',url,re.I)#整个剧集的id
+    #整个季度的id
+    res = re.findall(r'ss([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'ssid'
-    res = re.findall(r'ep([0-9]+)',url,re.I)#整个剧集的id
+    #单集的id
+    res = re.findall(r'ep([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'epid'
-    res = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)#UID
+    #用户uid
+    res = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'uid'
-    res = re.findall(r'uid([0-9]+)',url,re.I)#UID
+    #同上
+    res = re.findall(r'uid([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'uid'
+    #漫画id
+    res = re.findall(r'mc([0-9]+)',url,re.I)
+    if res:
+        return int(res[0]),'mcid'
     return None,'unknown'
 
 def filter_danmaku_xml(xmlstr,regulars=None,keywords=None,users=None):#无法处理高级弹幕
@@ -1164,5 +1189,97 @@ def get_pbp(cid):
         'debug':json.loads(data['debug'])
         }
     return res
+
+#==========漫画API===========
+#认证方式: Cookies
+
+def get_manga_detail(mcid):
+    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ComicDetail?device=pc&platform=web',data={
+        'comic_id':int(mcid)
+        })
+    data = json.loads(data)
+    _error_raiser(data['code'],data['msg'])
+    data = data['data']
+    res = {
+        'mcid':data['id'],
+        'comic_title':data['title'],
+        'authors':data['author_name'],
+        'is_japan_comic':data['japan_comic'],
+        'last_read':{ #上一次阅读
+            'time':data['last_read_time'],
+            'short_title':data['last_short_title']
+            },
+        'renewal_time':data['renewal_time'], #更新频次
+        'styles':data['styles'],
+        'total_count':data['total'], #总章节数
+        'introduction':data['introduction'],
+        'description':data['classic_lines'],
+        'cover':{ #封面
+            'vertical':data['vertical_cover'], #竖版
+            'square':data['square_cover'], #正方形版
+            'horizontal':data['horizontal_cover'] #横版
+            }
+        }
+    ep_list = [] #章节列表, 排序从新到旧
+    for ep in data['ep_list']:
+        ep_list.append({
+            'epid':ep['id'],
+            'eptitle':ep['title'],
+            'eptitle_short':ep['short_title'],
+            'cover':ep['cover'],
+            'is_free':ep['is_in_free'],
+            'is_locked':ep['is_locked'],
+            'like_count':ep['like_count'],#点赞数
+            'ord':ep['ord'],#章节标识 不一定连续, 但一定按先后顺序从小到大
+            'pay_gold':ep['pay_gold'],#价格
+            'pub_time':ep['pub_time'],#发布时间
+            })
+    res['ep_list'] = ep_list
+    return res
+
+def get_manga_episode_info(mcepid):
+    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetEpisode?device=pc&platform=web',data={
+        'id':int(mcepid)
+        })
+    data = json.loads(data)
+    _error_raiser(data['code'],data['msg'])
+    data = data['data']
+    res = {
+        'eptitle':data['title'],
+        'eptitle_short':data['short_title'],
+        'mcid':data['comic_id'],
+        'comic_title':data['comic_title']
+        }
+    return res
+
+def get_manga_episode_image_index(mcepid):
+    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetImageIndex?device=pc&platform=web',data={
+        'ep_id':int(mcepid)
+        })
+    data = json.loads(data)
+    _error_raiser(data['code'],data['msg'])
+    data = data['data']
+    res = {
+        'host':data['host']
+        }
+    images = [] #每个章节包含的图片, 按先后顺序排列
+    for image in data['images']:
+        images.append({
+            'path':image['path'], #与host拼接成图片url
+            'width':image['x'],
+            'height':image['y']
+            })
+    res['images'] = images
+    return res
+
+def get_manga_episode_image_token(*paths): #参数来自get_manga_episode_image_index的path
+    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ImageToken?device=pc&platform=web',data={
+        'urls':json.dumps(list(paths))
+        })
+    data = json.loads(data)
+    _error_raiser(data['code'],data['msg'])
+    data = data['data'] #是列表套字典的操作, 有url和token两个键
+    return data
+    
 
 load_local_cookies()
