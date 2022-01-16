@@ -1,8 +1,6 @@
 import tkinter as tk
-import tkinter.messagebox as msgbox
-import tkinter.filedialog as filedialog
-import tkinter.scrolledtext as scrolledtext
 import tkinter.ttk as ttk
+import tkinter.filedialog as filedialog
 import queue
 import logging
 
@@ -28,15 +26,11 @@ class Window(object):#程序中所有常规窗口的父类
                 func()
             except Exception as e:
                 logging.error('Task Listener Caught an Error: '+str(e))
+                raise e
         if self.task_queue.empty():
             self.window.after(10,self.listen_task)
         else:
             self.window.after(1,self.listen_task)
-
-    def config_widget(self,widget,option,value):#不要往这里面传image参数
-        if option == 'image':
-            return
-        widget[option] = value
 
     def set_entry(self,entry,lock=False,text=''):
         entry['state'] = 'normal'
@@ -52,13 +46,6 @@ class Window(object):#程序中所有常规窗口的父类
         sctext.insert('end',text)
         if lock:
             sctext['state'] = 'disabled'
-
-    def explore_folder(self,returnEntry,title='浏览'):
-        path = filedialog.askdirectory(title=title)
-        if path:
-            self.set_entry(returnEntry,True,path)
-        else:
-            pass
 
     def close(self):
         self.window.quit()

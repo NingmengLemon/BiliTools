@@ -1,5 +1,4 @@
 pywin32
-requests
 pillow
 qrcode
 beautifulsoup4

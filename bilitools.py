@@ -24,7 +24,7 @@ import qrcode
 
 import clipboard
 import biliapis
-import bilicodes
+from biliapis import bilicodes
 import custom_widgets as cusw
 from basic_window import Window
 import imglib
@@ -34,11 +34,16 @@ import ffmpeg_driver as ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev06'
+version = '2.0.0_Dev07'
 work_dir = os.getcwd()
 user_name = os.getlogin()
-config_path = f'C:\\Users\\{user_name}\\bilitools_config.json'
+inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
+if not inner_data_path:
+    os.mkdir(inner_data_path)
+biliapis.requester.inner_data_path = inner_data_path
+config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
+biliapis.requester.load_local_cookies()
 
 config = {
     'topmost':True,
@@ -48,14 +53,14 @@ config = {
     'download':{
         'video':{
             'quality_regular':[],
-            'video_codec':'copy',
+            'video_convert':'copy',
             'audio_convert':'mp3'
             },
         'audio':{
             'convert':'mp3'
             },
         'max_thread_num':4,
-        'progress_backup_path':'./progress_backup.json'
+        'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
         },
     }
 biliapis.filter_emoji = config['filter_emoji']
@@ -180,7 +185,8 @@ class DownloadManager(object):
                 elif obj[1] == 'common':
                     self.task_queue.put_nowait(lambda args=obj[2]:self._common_download_thread(**args))
             logging.debug('{} Progress Obj Loaded from {}'.format(len(pgr['objs']),file))
-        logging.debug('Progress File not Exists.')
+        else:
+            logging.debug('Progress File not Exists.')
                 
 
     def save_progress(self,path=config['download']['progress_backup_path']):
@@ -248,7 +254,7 @@ class DownloadManager(object):
         self.running_indexes.append(index)
         try:
             self._edit_display_list(index,'status','准备下载')
-            session = biliapis.download_yield(url,filename,path)
+            session = biliapis.requester.download_yield(url,filename,path)
             for donesize,totalsize,percent in session:
                 self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
             self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
@@ -272,13 +278,13 @@ class DownloadManager(object):
         try:
             #收集信息
             self._edit_display_list(index,'status','收集信息')
-            audio_info = biliapis.get_audio_info(auid)
+            audio_info = biliapis.audio.get_info(auid)
             self._edit_display_list(index,'length',biliapis.second_to_time(audio_info['length']))
             self._edit_display_list(index,'title',audio_info['title'])
             self._edit_display_list(index,'target','Auid{}'.format(auid))
             #取流
             self._edit_display_list(index,'status','正在取流')
-            stream = biliapis.get_audio_stream(auid)
+            stream = biliapis.audio.get_stream(auid)
             self._edit_display_list(index,'quality',stream['quality'])
             self._edit_display_list(index,'size','{} MB'.format(round(stream['size']/(1024**2),2)))
             #下载
@@ -287,7 +293,7 @@ class DownloadManager(object):
             if os.path.exists(final_filename+'.'+audio_format):
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
             else:
-                session = biliapis.download_yield(stream['url'],tmp_filename,path,)
+                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path,)
                 for donesize,totalsize,percent in session:
                     self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
                 #进一步处理
@@ -323,7 +329,7 @@ class DownloadManager(object):
         self.running_indexes.append(index)
         try:
             self._edit_display_list(index,'status','正在取流')
-            stream_data = biliapis.get_video_stream_dash(cid,bvid=bvid,hdr=True,_4k=True)
+            stream_data = biliapis.video.get_stream_dash(cid,bvid=bvid,hdr=True,_4k=True)
             vstream,astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality_regular)
             if audiostream_only:
                 self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
@@ -333,7 +339,7 @@ class DownloadManager(object):
                 self._edit_display_list(index,'mode','视频下载')
             #生成文件名
             tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
-            tmpname_video = '{}_{}_{}_videostream.mp4'.format(bvid,cid,vstream['quality'])
+            tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
             final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
             if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
@@ -343,7 +349,7 @@ class DownloadManager(object):
             else:
                 #Audio Stream
                 size = 0
-                a_session = biliapis.download_yield(astream['url'],tmpname_audio,path)
+                a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
                 for donesize,totalsize,percent in a_session:
                     self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
                 size += totalsize
@@ -361,7 +367,7 @@ class DownloadManager(object):
                     else:
                         os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
                 else:
-                    v_session = biliapis.download_yield(vstream['url'],tmpname_video,path)
+                    v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
                     for donesize,totalsize,percent in v_session:
                         self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
                     size += totalsize
@@ -392,13 +398,14 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def task_receiver(self,mode,path,**options):
+    def task_receiver(self,mode,path,data=None,**options):
         '''mode: 下载模式, 必须从video/audio/common里选一个.
 path: 输出位置
 若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid],
--通用附加参数: audiostream_only,video_encoding,audio_format,quality_regular(如不指定后两者则从config中读取)
+-附加参数: audiostream_only,video_encoding,audio_format,quality_regular(如不指定后两者则从config中读取)
 -avid/bvid专用附加参数:pids(分P索引列表,可为空)
 -mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
+-可选参数: data, 传入预请求的数据包(dict), 避免再次请求
 --section_index不指定时, epindexes指正片内的索引; 超出索引范围操作无效
 若mode为audio, 则必须指定auid,
 -附加参数: audio_format(如不指定则从config中读取)
@@ -410,11 +417,19 @@ path: 输出位置
             #普通视频
             if 'avid' in options or 'bvid' in options:
                 video_data = None
-                #提取avid/bvid
-                if 'avid' in options:
-                    video_data = biliapis.get_video_detail(avid=options['avid'])
+                if data:
+                    #提取预处理数据包
+                    if 'avid' in options:
+                        assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+                    else:
+                        assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
+                    video_data = data
                 else:
-                    video_data = biliapis.get_video_detail(bvid=options['bvid'])
+                    #提取avid/bvid
+                    if 'avid' in options:
+                        video_data = biliapis.video.get_detail(avid=options['avid'])
+                    else:
+                        video_data = biliapis.video.get_detail(bvid=options['bvid'])
                 #提取分P索引列表
                 if 'pids' in options:
                     pids = options['pids']
@@ -426,7 +441,7 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['video_encoding'] = config['download']['video']['video_codec']
+                pre_opts['video_encoding'] = config['download']['video']['video_convert']
                 for key in ['audiostream_only','video_encoding','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
@@ -444,12 +459,22 @@ path: 输出位置
                         self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
             elif 'ssid' in options or 'mdid' in options or 'epid' in options:
-                if 'mdid' in options:
-                    bangumi_data = biliapis.get_media_detail(mdid=options['mdid'])
-                elif 'ssid' in options:
-                    bangumi_data = biliapis.get_media_detail(ssid=options['ssid'])
+                if data:
+                    if 'mdid' in options:
+                        assert options['mdid']==data['mdid'],'预请求数据包内容不匹配'
+                        bangumi_data = data
+                    elif 'ssid' in options:
+                        assert options['ssid']==data['ssid'],'预请求数据包内容不匹配'
+                        bangumi_data = data
+                    else:
+                        bangumi_data = biliapis.media.get_detail(epid=options['epid'])
                 else:
-                    bangumi_data = biliapis.get_media_detail(epid=options['epid'])
+                    if 'mdid' in options:
+                        bangumi_data = biliapis.media.get_detail(mdid=options['mdid'])
+                    elif 'ssid' in options:
+                        bangumi_data = biliapis.media.get_detail(ssid=options['ssid'])
+                    else:
+                        bangumi_data = biliapis.media.get_detail(epid=options['epid'])
                 main_title = bangumi_data['title']
                 #选择正片/番外
                 if 'section_index' in options:
@@ -473,7 +498,7 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['video_encoding'] = config['download']['video']['video_codec']
+                pre_opts['video_encoding'] = config['download']['video']['video_convert']
                 for key in ['audiostream_only','video_encoding','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
@@ -488,7 +513,7 @@ path: 输出位置
                         tmpdict['bvid'] = episode['bvid']
                         tmpdict['index'] = len(self.data_objs)
                         self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','未知',path,'待处理'])
+                        self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
         elif mode == 'audio':
             tmpdict = {
@@ -598,22 +623,32 @@ path: 输出位置
     def auto_refresh_table(self):#更新依据: self.table_display_list
         if self.window:
             obj = self.table.get_children()
-            #记录选中项
-            indexes = []
-            for item in self.table.selection():
-                indexes.append(obj.index(item))
-            #删掉旧内容
-            for o in obj:
-                self.table.delete(o)
-            #填充新内容
-            i = 0
-            for line in self.table_display_list:
-                i += 1
-                self.table.insert('','end',values=tuple(line))
-            #复现选中项
-            obj = self.table.get_children()
-            for index in indexes:
-                self.table.selection_set(obj[index])
+            fast_refresh = False
+            if len(obj) == len(self.table_display_list):
+                #不涉及项数增减的修改
+                for i in range(len(obj)):
+                    if self.table.item(obj[i])['values'] != self.table_display_list[i]:
+                        self.table.item(obj[i],values=self.table_display_list[i])
+                        fast_refresh = True
+            else:
+                fast_refresh = True
+                #涉及到项数增减的修改
+                #记录选中项
+                indexes = []
+                for item in self.table.selection():
+                    indexes.append(obj.index(item))
+                #删除旧项
+                for o in obj:
+                    self.table.delete(o)
+                #填充新内容
+                i = 0
+                for line in self.table_display_list:
+                    i += 1
+                    self.table.insert('','end',values=tuple(line))
+                #复现选中项
+                obj = self.table.get_children()
+                for index in indexes:
+                    self.table.selection_set(obj[index])
             #更新统计信息
             self.label_stat_totaltask['text'] = str(len(self.data_objs))
             self.label_stat_donetask['text'] = str(len(self.done_indexes))
@@ -622,7 +657,10 @@ path: 输出位置
             self.label_stat_threadnum['text'] = '{} / {}'.format(self.thread_counter,config['download']['max_thread_num'])
             self.label_stat_queuelen['text'] = str(self.task_queue.qsize())
             #准备下一次循环
-            self.refresh_loop_schedule = self.window.after(100+5*len(self.table_display_list),self.auto_refresh_table)
+            if fast_refresh:
+                self.refresh_loop_schedule = self.window.after(100+len(self.table_display_list)*2,self.auto_refresh_table)
+            else:
+                self.refresh_loop_schedule = self.window.after(2000,self.auto_refresh_table)
         else:
             pass
 
@@ -709,7 +747,7 @@ class MainWindow(Window):
         self.window.wm_attributes('-topmost',False)
         w = LoginWindow()
         if w.status:
-            biliapis.load_local_cookies()
+            biliapis.requester.load_local_cookies()
             self.refresh_data()
         else:
             msgbox.showwarning('','登录未完成.')
@@ -721,7 +759,7 @@ class MainWindow(Window):
             self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
             self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='disabled'))
             try:
-                data = biliapis.get_login_info()
+                data = biliapis.login.get_login_info()
             except biliapis.BiliError as e:
                 if e.code == -101:
                     self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.'))
@@ -732,7 +770,7 @@ class MainWindow(Window):
                 else:
                     raise e
             def load_user_info(user_data):
-                self.label_face.set(BytesIO(biliapis.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
+                self.label_face.set(BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
                 self.label_face_text.grid_remove()
                 self.label_face.bind('<Button-1>',
                                      lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text))
@@ -745,7 +783,7 @@ class MainWindow(Window):
     def login(self,init=False):
         def tmp():
             self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
-            if biliapis.is_cookiejar_usable():
+            if biliapis.login.check_login():
                 self.refresh_data()
                 self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
                 self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
@@ -762,8 +800,8 @@ class MainWindow(Window):
     def logout(self):
         self.button_login.configure(state='disabled')
         try:
-            biliapis.exit_login()
-            biliapis.cookies.save()
+            biliapis.login.exit_login()
+            biliapis.requester.cookies.save()
         except biliapis.BiliError:
             msgbox.showwarning('','未登录.')
             self.button_login.configure(text='退出登录',command=self.logout)
@@ -825,7 +863,7 @@ class MainWindow(Window):
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
                     return
-                video_data = biliapis.get_video_detail(**{flag:source})
+                video_data = biliapis.video.get_detail(**{flag:source})
                 parts = video_data['parts']
                 bvid = video_data['bvid']
                 title = video_data['title']
@@ -838,7 +876,7 @@ class MainWindow(Window):
                         return
                 else:
                     indexes = [0]
-                download_manager.task_receiver('video',path,bvid=video_data['bvid'],pids=indexes)
+                download_manager.task_receiver('video',path,bvid=video_data['bvid'],data=video_data,pids=indexes)
             elif flag == 'auid':#音频
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
@@ -848,7 +886,7 @@ class MainWindow(Window):
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
                     return
-                bangumi_data = biliapis.get_media_detail(**{flag:source})
+                bangumi_data = biliapis.media.get_detail(**{flag:source})
                 episodes = bangumi_data['episodes']
                 title = bangumi_data['title']
                 if len(episodes) > 0:
@@ -861,7 +899,7 @@ class MainWindow(Window):
                 else:
                     msgbox.showinfo('','没有正片')
                     return
-                download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],epindexes=indexes)
+                download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
@@ -961,7 +999,7 @@ class ConfigWindow(Window):
         config['filter_emoji'] = self.boolvar_filteremoji.get()
         config['download']['max_thread_num'] = self.intvar_threadnum.get()
         config['download']['video']['quality_regular'] = make_quality_regular(self.strvar_video_quality.get())
-        biliapis.filter_emoji = config['filter_emoji']
+        biliapis.requester.filter_emoji = config['filter_emoji']
         dump_config()
 
     def save_config(self):
@@ -1037,9 +1075,9 @@ class AudioWindow(Window):
             filename = replaceChr(self.title)+'.jpg'
             path = filedialog.askdirectory(title='保存至')
             if path:
-                url = biliapis.get_audio_info(self.auid)['cover']
+                url = biliapis.audio.get_info(self.auid)['cover']
                 with open(os.path.join(path,filename),'wb+') as f:
-                    f.write(biliapis.get_content_bytes(url))
+                    f.write(biliapis.requester.get_content_bytes(url))
                 msgbox.showinfo('','完成')
         else:
             msgbox.showwarning('','加载未完成')
@@ -1052,7 +1090,7 @@ class AudioWindow(Window):
             filename = replaceChr(self.title)+'.lrc'
             path = filedialog.askdirectory(title='保存至')
             if path:
-                data = biliapis.get_audio_lyrics(self.auid)
+                data = biliapis.audio.get_lyrics(self.auid)
                 if data == 'Fatal: API error':
                     msgbox.showinfo('','没有歌词')
                 else:
@@ -1070,32 +1108,32 @@ class AudioWindow(Window):
                 self.task_queue.put_nowait(lambda:msgbox.showerror('','音频不存在'))
                 self.task_queue.put_nowait(self.close)
                 return
-            data = biliapis.get_audio_info(self.auid)
+            data = biliapis.audio.get_info(self.auid)
             self.audio_data = data
             self.title = data['title']
             self.task_queue.put_nowait(lambda:self.set_text(self.text_name,text=data['title'],lock=True))
             self.task_queue.put_nowait(lambda:self.tooltip_name.change_text(data['title']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_auid,'text','auID%s'%data['auid']))
+            self.task_queue.put_nowait(lambda:self.label_auid.configure(text='auID%s'%data['auid']))
             if data['description'].strip():
                 self.task_queue.put_nowait(lambda:self.set_text(self.sctext_desc,text=data['description'],lock=True))
             else:
                 self.task_queue.put_nowait(lambda:self.set_text(self.sctext_desc,text='没有简介',lock=True))
-            updata = biliapis.get_user_info(data['uploader']['uid'])
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_uploader_name,'text',updata['name']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_uploader_id,'text','UID%s'%updata['uid']))
+            updata = biliapis.user.get_info(data['uploader']['uid'])
+            self.task_queue.put_nowait(lambda:self.label_uploader_name.configure(text=updata['name']))
+            self.task_queue.put_nowait(lambda:self.label_uploader_id.configure(text='UID%s'%updata['uid']))
             if data['lyrics_url']:
-                lrcdata = biliapis.get_audio_lyrics(self.auid)
+                lrcdata = biliapis.audio.get_lyrics(self.auid)
                 self.task_queue.put_nowait(lambda:self.set_text(self.sctext_lyrics,text=lrcdata,lock=True))
             else:
                 self.task_queue.put_nowait(lambda:self.set_text(self.sctext_lyrics,text='没有歌词',lock=True))            
-            tagdata = biliapis.get_audio_tags(self.auid)
+            tagdata = biliapis.audio.get_tags(self.auid)
             if tagdata:
                 self.task_queue.put_nowait(lambda:self.set_text(self.text_tags,text='#'+'# #'.join(tagdata)+'#',lock=True))
             else:
                 self.task_queue.put_nowait(lambda:self.set_text(self.text_tags,text='没有标签',lock=True))
             #image
-            cover = BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['cover'],w=300,h=300)))
-            face = BytesIO(biliapis.get_content_bytes(biliapis.format_img(updata['face'],w=50,h=50)))
+            cover = BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(data['cover'],w=300,h=300)))
+            face = BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(updata['face'],w=50,h=50)))
             self.task_queue.put_nowait(lambda:self.label_cover_shower.set(cover))
             self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
             self.task_queue.put_nowait(lambda:self.label_uploader_face.set(face))
@@ -1104,7 +1142,7 @@ class AudioWindow(Window):
 
     def check_usable(self):
         try:
-            biliapis.get_audio_info(self.auid)
+            biliapis.audio.get_info(self.auid)
         except biliapis.BiliError as e:
             if e.code == -404 or e.code == 7201006:
                 return False
@@ -1372,22 +1410,22 @@ class CommonVideoWindow(Window):
                 self.task_queue.put_nowait(self.close)
                 return
             if self.abtype == 'av':
-                data = biliapis.get_video_detail(avid=self.abvid)
-                tags = biliapis.get_video_tags(avid=self.abvid)
-                self.recommend = biliapis.get_video_recommend(avid=self.abvid)
+                data = biliapis.video.get_detail(avid=self.abvid)
+                tags = biliapis.video.get_tags(avid=self.abvid)
+                self.recommend = biliapis.video.get_recommend(avid=self.abvid)
                 opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/av%s'%self.abvid)
             else:
-                data = biliapis.get_video_detail(bvid=self.abvid)
-                tags = biliapis.get_video_tags(bvid=self.abvid)
-                self.recommend = biliapis.get_video_recommend(bvid=self.abvid)
+                data = biliapis.video.get_detail(bvid=self.abvid)
+                tags = biliapis.video.get_tags(bvid=self.abvid)
+                self.recommend = biliapis.video.get_recommend(bvid=self.abvid)
                 opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/'+self.abvid)
             self.video_data = data
             self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的存放空间
             #explorer_opener
-            self.task_queue.put_nowait(lambda:self.config_widget(self.button_open_in_ex,'command',opener_lambda))
+            self.task_queue.put_nowait(lambda:self.button_open_in_ex.configure(command=opener_lambda))
             #common_info
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_avid,'text','AV%s'%data['avid']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_bvid,'text',data['bvid']))
+            self.task_queue.put_nowait(lambda:self.label_avid.configure(text='AV%s'%data['avid']))
+            self.task_queue.put_nowait(lambda:self.label_bvid.configure(text=data['bvid']))
             self.task_queue.put_nowait(lambda:self.set_text(self.text_title,lock=True,text=data['title']))
             #warning
             def fill_warning_info(warning_info):
@@ -1409,8 +1447,8 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda sd=stat:fill_stat(sd))
             #up
             up = data['uploader']
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_uploader_name,'text',up['name']))
-            self.task_queue.put_nowait(lambda:self.config_widget(self.label_uploader_id,'text','UID%s'%up['uid']))
+            self.task_queue.put_nowait(lambda:self.label_uploader_name.configure(text=up['name']))
+            self.task_queue.put_nowait(lambda:self.label_uploader_id.configure(text='UID%s'%up['uid']))
             #desc
             if data['description'].strip():
                 desc = data['description']
@@ -1419,10 +1457,10 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda:self.set_text(self.sctext_desc,lock=True,text=desc))
             #img
             def load_img():
-                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(data['picture'],w=380))):
+                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(data['picture'],w=380))):
                                            self.label_cover.set(img))
                 self.task_queue.put_nowait(lambda:self.label_cover_text.grid_remove())
-                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(up['face'],w=50,h=50))):
+                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(up['face'],w=50,h=50))):
                                            self.label_uploader_face.set(img))
                 self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
             start_new_thread(load_img)
@@ -1466,11 +1504,11 @@ class CommonVideoWindow(Window):
             pass
         else:
             def tmp_(o_,c_):
-                self.task_queue.put_nowait(lambda w=o_[1],img=BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.recommend[c_]['picture'],w=114,h=69))):
+                self.task_queue.put_nowait(lambda w=o_[1],img=BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(self.recommend[c_]['picture'],w=114,h=69))):
                                            w.set(img))
                 self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:self.set_text(w,text=t,lock=True))
-                self.task_queue.put_nowait(lambda w=o_[3],t=self.recommend[c_]['uploader']['name']:self.config_widget(w,'text',t))
-                self.task_queue.put_nowait(lambda w=o_[4],t=self.recommend[c_]['bvid']:self.config_widget(w,'text',t))
+                self.task_queue.put_nowait(lambda w=o_[3],t=self.recommend[c_]['uploader']['name']:w.configure(text=t))
+                self.task_queue.put_nowait(lambda w=o_[4],t=self.recommend[c_]['bvid']:w.configure(text=t))
                 #绑定tooltip
                 self.task_queue.put_nowait(lambda w=o_[1]:o_.append(cusw.ToolTip(w,text='点击跳转到此视频')))
                 self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:o_.append(cusw.ToolTip(w,text=t)))
@@ -1499,9 +1537,9 @@ class CommonVideoWindow(Window):
     def check_usable(self):
         try:
             if self.abtype == 'av':
-                biliapis.get_video_detail(avid=self.abvid)
+                biliapis.video.get_detail(avid=self.abvid)
             else:
-                biliapis.get_video_detail(bvid=self.abvid)
+                biliapis.video.get_detail(bvid=self.abvid)
         except biliapis.BiliError as e:
             if e.code == -404:
                 return False
@@ -1542,20 +1580,20 @@ class LoginWindow(object):
     def fresh(self):
         self.button_refresh['state'] = 'disabled'
         self.label_text['text'] = '正在刷新'
-        self.login_url,self.oauthkey = biliapis.get_login_url()
+        self.login_url,self.oauthkey = biliapis.login.get_login_url()
         self.label_imgshower.set(makeQrcode(self.login_url))
         self.start_autocheck()
 
     def start_autocheck(self):
         if not self.oauthkey:
             return
-        res = biliapis.check_scan(self.oauthkey)
+        res = biliapis.login.check_scan(self.oauthkey)
         self.status,self.final_url,self.condition = res
         self.label_text['text'] = {0:'登录成功',-1:'密钥错误',-2:'二维码已超时',-4:'使用B站手机客户端扫描此二维码',-5:'在手机上确认登录'}[self.condition]
         if self.condition == 0:
-            cookiejar = biliapis.make_cookiejar(self.final_url)
-            cookiejar.save(os.path.abspath('./cookies.txt'))
-            logging.debug('Cookie File saved to '+os.path.abspath('./cookies.txt'))
+            cookiejar = biliapis.login.make_cookiejar(self.final_url)
+            cookiejar.save(biliapis.requester.local_cookiejar_path)
+            logging.debug('Cookie File saved to '+biliapis.requester.local_cookiejar_path)
             self.window.after(1000,self.close)
             return
         elif self.condition == -2:
@@ -1575,7 +1613,7 @@ class PbpShower(Window):
         super().__init__('BiliTools - PBP Shower of cid{}'.format(cid),True,config['topmost'],config['alpha'])
 
         try:
-            self.pbp_data = biliapis.get_pbp(cid)
+            self.pbp_data = biliapis.video.get_pbp(cid)
         except biliapis.BiliError as e:
             msgbox.showerror('','BiliError Code {}: {}'.format(e.code,e.msg))
             self.close()
@@ -1757,12 +1795,12 @@ class BlackroomWindow(Window):
 
     def load_data(self):
         self.loaded_page += 1
-        self.data_pool += biliapis.get_blackroom(self.loaded_page)
+        self.data_pool += biliapis.other.get_blackroom(self.loaded_page)
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
 
     def load_img(self,page):
         if type(self.data_pool[page-1]['user']['face']) == str:#检查是否加载过, 加载过的则不再加载
-            self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
+            self.data_pool[page-1]['user']['face'] = BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(self.data_pool[page-1]['user']['face'],50,50)))
         self.task_queue.put_nowait(lambda:self.label_target_face.set(self.data_pool[page-1]['user']['face']))
         
     def turn_page(self,page):
