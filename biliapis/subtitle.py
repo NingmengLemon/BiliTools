@@ -3,6 +3,8 @@ from . import requester
 from . import bilicodes
 import json
 
+__all__ = ['get_bcc','bcc_to_srt']
+
 def get_bcc(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:

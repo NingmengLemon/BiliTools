@@ -3,6 +3,8 @@ from . import requester
 from . import bilicodes
 import json
 
+__all__ = ['search_bangumi','get_detail']
+
 def search_bangumi(keyword,page=1):
     api = f'https://api.bilibili.com/x/web-interface/search/type?search_type=media_bangumi&keyword={parse.quote(keyword)}&page={page}'
     data = json.loads(requester.get_content_str(api))

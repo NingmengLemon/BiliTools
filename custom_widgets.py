@@ -3,6 +3,8 @@ import tkinter as tk
 import io
 from PIL import Image,ImageTk
 
+__all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame','VerticalScrolledFrame_v2']
+
 def tkImg(file=None,scale=1,size=()):
     if file:
         with Image.open(file) as f:
@@ -76,13 +78,20 @@ class ImageLabel(tk.Label):
         self._params['image_bytesio'] = None
         self._update()
 
-    def set(self,image_bytesio,width=None,height=None):
+    def set(self,image_bytesio=None,width=None,height=None):
         if width:
             self._params['width'] = width
         if height:
             self._params['height'] = height
-        self._params['image_bytesio'] = image_bytesio
+        if image_bytesio:
+            self._params['image_bytesio'] = image_bytesio
         self._update()
+
+    def get_width(self):
+        return self._params['width']
+
+    def get_height(self):
+        return self._params['height']
 
 class _TipWindow(tk.Toplevel):
     def __init__(self, master, **kw):
@@ -209,3 +218,51 @@ class ToolTip:
         """
         self.unschedule()
         self.hide_tip()
+
+class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在height>31000px的时候失效啊wdnmd
+    #这个滚动框架采用的是frame套canvas再套frame的操作
+    def __init__(self,master,height=200,**kwargs):
+        '''组件宽度由内部的框架大小决定'''
+        super().__init__(master,**kwargs)
+        self._canvas = tk.Canvas(self,height=height,borderwidth=0,highlightthickness=0,takefocus=0,bg='#66ccff')
+        self._canvas.grid(column=0,row=0,sticky='nsew')
+        self._scrollbar = ttk.Scrollbar(self,orient='vertical',command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+        self._scrollbar.grid(column=1,row=0,sticky='ns')
+        self.inner_frame = tk.Frame(self._canvas)
+        self._inner_frame_id = self._canvas.create_window(0,0, anchor='nw',window=self.inner_frame)
+
+        self.inner_frame.bind('<Configure>',self._update_canvas)
+        self._bind_scroll_event(self.inner_frame)
+
+        self.bind = self.inner_frame.bind
+        self.focus_set = self.inner_frame.focus_set
+        self.unbind = self.inner_frame.unbind
+        self.xview = self._canvas.xview
+        self.xview_moveto = self._canvas.xview_moveto
+        self.yview = self._canvas.yview
+        self.yview_moveto = self._canvas.yview_moveto
+
+    def set_height(self,h):
+        self._canvas['height'] = h
+
+    def _bind_scroll_event(self,widget):
+        widget.bind('<MouseWheel>',self._scroll_event)
+        widget.bind('<Button-4>',self._scroll_event)
+        widget.bind('<Button-5>',self._scroll_event)
+        widget.bind('<Up>',lambda event:self._canvas.yview_scroll(-1,"units"))
+        widget.bind('<Down>',lambda event:self._canvas.yview_scroll(1,"units"))
+
+    def _update_canvas(self,event):
+        reqwidth = self._canvas.winfo_reqwidth()
+        reqheight = self.inner_frame.winfo_reqheight()
+        self._canvas.configure(scrollregion=(0, 0, reqwidth, reqheight),width=self.inner_frame.winfo_reqwidth())
+
+        for widget in self.inner_frame.children.values():
+            self._bind_scroll_event(widget)
+
+    def scroll_to_top(self):
+        self._canvas.yview_moveto(0)
+
+    def _scroll_event(self,event):
+        self._canvas.yview_scroll(-1 * (event.delta // 120), "units")

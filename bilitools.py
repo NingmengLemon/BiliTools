@@ -46,7 +46,7 @@ desktop_path = biliapis.get_desktop()
 biliapis.requester.load_local_cookies()
 
 config = {
-    'topmost':True,
+    'topmost':False,
     'alpha':1.0,# 0.0 - 1.0
     'filter_emoji':False,
     'devmode':True, #开发模式开关
@@ -58,6 +58,10 @@ config = {
             },
         'audio':{
             'convert':'mp3'
+            },
+        'manga':{
+            'save_while_viewing':False,
+            'auto_save_path':os.path.join(inner_data_path,'MangaAutoSave')
             },
         'max_thread_num':4,
         'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
@@ -180,10 +184,12 @@ class DownloadManager(object):
                 self.table_display_list.append(dlist)
                 if obj[1] == 'video':
                     self.task_queue.put_nowait(lambda args=obj[2]:self._video_download_thread(**args))
-                if obj[1] == 'audio':
+                elif obj[1] == 'audio':
                     self.task_queue.put_nowait(lambda args=obj[2]:self._audio_download_thread(**args))
                 elif obj[1] == 'common':
                     self.task_queue.put_nowait(lambda args=obj[2]:self._common_download_thread(**args))
+                elif obj[1] == 'manga':
+                    self.task_queue.put_nowait(lambda args=obj[2]:self._manga_download_thread(**args))
             logging.debug('{} Progress Obj Loaded from {}'.format(len(pgr['objs']),file))
         else:
             logging.debug('Progress File not Exists.')
@@ -266,6 +272,57 @@ class DownloadManager(object):
         else:
             self.done_indexes.append(index)
             self._edit_display_list(index,'status','完成')
+        finally:
+            del self.running_indexes[self.running_indexes.index(index)]
+            self.thread_counter -= 1
+            self.save_progress()
+
+    def _manga_download_thread(self,index,epid,path,**trash):
+        #懒得解释了
+        self.thread_counter += 1
+        self.running_indexes.append(index)
+        try:
+            #收集信息
+            self._edit_display_list(index,'status','收集信息')
+            episode_info = biliapis.manga.get_episode_info(epid)
+            comic_title = replaceChr(episode_info['comic_title'])
+            ep_title = replaceChr(episode_info['eptitle'])
+            ep_title_short = replaceChr(episode_info['eptitle_short'])
+            mcid = episode_info['mcid']
+            path = os.path.join(path,'_'.join([comic_title,ep_title_short,ep_title]).strip())
+            #获取url和token
+            self._edit_display_list(index,'status','获取Token')
+            urls = ['{}@{}w.jpg'.format(i['path'],i['width']) for i in biliapis.manga.get_episode_image_index(epid)['images']]
+            urls = [i['url']+'?token='+i['token'] for i in biliapis.manga.get_episode_image_token(*urls)]
+            self._edit_display_list(index,'length',f'{len(urls)}张')
+            maxb = len(str(len(urls)))
+            #开始下载
+            if not os.path.exists(path):
+                os.mkdir(path)
+            counter = 0
+            self._edit_display_list(index,'status',f'下载中 0/{len(urls)}')
+            for url in urls:
+                counter += 1
+                filename = '%d_%d_%0*d.jpg'%(mcid,epid,maxb,counter)
+                if not os.path.exists(os.path.join(path,filename)):
+                    biliapis.requester.download_common(url,os.path.join(path,filename))
+                self._edit_display_list(index,'status',f'下载中 {counter}/{len(urls)}')
+            self._edit_display_list(index,'status','检查中')
+            size = 0
+            for i in os.listdir(path):
+                size += os.path.getsize(os.path.join(path,i))
+            self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
+            self._edit_display_list(index,'status','完成')
+        except biliapis.BiliError as e:
+            self.failed_indexes.append(index)
+            self._edit_display_list(index,'status','错误: '+e.msg)
+        except Exception as e:
+            self.failed_indexes.append(index)
+            self._edit_display_list(index,'status','错误: '+str(e))
+            if config['devmode']:
+                raise e
+        else:
+            self.done_indexes.append(index)
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
             self.thread_counter -= 1
@@ -410,6 +467,8 @@ path: 输出位置
 若mode为audio, 则必须指定auid,
 -附加参数: audio_format(如不指定则从config中读取)
 若mode为common, 则必须指定url和filename, 无附加参数.
+若mode为manga, 则必须指定[epid/mcid]; epindexes参数可选, 但在指定epid时无效
+    注意: ep_list是倒序排列的, 而epindex是正序索引
 '''
         self.show()
         mode = mode.lower()
@@ -537,6 +596,46 @@ path: 输出位置
             self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
             self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
+        elif mode == 'manga':
+            if 'mcid' in options:
+                #提取预处理数据
+                if data:
+                    assert data['mcid']==options['mcid'],'预请求数据包内容不匹配'
+                else:
+                    data = biliapis.manga.get_detail(options['mcid'])
+                #提取epindexes
+                if 'epindexes' in options:
+                    indexes = options['epindexes']
+                    if not indexes:
+                        list(range(0,len(data['ep_list'])))
+                #分发任务
+                else:
+                    indexes = list(range(0,len(data['ep_list'])))
+                #分发任务
+                for index in indexes:
+                    tmpdict = {
+                        'index':len(self.data_objs),
+                        'epid':data['ep_list'][index]['epid'],
+                        'path':path
+                        }
+                    self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
+                    self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['ep_list'][index]['eptitle'],'EP'+str(data['ep_list'][index]['epid']),'漫画下载','','-','',path,'待处理'])
+                    self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
+            elif 'epid' in options:
+                #提取预处理数据
+                if data:
+                    assert data['epid']==options['epid'],'预请求数据包内容不匹配'
+                else:
+                    data = biliapis.manga.get_episode_info(options['epid'])
+                tmpdict = {
+                    'index':len(self.data_objs),
+                    'epid':options['epid'],
+                    'path':path
+                    }
+                self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
+                self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['eptitle'],'EP'+str(data['epid']),'漫画下载','','-','',path,'待处理'])
+                self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
+            
         self.save_progress()
 
     def retry_all_failed(self):
@@ -550,7 +649,7 @@ path: 输出位置
         if index in self.failed_indexes:
             del self.failed_indexes[self.failed_indexes.index(index)]
         elif index in self.done_indexes:
-            del self.self.done_indexes[self.self.done_indexes.index(index)]
+            del self.done_indexes[self.done_indexes.index(index)]
         else:
             raise RuntimeError('Task index {} not allowed being restarted.'.format(index))
         data = self.data_objs[index]
@@ -561,8 +660,10 @@ path: 输出位置
             self.task_queue.put_nowait(lambda args=data[2]:self._video_download_thread(**args))
         elif data[1] == 'audio':
             self.task_queue.put_nowait(lambda args=data[2]:self._audio_download_thread(**args))
-        else:
+        elif data[1] == 'common':
             self.task_queue.put_nowait(lambda args=data[2]:self._common_download_thread(**args))
+        elif data[1] == 'manga':
+            self.task_queue.put_nowait(lambda args=data[2]:self._manga_download_thread(**args))
         
     def show(self):
         if self.window:#构建GUI
@@ -658,7 +759,7 @@ path: 输出位置
             self.label_stat_queuelen['text'] = str(self.task_queue.qsize())
             #准备下一次循环
             if fast_refresh:
-                self.refresh_loop_schedule = self.window.after(100+len(self.table_display_list)*2,self.auto_refresh_table)
+                self.refresh_loop_schedule = self.window.after(200+len(self.table_display_list)*2,self.auto_refresh_table)
             else:
                 self.refresh_loop_schedule = self.window.after(2000,self.auto_refresh_table)
         else:
@@ -846,7 +947,7 @@ class MainWindow(Window):
             elif flag == 'avid' or flag == 'bvid':
                 w = CommonVideoWindow(source)
             elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
-                pass
+                w = BangumiWindow(**{flag:source})
             elif flag == 'cvid':
                 pass
             elif flag == 'uid':
@@ -900,6 +1001,20 @@ class MainWindow(Window):
                     msgbox.showinfo('','没有正片')
                     return
                 download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
+            elif flag == 'mcid':
+                path = filedialog.askdirectory(title='选择保存位置')
+                if not path:
+                    return
+                manga_data = biliapis.manga.get_detail(mcid=source)
+                if len(manga_data['ep_list']) > 0:
+                    indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
+                                           title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
+                    if not indexes:
+                        return
+                else:
+                    msgbox.showinfo('','没有章节')
+                    return
+                download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
@@ -1685,7 +1800,7 @@ class PbpShower(Window):
 class PartsChooser(Window):
     def __init__(self,part_list,title='PartsChooser',columns=['分P名','长度','Cid','编码'],columns_widths=[200,70,90,100]):
         self.return_values = [] #Selected Indexes
-        super().__init__('BiliTools - PartsChooser',True,config['topmost'],config['alpha'])
+        super().__init__('BiliTools - '+title,True,config['topmost'],config['alpha'])
         #part_list: 逐行多维数组
         #例如:
         #[
@@ -1710,7 +1825,7 @@ class PartsChooser(Window):
         #初始化表头
         i = 0
         for column in columns:
-            self.tview_parts.column(column,width=columns_widths[i],anchor='w')
+            self.tview_parts.column(column,width=columns_widths[i],minwidth=columns_widths[i]-20,anchor='w')
             self.tview_parts.heading(column,text=column,anchor='w')
             i += 1
         #填充数据
@@ -1822,14 +1937,284 @@ class BlackroomWindow(Window):
         self.set_text(self.sctext_content,True,text=self.data_pool[page-1]['punish']['content'])
         self.label_page_shower['text'] = '{}/{}'.format(self.page,len(self.data_pool))
 
-class BangumiWindow(object):
-    def __init__(self,**ids):
-        pass
+class BangumiWindow(Window):
+    def __init__(self,ssid=None,mdid=None,epid=None):
+        super().__init__('BiliTools - Media',True,config['topmost'],config['alpha'])
+        self.ids = {'ssid':ssid,'mdid':mdid,'epid':epid}
+        if not ssid and not mdid and not epid:
+            raise RuntimeError('You must choose one parameter between ssid, mdid and epid.')
+        self.media_data = None
 
+        #左侧
+        self.frame_left = tk.Frame(self.window)
+        self.frame_left.grid(column=0,row=0)
+        #封面
+        self.label_cover = cusw.ImageLabel(self.frame_left,width=285,height=380)
+        self.label_cover.grid(column=0,row=0)
+        #标题
+        self.text_title = tk.Text(self.frame_left,bg='#f0f0f0',bd=0,height=1,width=46,state='disabled',font=('Microsoft YaHei UI',12,'bold'))
+        self.text_title.grid(column=0,row=1,sticky='w')
+        #IDs
+        self.label_ssid = tk.Label(self.frame_left,text='SS-')
+        self.label_ssid.grid(column=0,row=2,sticky='w')
+        self.label_mdid = tk.Label(self.frame_left,text='MD-')
+        self.label_mdid.grid(column=0,row=2,sticky='e',padx=10)
+        #统计
+        self.frame_stat = tk.LabelFrame(self.frame_left,text='统计')
+        self.frame_stat.grid(column=0,row=3)
+        tk.Label(self.frame_stat,text='播放:').grid(column=0,row=0,sticky='w')
+        self.label_view = tk.Label(self.frame_stat,text='-')
+        self.label_view.grid(column=1,row=0,sticky='w')
+        tk.Label(self.frame_stat,text='投币:').grid(column=2,row=0,sticky='w')
+        self.label_coin = tk.Label(self.frame_stat,text='-')
+        self.label_coin.grid(column=3,row=0,sticky='w')
+        tk.Label(self.frame_stat,text='收藏:').grid(column=0,row=1,sticky='w')
+        self.label_collect = tk.Label(self.frame_stat,text='-')
+        self.label_collect.grid(column=1,row=1,sticky='w')
+        tk.Label(self.frame_stat,text='弹幕:').grid(column=2,row=1,sticky='w')
+        self.label_danmaku = tk.Label(self.frame_stat,text='-')
+        self.label_danmaku.grid(column=3,row=1,sticky='w')
+        tk.Label(self.frame_stat,text='分享:').grid(column=0,row=2,sticky='w')
+        self.label_share = tk.Label(self.frame_stat,text='-')
+        self.label_share.grid(column=1,row=2,sticky='w')
+        tk.Label(self.frame_stat,text='评论:').grid(column=2,row=2,sticky='w')
+        self.label_reply = tk.Label(self.frame_stat,text='-')
+        self.label_reply.grid(column=3,row=2,sticky='w')
+        #操作区
+        self.frame_optarea = tk.Frame(self.frame_left)
+        self.frame_optarea.grid(column=0,row=4)
+        self.button_view_on_browser = ttk.Button(self.frame_optarea,text='在浏览器中打开')
+        self.button_view_on_browser.grid(column=0,row=0)
+        #右侧
+        self.frame_right = tk.Frame(self.window)
+        self.frame_right.grid(column=1,row=0)
+        #正片/番外展示器
+        self.notebook_secshower = ttk.Notebook(self.frame_right)
+        self.notebook_secshower.grid(column=0,row=0)
+        self.section_tabs = [] #采用列表套列表的形式
+        #简介
+        tk.Label(self.frame_right,text='简介↓').grid(column=0,row=1,sticky='w')
+        self.text_desc = scrolledtext.ScrolledText(self.frame_right,state='disabled',bg='#f0f0f0',bd=0,height=10,width=63)
+        self.text_desc.grid(column=0,row=2,sticky='w')
+
+        self.load_data()
+        self.window.mainloop()
+
+    def _add_section_tab(self,tabname,section_data,section_index=-1):
+        #传入的section_data是个列表, 来源biliapis.media.get_info获得的剧集列表
+        #section_index是整型, 为-1时是正片
+        #索引值说明(缩进表示tk隶属关系):
+        #0:Section数据
+        #1:框架
+        #   2:表格
+        #   3:y滚动条
+        #   4:x滚动条
+        #   5:框架-操作
+        #       6:按钮-下载选中项
+        #       7:按钮-下载全部
+        #       8:按钮-查看PBP
+        #       9:下面那个复选框的boolvar
+        #       10:复选框-是否只抽取音轨
+        
+        #框架
+        self.section_tabs += [[section_data]]
+        tab_index = len(self.section_tabs)-1
+        self.section_tabs[-1] += [tk.Frame(self.notebook_secshower)]
+        self.notebook_secshower.add(self.section_tabs[-1][1],text=tabname)
+        #表格
+        headings = ['标题','BvID','EpID']
+        head_widths = [200,120,80]
+        self.section_tabs[-1] += [ttk.Treeview(self.section_tabs[-1][1],show="headings",columns=tuple(['序号']+headings),height=15)]
+        self.section_tabs[-1][2].grid(column=0,row=0)
+        #初始化表头
+        self.section_tabs[-1][2].column("序号", width=40,anchor='e') #序号一栏是固有的, 参见PartsChooser
+        self.section_tabs[-1][2].heading("序号", text="序号",anchor='w')
+        i = 0
+        for h in headings:
+            self.section_tabs[-1][2].column(h,width=head_widths[i],minwidth=head_widths[i]-50,anchor='w')
+            self.section_tabs[-1][2].heading(h,text=h,anchor='w')
+            i += 1
+        #填充数据
+        i = 0
+        for item in section_data:
+            i += 1
+            self.section_tabs[-1][2].insert("","end",values=(str(i),item['title'],item['bvid'],str(item['epid'])))
+        #滚动条
+        self.section_tabs[-1] += [ttk.Scrollbar(self.section_tabs[-1][1],command=self.section_tabs[-1][2].yview,orient='vertical')]
+        self.section_tabs[-1][3].grid(column=1,row=0,sticky='nsw')
+        self.section_tabs[-1] += [ttk.Scrollbar(self.section_tabs[-1][1],command=self.section_tabs[-1][2].xview,orient='horizontal')]
+        self.section_tabs[-1][4].grid(column=0,row=1,sticky='wen')
+        self.section_tabs[-1][2].configure(yscrollcommand=self.section_tabs[-1][3].set,xscrollcommand=self.section_tabs[-1][4].set)
+        #操作区
+        self.section_tabs[-1] += [tk.Frame(self.section_tabs[-1][1])]
+        self.section_tabs[-1][5].grid(column=0,row=2,sticky='w')
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='下载选中项',command=lambda tbi=tab_index,sei=section_index:self._download_func(tbi,sei,False))]
+        self.section_tabs[-1][6].grid(column=0,row=1)
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='下载全部',command=lambda tbi=tab_index,sei=section_index:self._download_func(tbi,sei,True))]
+        self.section_tabs[-1][7].grid(column=1,row=1)
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的PBP')] #
+        self.section_tabs[-1][8].grid(column=2,row=1)
+        self.section_tabs[-1] += [tk.BooleanVar(self.section_tabs[-1][5],False)]
+        self.section_tabs[-1] += [ttk.Checkbutton(self.section_tabs[-1][5],text='仅抽取音轨',onvalue=True,offvalue=False,variable=self.section_tabs[-1][9])]
+        self.section_tabs[-1][10].grid(column=0,row=0)
+        
+
+    def _download_func(self,tab_index,section_index=-1,download_all=False):
+        if not self.media_data:
+            raise RuntimeError('Not loaded yet.')
+        #此函数供section_tabs内的按钮调用
+        ep_indexes = []
+        if download_all:
+            pass
+        else:
+            for item in self.section_tabs[tab_index][2].selection():
+                ep_indexes.append(int(self.section_tabs[tab_index][2].item(item,"values")[0])-1)
+            if not ep_indexes:
+                msgbox.showwarning('','你什么都没选中')
+                return
+        path = filedialog.askdirectory(title='设定输出目录')
+        if path:
+            if section_index == -1:
+                download_manager.task_receiver('video',path=path,data=self.media_data,ssid=self.media_data['ssid'],
+                                               audiostream_only=self.section_tabs[tab_index][9].get(),epindexes=ep_indexes)
+            else:
+                download_manager.task_receiver('video',path=path,data=self.media_data,ssid=self.media_data['ssid'],
+                                               audiostream_only=self.section_tabs[tab_index][9].get(),epindexes=ep_indexes,section_index=section_index)
+
+    def load_data(self):
+        def tmp():
+            try:
+                self.media_data = biliapis.media.get_detail(**self.ids)
+            except biliapis.BiliError as e:
+                if e.code == -404:
+                    self.task_queue.put_nowait(lambda:msgbox.showerror('','番剧/影视 不存在'))
+                    self.task_queue.put_nowait(self.close)
+                    return
+            del self.ids
+            #统计数据
+            stat = self.media_data['stat']
+            def fill_stat(stat_data):
+                self.label_view['text'] = str(stat_data['view'])
+                self.label_coin['text'] = str(stat_data['coin'])
+                self.label_collect['text'] = str(stat_data['collect'])
+                self.label_danmaku['text'] = str(stat_data['danmaku'])
+                self.label_share['text'] = str(stat_data['share'])
+                self.label_reply['text'] = str(stat_data['reply'])
+            self.task_queue.put_nowait(lambda s=stat:fill_stat(s))
+            #图像
+            def load_img():
+                self.task_queue.put_nowait(lambda img=BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(self.media_data['cover'],h=380))):
+                                           self.label_cover.set(img))
+            start_new_thread(load_img)
+            #Section data
+            if self.media_data['episodes']:
+                self.task_queue.put_nowait(lambda eps=self.media_data['episodes']:self._add_section_tab('正片',eps,-1))
+            i = 0
+            for section in self.media_data['sections']:
+                self.task_queue.put_nowait(lambda name=section['title'],eps=section['episodes'],index=i:self._add_section_tab(name,eps,index))
+                i += 1
+            #简介
+            self.task_queue.put_nowait(lambda desc=self.media_data['description']:self.set_text(self.text_desc,text=desc,lock=True))
+            #标题
+            self.task_queue.put_nowait(lambda title=self.media_data['title']:self.set_text(self.text_title,lock=True,text=title))
+            #IDs
+            self.task_queue.put_nowait(lambda ssid=self.media_data['ssid']:self.label_ssid.configure(text='SS{}'.format(ssid)))
+            self.task_queue.put_nowait(lambda mdid=self.media_data['mdid']:self.label_mdid.configure(text='MD{}'.format(mdid)))
+            #打开浏览器的按钮
+            self.task_queue.put_nowait(lambda mdid=self.media_data['mdid']:self.button_view_on_browser.configure(command=lambda mdid=mdid:webbrowser.open('https://www.bilibili.com/bangumi/media/md{}/'.format(mdid))))
+        start_new_thread(tmp)
+
+class MangaViewer_Rolling(Window): #技术上遇到问题, 搁置
+    def __init__(self,epid):
+        super().__init__('BiliTools - MangaViewer',True,config['topmost'],config['alpha'])
+
+        self.epid = epid
+        self.episode_info = None #用来存放请求数据(章节的)
+        self.image_index = None
+        self.image_urls = [] #用来存放拼接Token之后的Url, 一下就加载好了所以不用占位
+        self.image_pool = [] #用来存放BytesIO, 没加载好的用None占位
+        self.widget_list = [] #用来存放ImageLabel, 不用占位
+
+        #控制台占300px宽,600px高
+        self.console_width = 300
+        self.window_width = 800
+        self.window_height = 600
+        
+        self.window.geometry('%sx%s'%(self.window_width,self.window_height))
+        self.window.minsize(self.console_width+100,self.window_height)
+        self.window.resizable(height=True,width=True)
+
+        self.shower_width = self.window_width-self.console_width
+
+        self.shower = cusw.VerticalScrolledFrame(self.window,height=self.window_height)
+        self.shower.grid(column=0,row=0)
+        self.frame_shower = self.shower.inner_frame
+        
+        self.frame_console = tk.Frame(self.window)
+        self.frame_console.grid(column=1,row=0)
+
+        self._init_data()
+
+    def _init_data(self):
+        def tmp():
+            self.episode_info = biliapis.manga.get_episode_info(self.epid)
+            self.image_index = biliapis.manga.get_episode_image_index(self.epid)
+            self.image_urls = [
+                i['url']+'?token='+i['token'] for i in biliapis.manga.get_episode_image_token(
+                    *['{}@{}w.jpg'.format(i['path'],i['width']) for i in self.image_index['images']]
+                    )
+                ]
+            self.image_pool = [None]*len(self.image_urls)
+            self.task_queue.put_nowait(lambda ii=self.image_index:self._prepare_shower_widget(ii))
+            self.task_queue.put_nowait(lambda:self.window.bind('<Configure>',self._resize))
+            self.task_queue.put_nowait(self._load_image)
+        start_new_thread(tmp)
+
+    def _load_image(self):
+        def tmp():
+            for i in range(len(self.image_pool)):
+                if not self.image_pool[i]:
+                    self.image_pool[i] = BytesIO(biliapis.requester.get_content_bytes(self.image_urls[i]))
+                    self.task_queue.put_nowait(lambda index=i:self.widget_list[index].set(self.image_pool[index]))
+        start_new_thread(tmp)
+            
+    def _prepare_shower_widget(self,image_index): #要在_resize第一次调用前调用, 并且要由_init_data调用
+        for i in range(len(image_index['images'])):
+            scale = self.shower_width/image_index['images'][i]['width']
+            self.widget_list.append(cusw.ImageLabel(self.frame_shower,width=int(image_index['images'][i]['width']*scale),
+                                                    height=int(image_index['images'][i]['height']*scale),bd=0))
+            self.widget_list[-1].grid(column=0,row=i)
+            
+    def _resize(self,event=None):
+        h = self.window.winfo_height()
+        w = self.window.winfo_width()
+        self.shower.set_height(h)
+        self.shower_width = w-self.console_width
+        if w != self.window_width:
+            self.shower.scroll_to_top()
+            for i in range(len(self.widget_list)):
+                tw = self.shower_width
+                scale = tw/self.image_index['images'][i]['width']
+                th = int(self.image_index['images'][i]['height']*scale)
+                self.widget_list[i].set(width=tw,height=th)
+        self.window_height = h
+        self.window_width = w
+        
+class MangaViewer_PageTurning(Window):
+    def __init__(self,epid):
+        super().__init__('BiliTools - MangaViewer',True,config['topmost'],config['alpha'])
+
+        self.episode_info = None
+        self.image_urls = []
+        self.image_pool = [] #放BytesIO对象
+
+        
+        
 
 if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
     load_config()
     logging.info('Program Running.')
     w = MainWindow()    
 else:
-    dump_config()
+    #dump_config()
+    pass

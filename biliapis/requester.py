@@ -119,7 +119,10 @@ def _post_request(url,data,headers=fake_headers_post):
     elif response.info().get('Content-Encoding') == 'br':
         data = _unbrotli(data)
     response.data = data
-    logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
+    if len(str(params)) <= 50:
+        logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
+    else:
+        logging.debug('Post Data to {} with a very long params'.format(url))
     return response
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
@@ -149,7 +152,7 @@ def get_content_bytes(url, headers=fake_headers_get):
     return content
 
 def get_redirect_url(url,headers=fake_headers_get):
-    return request.urlopen(request.Request(url,headers=headers),None).geturl()
+    return _get_response(url=url, headers=headers).geturl()
 
 #Cookie Operation
 def clear_cookies():
@@ -180,7 +183,7 @@ def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
     request.install_opener(opener)
     request.urlretrieve(url,tofile,progressfunc)
 
-def convert_size(self,size):#单位:Byte
+def convert_size(size):#单位:Byte
     if size < 1024:
         return '%.2f B'%size
     size /= 1024

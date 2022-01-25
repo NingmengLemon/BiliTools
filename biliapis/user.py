@@ -4,6 +4,8 @@ from . import bilicodes
 from urllib import parse
 import json
 
+__all__ = ['search','get_info']
+
 def search(keyword,page=1,order='0',order_sort=0,user_type=0):
     '''order = 0(default) / fans / level
     order_sort = 0(high->low) / 1(low->high)
