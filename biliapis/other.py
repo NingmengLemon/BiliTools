@@ -4,6 +4,9 @@ from . import bilicodes
 import json
 import os
 import time
+from bs4 import BeautifulSoup
+
+__all__ = ['get_blackroom','get_emotions','download_emotions_demo']
 
 def get_blackroom(page=1,source_filter=None,reason_filter=0):
     '''

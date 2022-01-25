@@ -1,5 +1,7 @@
 from . import bilicodes
 
+__all__ = ['BiliError','error_raiser']
+
 class BiliError(Exception):
     def __init__(self,code,msg):
         self.code = code

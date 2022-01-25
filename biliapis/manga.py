@@ -3,6 +3,8 @@ from . import requester
 from . import bilicodes
 import json
 
+__all__ = ['get_detail','get_episode_info','get_episode_image_index','get_episode_image_token']
+
 def get_detail(mcid):
     data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ComicDetail?device=pc&platform=web',data={
         'comic_id':int(mcid)
@@ -37,14 +39,13 @@ def get_detail(mcid):
             'eptitle':ep['title'],
             'eptitle_short':ep['short_title'],
             'cover':ep['cover'],
-            'is_free':ep['is_in_free'],
             'is_locked':ep['is_locked'],
             'like_count':ep['like_count'],#点赞数
             'ord':ep['ord'],#章节标识 不一定连续, 但一定按先后顺序从小到大
             'pay_gold':ep['pay_gold'],#价格
             'pub_time':ep['pub_time'],#发布时间
             })
-    res['ep_list'] = ep_list
+    res['ep_list'] = list(reversed(ep_list))
     return res
 
 def get_episode_info(epid):
@@ -55,6 +56,7 @@ def get_episode_info(epid):
     error_raiser(data['code'],data['msg'])
     data = data['data']
     res = {
+        'epid':epid,
         'eptitle':data['title'],
         'eptitle_short':data['short_title'],
         'mcid':data['comic_id'],
@@ -62,9 +64,9 @@ def get_episode_info(epid):
         }
     return res
 
-def get_episode_image_index(mcepid):
-    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetImageIndex?device=pc&platform=web',data={
-        'ep_id':int(mcepid)
+def get_episode_image_index(epid):
+    data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetImageIndex?device=pc&platform=web',data={
+        'ep_id':int(epid)
         })
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
@@ -75,7 +77,7 @@ def get_episode_image_index(mcepid):
     images = [] #每个章节包含的图片, 按先后顺序排列
     for image in data['images']:
         images.append({
-            'path':image['path'], #与host拼接成图片url
+            'path':image['path'], #与host拼接成图片url, 但直接访问会被拒绝, 需要与token拼接
             'width':image['x'],
             'height':image['y']
             })
@@ -83,10 +85,10 @@ def get_episode_image_index(mcepid):
     return res
 
 def get_episode_image_token(*paths): #参数来自get_manga_episode_image_index的path
-    data = post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ImageToken?device=pc&platform=web',data={
+    data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ImageToken?device=pc&platform=web',data={
         'urls':json.dumps(list(paths))
         })
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
-    data = data['data'] #是列表套字典的操作, 有url和token两个键
+    data = data['data'] #是列表套字典的操作, 每项里有url和token两个键
     return data

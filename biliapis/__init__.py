@@ -26,7 +26,7 @@ def format_img(url,w=None,h=None,f=None):
     if w:
         tmp += [str(w)+'w']
     if h:
-        tmp += [str(w)+'h']
+        tmp += [str(h)+'h']
     tmp = '_'.join(tmp)
     if f and f in ['png','jpg','webp']:
         tmp += '.'+f

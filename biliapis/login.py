@@ -5,13 +5,9 @@ from http import cookiejar
 import copy
 import time
 
+__all__ = ['dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
+
 def dict_from_cookiejar(cj):
-    """Returns a key/value dictionary from a CookieJar.
-
-    :param cj: CookieJar object to extract cookies from.
-    :rtype: dict
-    """
-
     cookie_dict = {}
 
     for cookie in cj:
@@ -46,7 +42,7 @@ def make_cookiejar(url):#URL来自 check_scan() 成功后的传参
     data = url.split('?')[-1].split('&')[:-1]
     for domain in ['.bilibili.com','.bigfun.cn','.bigfunapp.cn','.biligame.com']:
         for item in data:
-            i = item.split('=')
+            i = item.split('=',1)
             tmpjar.set_cookie(cookiejar.Cookie(
                 0,i[0],i[1],
                 None,False,

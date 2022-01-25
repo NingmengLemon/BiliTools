@@ -3,6 +3,8 @@ from . import requester
 from . import bilicodes
 import json
 
+__all__ = ['get_stream','get_lyrics','get_tags','get_info']
+
 def get_stream(auid,quality=3,platform='web',uid=0):
     '''quality = 0(128K)/1(192K)/2(320K)/3(FLAC)'''
     api = 'https://api.bilibili.com/audio/music-service-c/url?songid=%s&quality=%s&privilege=2&mid=%s&platform=%s'%(auid,quality,uid,platform)

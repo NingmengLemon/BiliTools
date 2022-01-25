@@ -3,6 +3,8 @@ from . import requester
 from . import bilicodes
 import json
 
+__all__ = ['get_comment']
+
 def _single_comment_handler(data):
     res = {
         'rpid':data['rpid'],
