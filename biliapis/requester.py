@@ -165,7 +165,9 @@ def load_local_cookies():
     global cookies
     if not os.path.exists(local_cookiejar_path):
         f = open(local_cookiejar_path,'w+',encoding='utf-8')
-        f.write('# Netscape HTTP Cookie File\n# https://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.')
+        f.write('# Netscape HTTP Cookie File\n'\
+                '# https://curl.haxx.se/rfc/cookie_spec.html\n'\
+                '# This is a generated file!  Do not edit.')
         f.close()
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
@@ -214,10 +216,10 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
         chunk_size = 1*1024
         done_size = size
         try:
-            with opener.open(request.Request(url,headers=headers)) as fp_web:
+            with opener.open(request.Request(url,headers=headers)) as fp_web: #网络文件
                 total_size = int(fp_web.getheader('content-length'))
-                with open(tmpfile,'ab+') as fp_local:
-                    logging.debug('Fetching data from {}, start_byte={}'.format(url,size))
+                with open(tmpfile,'ab+') as fp_local: #本地文件
+                    logging.debug('Fetching data from {}, start_byte={}'.format(url,size)) 
                     while True:
                         data = fp_web.read(chunk_size)
                         if not data:

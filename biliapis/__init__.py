@@ -1,4 +1,4 @@
-from . import audio,comment,login,manga,media,subtitle,user,video 
+from . import audio,comment,manga,media,subtitle,user,video 
 from . import bilicodes 
 from . import login,other
 from . import requester
@@ -7,9 +7,22 @@ from .error import BiliError
 import winreg
 import re
 
+__all__ = ['audio','comment','login','manga','media','subtitle','user','video',
+           'bilicodes','other','requester','BiliError',
+           'get_desktop','second_to_time','format_img','parse_url','convert_number']
+
 def get_desktop():
     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
     return winreg.QueryValueEx(key,"Desktop")[0]
+
+def convert_number(a):
+    y = a/(10000**2)
+    if y >= 1:
+        return f'{round(y,2)}亿'
+    w = a/10000
+    if w >= 1:
+        return f'{round(w,2)}万'
+    return str(a)
 
 def second_to_time(sec):
     h = sec // 3600
@@ -66,11 +79,7 @@ def parse_url(url):
     res = re.findall(r'ep([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'epid'
-    #用户uid
-    res = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)
-    if res:
-        return int(res[0]),'uid'
-    #同上
+    #手动输入的uid
     res = re.findall(r'uid([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'uid'
@@ -78,4 +87,19 @@ def parse_url(url):
     res = re.findall(r'mc([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'mcid'
+    #用户空间相关
+    uid = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)
+    if uid:
+        uid = int(uid[0])
+        #合集
+        if 'collectiondetail' in url.lower():
+            sid = re.findall(r'sid\=([0-9]+)',url,re.I)
+            if sid:
+                return (uid,int(sid[0])),'collection'
+        #收藏夹
+        elif 'favlist' in url.lower():
+            fid = re.findall(r'fid\=([0-9]+)',url,re.I)
+            if fid:
+                return (uid,int(fid[0])),'favlist'
+        return uid,'uid'
     return None,'unknown'

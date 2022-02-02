@@ -4,15 +4,16 @@ from . import bilicodes
 from urllib import parse
 import json
 
-__all__ = ['search','get_info']
+__all__ = ['search','get_info','get_favlist']
 
-def search(keyword,page=1,order='0',order_sort=0,user_type=0):
+def search(*keywords,page=1,order='0',order_sort=0,user_type=0):
     '''order = 0(default) / fans / level
     order_sort = 0(high->low) / 1(low->high)
     user_type = 0(All) / 1(Uploader) / 2(CommonUser) / 3(CertifiedUser)
     '''
     api = 'https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&' \
-        'keyword={}&page={}&order={}&order_sort={}'.format(parse.quote(keyword),page,order,order_sort)
+        'keyword={}&page={}&order={}&order_sort={}'.format(
+            '+'.join([parse.quote(keyword) for keyword in keywords]),page,order,order_sort)
     data = json.loads(get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -66,3 +67,49 @@ def get_info(uid):
         'vip_type':{0:'非大会员',1:'月度大会员',2:'年度及以上大会员'}[data['vip']['type']]
         }
     return res
+
+def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
+    api = 'https://api.bilibili.com/x/v3/fav/resource/list?'\
+          'media_id={}&tid={}&order={}&ps={}&pn={}&platform=pc'.format(mlid,tid,order,page_size,page)
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    if data:
+        info = data['info']
+        res = {
+            'mlid':info['id'], #mlid = fid + uid后两位
+            'fid':info['fid'], #原始id
+            'uploader':{
+                'uid':info['mid'],
+                'name':info['upper']['name'],
+                'face':info['upper']['face'],
+                'is_followed':info['upper']['followed'],
+                },
+            'title':info['title'],
+            'cover':info['cover'],
+            'description':info['intro'],
+            'is_collected':bool(info['fav_state']), #是否收藏, 需要登录
+            'is_liked':bool(info['like_state']), #是否点赞, 同上
+            'content_count':info['media_count'],
+            'content':[{
+                'bvid':i['bvid'],
+                'title':i['title'],
+                'fav_time':i['fav_time'],
+                'pub_time':i['pubtime'],
+                'description':i['intro'],
+                'uploader':{
+                    'uid':i['upper']['mid'],
+                    'name':i['upper']['name'],
+                    'face':i['upper']['fave']
+                    },
+                'stat':{
+                    'collect':i['cnt_info']['collect'],
+                    'view':i['cnt_info']['play'],
+                    'danmaku':i['cnt_info']['danmaku']
+                    }
+                } for i in data['medias']]
+            }
+        return res
+    else:
+        error_raiser('NaN','收藏夹无效')
