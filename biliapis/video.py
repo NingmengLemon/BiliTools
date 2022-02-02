@@ -5,6 +5,14 @@ import json
 import hashlib
 from urllib import parse
 import logging
+from bs4 import BeautifulSoup
+
+__all__ = ['get_recommend','get_stream_dash',
+           'get_tags','get_detail','search','bvid_to_avid_online',
+           'bvid_to_avid_offline','avid_to_bvid_offline',
+           'bvid_to_cid_online','avid_to_cid_online',
+           'get_danmaku_xmlstr','get_online_nop',
+           'get_shortlink','get_pbp','get_archive_list']
 
 def get_recommend(avid=None,bvid=None):
     '''
@@ -102,17 +110,11 @@ def get_detail(avid=None,bvid=None):
     return _video_detail_handler(data,True)
 
 def _video_detail_handler(data,detailmode=True):
-    if int(data['tid']) in bilicodes.video_zone:
-        zone = bilicodes.video_zone[int(data['tid'])]
-    else:
-        zone = 'Unknown'
-        logging.warning('Zone ID {} is unknown.'.format(int(data['tid'])))
     res = {
         'bvid':data['bvid'],
         'avid':data['aid'],
-        'main_zone':zone,
-        'main_zone_id':int(data['tid']),
-        'child_zone':data['tname'],
+        'zone':data['tname'],
+        'zone_id':int(data['tid']),
         'part_number':data['videos'],
         'picture':data['pic'],
         'title':data['title'],
@@ -148,47 +150,54 @@ def _video_detail_handler(data,detailmode=True):
         res['is_interact_video'] = bool(data['rights']['is_stein_gate'])
     return res
 
-def search(keyword,page=1,order='totalrank',zone=0,duration=0):
+def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     '''order = totalrank 综合排序/click 最多点击/pubdate 最新发布/dm 最多弹幕/stow 最多收藏/scores 最多评论
     zone = 0/tid
     duration = 0(All)/1(0-10)/2(10-30)/3(30-60)/4(60+)
     '''
-    api = f'https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword={parse.quote(keyword)}&tid={zone}&duration={duration}&page={page}'
+    api = 'https://api.bilibili.com/x/web-interface/search/type?'\
+        'search_type=video&keyword={}&tids={}&duration={}&page={}&order={}'.format(
+            '+'.join([parse.quote(keyword) for keyword in keywords]),zone,duration,page,order)
     data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
     tmp = []
-    for res in data['result']:
-        tmp.append({
-            'avid':res['aid'],
-            'bvid':res['bvid'],
-            'uploader':{
-                'name':res['author'],
-                'uid':res['mid']
-                },
-            'title':res['title'].replace('<em class="keyword">','').replace('</em>',''),
-            'description':res['description'],
-            'tname_main':bilicodes.video_zone[int(res['typeid'])],
-            'tname_child':res['typename'],
-            'url':res['arcurl'],
-            'cover':res['pic'],
-            'num_view':res['play'],
-            'num_danmaku':res['video_review'],
-            'num_collect':res['favorites'],
-            'tags':res['tag'].split(','),
-            'num_comment':res['review'],
-            'date_publish':res['pubdate'],
-            'duration':res['duration'],
-            'is_union_video':bool(res['is_union_video']),
-            'hit_type':res['hit_columns']
-            })
+    if 'result' in data:
+        for res in data['result']:
+            tmp.append({
+                'avid':res['aid'],
+                'bvid':res['bvid'],
+                'uploader':{
+                    'name':res['author'],
+                    'uid':res['mid']
+                    },
+                'title':BeautifulSoup(res['title'],"html.parser").get_text(),
+                'description':res['description'],
+                'zone_id':int(res['typeid']),
+                'zone':res['typename'],
+                'url':res['arcurl'],
+                'cover':'https:'+res['pic'],
+                'stat':{
+                    'view':res['play'],
+                    'danmaku':res['video_review'],
+                    'collect':res['favorites'],
+                    'num_comment':res['review']
+                    },
+                'tags':res['tag'].split(','),
+                'date_publish':res['pubdate'], #timestamp
+                'duration':res['duration'], #str
+                'is_union_video':bool(res['is_union_video']), #联合投稿
+                'hit_type':res['hit_columns'] #匹配类型
+                })
+    else:
+        pass
     result = {
-        'seid':data['seid'],
+        'seid':data['seid'], #search id
         'page':data['page'],
         'pagesize':data['pagesize'],
-        'num_result':data['numResults'],#max=1000
-        'num_pages':data['numPages'],#max=50
-        'time_cost':data['cost_time']['total'],
+        'result_count':data['numResults'],#max=1000
+        'total_pages':data['numPages'],#max=50
+        'time_cost':data['cost_time']['total'],#搜索花费时间
         'result':tmp
         }
     return result
@@ -285,5 +294,34 @@ def get_pbp(cid):
         'step_sec':data['step_sec'],
         'data':data['events']['default'],
         'debug':json.loads(data['debug'])
+        }
+    return res
+
+def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
+    #获取合集
+    #uid是用户id; sid不知道是什么id, 应该是合集id
+    api = 'https://api.bilibili.com/x/polymer/space/seasons_archives_list?'\
+          'mid={}&season_id={}&sort_reverse={}&page_num={}&page_size={}'.format(uid,sid,str(reverse).lower(),page,page_size)
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = {
+        'cover':data['meta']['cover'],
+        'description':data['meta']['description'],
+        'uid':data['meta']['mid'],
+        'title':data['meta']['name'],
+        'pub_time':data['meta']['ptime'], #timestamp
+        'sid':data['meta']['season_id'],
+        'total':data['meta']['total'],
+        'archives':[{
+            'avid':i['aid'],
+            'bvid':i['bvid'],
+            'duration':i['duration'],
+            'is_interact_video':i['interactive_video'],
+            'cover':i['pic'],
+            'title':i['title'],
+            'stat':i['stat'], #是个字典, 里面只有view一个键
+            } for i in data['archives']]
         }
     return res

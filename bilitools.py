@@ -34,7 +34,7 @@ import ffmpeg_driver as ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev07'
+version = '2.0.0_Dev08'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -53,7 +53,6 @@ config = {
     'download':{
         'video':{
             'quality_regular':[],
-            'video_convert':'copy',
             'audio_convert':'mp3'
             },
         'audio':{
@@ -379,7 +378,7 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def _video_download_thread(self,index,cid,bvid,title,path,video_encoding='copy',audio_format='mp3',audiostream_only=False,quality_regular=[],**trash):#放在子线程里运行
+    def _video_download_thread(self,index,cid,bvid,title,path,audio_format='mp3',audiostream_only=False,quality_regular=[],**trash):#放在子线程里运行
         #此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
         #此处index为task_receiver为其分配的在tabled_display_list中的索引
         self.thread_counter += 1
@@ -433,7 +432,7 @@ class DownloadManager(object):
                     self._edit_display_list(index,'status','混流/转码')
                     ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
                                            os.path.join(path,tmpname_video),
-                                           os.path.join(path,final_filename),video_encoding)
+                                           os.path.join(path,final_filename))
                     try:
                         os.remove(os.path.join(path,tmpname_audio))
                         os.remove(os.path.join(path,tmpname_video))
@@ -459,7 +458,7 @@ class DownloadManager(object):
         '''mode: 下载模式, 必须从video/audio/common里选一个.
 path: 输出位置
 若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid],
--附加参数: audiostream_only,video_encoding,audio_format,quality_regular(如不指定后两者则从config中读取)
+-附加参数: audiostream_only,audio_format,quality_regular(如不指定后两者则从config中读取)
 -avid/bvid专用附加参数:pids(分P索引列表,可为空)
 -mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
 -可选参数: data, 传入预请求的数据包(dict), 避免再次请求
@@ -467,8 +466,7 @@ path: 输出位置
 若mode为audio, 则必须指定auid,
 -附加参数: audio_format(如不指定则从config中读取)
 若mode为common, 则必须指定url和filename, 无附加参数.
-若mode为manga, 则必须指定[epid/mcid]; epindexes参数可选, 但在指定epid时无效
-    注意: ep_list是倒序排列的, 而epindex是正序索引
+若mode为manga, 则必须指定[epid/mcid]; epindexes参数可选, 但在指定epid时无效\
 '''
         self.show()
         mode = mode.lower()
@@ -476,19 +474,23 @@ path: 输出位置
             #普通视频
             if 'avid' in options or 'bvid' in options:
                 video_data = None
-                if data:
-                    #提取预处理数据包
-                    if 'avid' in options:
-                        assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+                try:
+                    if data:
+                        #提取预处理数据包
+                        if 'avid' in options:
+                            assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+                        else:
+                            assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
+                        video_data = data
                     else:
-                        assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
-                    video_data = data
-                else:
-                    #提取avid/bvid
-                    if 'avid' in options:
-                        video_data = biliapis.video.get_detail(avid=options['avid'])
-                    else:
-                        video_data = biliapis.video.get_detail(bvid=options['bvid'])
+                        #提取avid/bvid
+                        if 'avid' in options:
+                            video_data = biliapis.video.get_detail(avid=options['avid'])
+                        else:
+                            video_data = biliapis.video.get_detail(bvid=options['bvid'])
+                except Exception as e:
+                    msgbox.showerror('',str(e))
+                    return
                 #提取分P索引列表
                 if 'pids' in options:
                     pids = options['pids']
@@ -500,8 +502,7 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['video_encoding'] = config['download']['video']['video_convert']
-                for key in ['audiostream_only','video_encoding','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
+                for key in ['audiostream_only','quality_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
                 pre_opts['bvid'] = video_data['bvid']
@@ -518,22 +519,26 @@ path: 输出位置
                         self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
             elif 'ssid' in options or 'mdid' in options or 'epid' in options:
-                if data:
-                    if 'mdid' in options:
-                        assert options['mdid']==data['mdid'],'预请求数据包内容不匹配'
-                        bangumi_data = data
-                    elif 'ssid' in options:
-                        assert options['ssid']==data['ssid'],'预请求数据包内容不匹配'
-                        bangumi_data = data
+                try:
+                    if data:
+                        if 'mdid' in options:
+                            assert options['mdid']==data['mdid'],'预请求数据包内容不匹配'
+                            bangumi_data = data
+                        elif 'ssid' in options:
+                            assert options['ssid']==data['ssid'],'预请求数据包内容不匹配'
+                            bangumi_data = data
+                        else:
+                            bangumi_data = biliapis.media.get_detail(epid=options['epid'])
                     else:
-                        bangumi_data = biliapis.media.get_detail(epid=options['epid'])
-                else:
-                    if 'mdid' in options:
-                        bangumi_data = biliapis.media.get_detail(mdid=options['mdid'])
-                    elif 'ssid' in options:
-                        bangumi_data = biliapis.media.get_detail(ssid=options['ssid'])
-                    else:
-                        bangumi_data = biliapis.media.get_detail(epid=options['epid'])
+                        if 'mdid' in options:
+                            bangumi_data = biliapis.media.get_detail(mdid=options['mdid'])
+                        elif 'ssid' in options:
+                            bangumi_data = biliapis.media.get_detail(ssid=options['ssid'])
+                        else:
+                            bangumi_data = biliapis.media.get_detail(epid=options['epid'])
+                except Exception as e:
+                    msgbox.showerror('',str(e))
+                    return
                 main_title = bangumi_data['title']
                 #选择正片/番外
                 if 'section_index' in options:
@@ -557,8 +562,7 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['video_encoding'] = config['download']['video']['video_convert']
-                for key in ['audiostream_only','video_encoding','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
+                for key in ['audiostream_only','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
                 pre_opts['path'] = path
@@ -599,10 +603,14 @@ path: 输出位置
         elif mode == 'manga':
             if 'mcid' in options:
                 #提取预处理数据
-                if data:
-                    assert data['mcid']==options['mcid'],'预请求数据包内容不匹配'
-                else:
-                    data = biliapis.manga.get_detail(options['mcid'])
+                try:
+                    if data:
+                        assert data['mcid']==options['mcid'],'预请求数据包内容不匹配'
+                    else:
+                        data = biliapis.manga.get_detail(options['mcid'])
+                except Exception as e:
+                    msgbox.showerror('',str(e))
+                    return
                 #提取epindexes
                 if 'epindexes' in options:
                     indexes = options['epindexes']
@@ -623,10 +631,14 @@ path: 输出位置
                     self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
             elif 'epid' in options:
                 #提取预处理数据
-                if data:
-                    assert data['epid']==options['epid'],'预请求数据包内容不匹配'
-                else:
-                    data = biliapis.manga.get_episode_info(options['epid'])
+                try:
+                    if data:
+                        assert data['epid']==options['epid'],'预请求数据包内容不匹配'
+                    else:
+                        data = biliapis.manga.get_episode_info(options['epid'])
+                except Exception as e:
+                    msgbox.showerror('',str(e))
+                    return
                 tmpdict = {
                     'index':len(self.data_objs),
                     'epid':options['epid'],
@@ -807,7 +819,7 @@ class MainWindow(Window):
         self.intvar_entrymode = tk.IntVar(self.window,0)#跳转0, 搜索1, 快速下载2
         self.radiobutton_entrymode_jump = ttk.Radiobutton(self.frame_entrymode,value=0,variable=self.intvar_entrymode,text='跳转')
         self.radiobutton_entrymode_jump.grid(column=0,row=0,sticky='w')
-        self.radiobutton_entrymode_search = ttk.Radiobutton(self.frame_entrymode,value=1,variable=self.intvar_entrymode,text='搜索',state='disabled')
+        self.radiobutton_entrymode_search = ttk.Radiobutton(self.frame_entrymode,value=1,variable=self.intvar_entrymode,text='搜索')
         self.radiobutton_entrymode_search.grid(column=0,row=1,sticky='w')
         self.radiobutton_entrymode_fdown = ttk.Radiobutton(self.frame_entrymode,value=2,variable=self.intvar_entrymode,text='快速下载')
         self.radiobutton_entrymode_fdown.grid(column=0,row=2,sticky='w')
@@ -836,6 +848,8 @@ class MainWindow(Window):
         self.changeTips()
         self.login(True)
         self.entry_source.focus()
+        self.entry_source.bind('<Tab>',lambda x=0:(self.intvar_entrymode.set((self.intvar_entrymode.get()+1)%3),
+                                                   self.window.after(10,lambda:self.entry_source.focus())))
 
         self.window.mainloop()
 
@@ -864,21 +878,26 @@ class MainWindow(Window):
             except biliapis.BiliError as e:
                 if e.code == -101:
                     self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.'))
-                    self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
-                    self.task_queue.put_nowait(self._clear_face)
-                    self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
-                    return
                 else:
-                    raise e
-            def load_user_info(user_data):
-                self.label_face.set(BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
-                self.label_face_text.grid_remove()
-                self.label_face.bind('<Button-1>',
-                                     lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text))
-            self.task_queue.put_nowait(lambda:load_user_info(data))
-            self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
-            self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
-            self.task_queue.put_nowait(lambda:self.button_login.configure(text='退出登录',command=self.logout))
+                    self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('',ei))
+                self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                self.task_queue.put_nowait(self._clear_face)
+                self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
+            except Exception as e:
+                self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('',ei))
+                self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                self.task_queue.put_nowait(self._clear_face)
+                self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
+            else:
+                def load_user_info(user_data):
+                    self.label_face.set(BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
+                    self.label_face_text.grid_remove()
+                    self.label_face.bind('<Button-1>',
+                                         lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text))
+                self.task_queue.put_nowait(lambda:load_user_info(data))
+                self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+                self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
+                self.task_queue.put_nowait(lambda:self.button_login.configure(text='退出登录',command=self.logout))
         start_new_thread(tmp,())
 
     def login(self,init=False):
@@ -938,8 +957,8 @@ class MainWindow(Window):
             msgbox.showinfo('','你似乎没有输入任何内容......')
             return
         mode = self.intvar_entrymode.get()
-        source,flag = biliapis.parse_url(source)
         if mode == 0:#跳转模式
+            source,flag = biliapis.parse_url(source)
             if flag == 'unknown':
                 msgbox.showinfo('','无法解析......')
             elif flag == 'auid':
@@ -956,8 +975,11 @@ class MainWindow(Window):
                 msgbox.showinfo('','暂不支持%s的跳转'%flag)
             return
         elif mode == 1:#搜索模式
-            pass
+            if source:
+                kws = source.split()
+                w = SearchWindow(*kws)
         elif mode == 2:#快速下载模式
+            source,flag = biliapis.parse_url(source)
             if flag == 'unknown':
                 msgbox.showinfo('','无法解析......')
             elif flag == 'avid' or flag == 'bvid':#普通视频
@@ -1001,7 +1023,7 @@ class MainWindow(Window):
                     msgbox.showinfo('','没有正片')
                     return
                 download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
-            elif flag == 'mcid':
+            elif flag == 'mcid':#漫画
                 path = filedialog.askdirectory(title='选择保存位置')
                 if not path:
                     return
@@ -1015,6 +1037,20 @@ class MainWindow(Window):
                     msgbox.showinfo('','没有章节')
                     return
                 download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
+            elif flag == 'collection':#合集
+                path = filedialog.askdirectory(title='选择保存位置')
+                if path:
+                    collection = biliapis.video.get_archive_list(*source,page_size=100)
+                    if len(collection['archives']):
+                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in collection['archives']],
+                                               columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                        if indexes:
+                            for index in indexes:
+                                download_manager.task_receiver('video',path,bvid=collection['archives'][index]['bvid'])
+                    else:
+                        msgbox.showinfo('合集没有内容')
+            elif flag == 'favlist':#收藏夹
+                pass
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag)
 
@@ -2052,12 +2088,26 @@ class BangumiWindow(Window):
         self.section_tabs[-1][6].grid(column=0,row=1)
         self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='下载全部',command=lambda tbi=tab_index,sei=section_index:self._download_func(tbi,sei,True))]
         self.section_tabs[-1][7].grid(column=1,row=1)
-        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的PBP')] #
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的PBP',command=lambda tbi=tab_index,sei=section_index:self._see_pbp(tbi,sei))] #
         self.section_tabs[-1][8].grid(column=2,row=1)
         self.section_tabs[-1] += [tk.BooleanVar(self.section_tabs[-1][5],False)]
         self.section_tabs[-1] += [ttk.Checkbutton(self.section_tabs[-1][5],text='仅抽取音轨',onvalue=True,offvalue=False,variable=self.section_tabs[-1][9])]
         self.section_tabs[-1][10].grid(column=0,row=0)
-        
+
+    def _see_pbp(self,tab_index,section_index=-1):
+        if not self.media_data:
+            raise RuntimeError('Not loaded yet.')
+        #此函数供section_tabs内的按钮调用
+        ep_indexes = []
+        for item in self.section_tabs[tab_index][2].selection():
+            ep_indexes.append(int(self.section_tabs[tab_index][2].item(item,"values")[0])-1)
+        if not ep_indexes:
+            msgbox.showwarning('','你什么都没选中')
+            return
+        if len(ep_indexes) > 1:
+            msgbox.showwarning('','你选中了多项, 但程序只会为你展示选中的第一项的弹幕增量趋势.')
+        cids = [[o['cid'] for o in i['episodes']] for i in self.media_data['sections']]+[[i['cid'] for i in self.media_data['episodes']]]
+        PbpShower(cids[section_index][ep_indexes[0]])
 
     def _download_func(self,tab_index,section_index=-1,download_all=False):
         if not self.media_data:
@@ -2135,13 +2185,13 @@ class MangaViewer_Rolling(Window): #技术上遇到问题, 搁置
         self.image_pool = [] #用来存放BytesIO, 没加载好的用None占位
         self.widget_list = [] #用来存放ImageLabel, 不用占位
 
-        #控制台占300px宽,600px高
+        #控制台占300px宽,500px高
         self.console_width = 300
         self.window_width = 800
         self.window_height = 600
         
         self.window.geometry('%sx%s'%(self.window_width,self.window_height))
-        self.window.minsize(self.console_width+100,self.window_height)
+        self.window.minsize(self.console_width+100,self.window_height-100)
         self.window.resizable(height=True,width=True)
 
         self.shower_width = self.window_width-self.console_width
@@ -2208,8 +2258,304 @@ class MangaViewer_PageTurning(Window):
         self.image_urls = []
         self.image_pool = [] #放BytesIO对象
 
+        self.current_page = 1 #没有下标, 转换成索引时要-1
+        self.total_pages = 0 #总页数, 由_init_data加载
+        self.frame_shower = tk.Frame(self.window)
+        self.frame_shower.grid(column=0,row=0)
+
+        #暂时搁置
+
+#供SearchWindow使用
+#相当于一个当成组件用的窗口吧
+class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
+    def __init__(self,master,task_queue,height=400):
+        #需要传入父组件的task_queue以执行多线程任务
+        super().__init__(master=master,height=height)
+        self.kws = None
+        self.page = 1
+        self.total_page = 1
+        self.task_queue = task_queue
+        columnnum = 5
+        rownum = 4
+        self.page_size = columnnum*rownum #此值必须为20
+        self.sort_methods = {
+            '综合排序':'totalrank',
+            '最多点击':'click',
+            '最新发布':'pubdate',
+            '最多弹幕':'dm',
+            '最多收藏':'stow',
+            '最多评论':'scores'
+            }
+        self.sort_methods_ = {v: k for k, v in self.sort_methods.items()}
+        self.duration_methods = {
+            'All':0,
+            '0-10':1,
+            '10-30':2,
+            '30-60':3,
+            '60+':4
+            }
+        self.duration_methods_ = {v: k for k, v in self.duration_methods.items()}
         
+        #过滤姬
+        #排序方式
+        self.frame_filter = tk.Frame(self.inner_frame)
+        self.frame_filter.grid(column=0,row=0,sticky='w')
+        tk.Label(self.frame_filter,text='排序方式:').grid(column=0,row=0,sticky='w')
+        self.strvar_sort = tk.StringVar(value='totalrank')
+        self.om_sort = ttk.OptionMenu(self.frame_filter,self.strvar_sort,'综合排序',*list(self.sort_methods.keys()))
+        self.om_sort.grid(column=1,row=0,sticky='w')
+        #时长筛选
+        tk.Label(self.frame_filter,text='\t时长(分钟):').grid(column=2,row=0,sticky='w')
+        self.strvar_duration = tk.StringVar(value='All')
+        self.om_duration = ttk.OptionMenu(self.frame_filter,self.strvar_duration,'All',*list(self.duration_methods.keys()))
+        self.om_duration.grid(column=3,row=0,sticky='w')
+        #刷新按钮
+        self.button_refresh = ttk.Button(self.frame_filter,text='刷新',command=self.refresh)
+        self.button_refresh.grid(column=0,row=1,columnspan=2,sticky='w')
+        #分区筛选
+        tk.Label(self.frame_filter,text='\t分区:').grid(column=4,row=0)
+        self.strvar_main_zone = tk.StringVar(value='All')
+        self.om_main_zone = ttk.OptionMenu(self.frame_filter,self.strvar_main_zone,'All',*list(biliapis.bilicodes.video_zone_main.values()),command=self._update_zone_om)
+        self.om_main_zone.grid(column=5,row=0)
+        self.strvar_child_zone = tk.StringVar(value='All')
+        self.om_child_zone = ttk.OptionMenu(self.frame_filter,self.strvar_child_zone,'All',*list(biliapis.bilicodes.video_zone_child.values()))
+        self.om_child_zone.grid(column=6,row=0)
+        self.om_child_zone.grid_remove()
+        self.zone = {v:k for k,v in biliapis.bilicodes.video_zone_main.items()}
+        self.zone.update({v:k for k,v in biliapis.bilicodes.video_zone_child.items()})
         
+        #统计姬
+        self.frame_stat = tk.Frame(self.inner_frame)
+        self.frame_stat.grid(column=1,row=0,sticky='e',padx=10)
+        self.label_searchtime = tk.Label(self.frame_stat,text='搜索用时: -s')
+        self.label_searchtime.grid(column=0,row=0,sticky='w')
+        self.label_searchcount = tk.Label(self.frame_stat,text='共有 - 个结果')
+        self.label_searchcount.grid(column=0,row=1,sticky='w')
+
+        #分鸽线 用来撑开框架w
+        ttk.Separator(self.inner_frame,orient='horizontal').grid(ipadx=550,sticky='we',column=0,row=1,columnspan=2)
+        
+        self.frame_result = tk.Frame(self.inner_frame)
+        self.frame_result.grid(column=0,row=2,columnspan=2)
+        self._bind_scroll_event(self.frame_result)
+        self.tk_objs = []
+        for y in range(rownum):
+            for x in range(columnnum):
+                l = []
+                #索引说明
+                #0:框架
+                #1:封面展示器
+                #2:时长标签
+                #3:标题文本
+                #4:详细信息框架
+                #5:播放数标签
+                #6:发布时间标签
+                #7:up主标签
+                #8:tooltip
+                l += [tk.Frame(self.frame_result)]
+                l[0].grid(column=x,row=y,padx=5,pady=5)
+                l[0].grid_remove()
+                l += [cusw.ImageLabel(l[0],width=200,height=122)]
+                l[1].grid(column=0,row=0)
+                l += [tk.Label(l[0],text='--:--',bg='#000000',fg='#ffffff')]
+                l[2].grid(column=0,row=0,sticky='se')
+                #
+                l += [tk.Text(l[0],bg='#f0f0f0',bd=0,height=2,width=28,state='disabled')]
+                l[3].grid(column=0,row=1)
+                l += [tk.Frame(l[0])]
+                l[4].grid(column=0,row=2,sticky='we')
+                l += [tk.Label(l[4],text='播放数: -')]
+                l[5].grid(column=0,row=0,sticky='w')
+                l += [tk.Label(l[4],text='发布时间: ----------')]
+                l[6].grid(column=0,row=1,sticky='w')
+                l += [tk.Label(l[4],text='UP: -')]
+                l[7].grid(column=0,row=2,sticky='w')
+                for w in l:
+                    self._bind_scroll_event(w)
+                l += [cusw.ToolTip(l[0])]
+                self.tk_objs.append(l)
+        #翻页姬
+        self.frame_pgturner = tk.Frame(self.inner_frame)
+        self.frame_pgturner.grid(column=0,row=3,columnspan=2)
+        self.frame_pgturner.grid_remove()
+        self.button_last = ttk.Button(self.frame_pgturner,text='上一页',command=lambda:self.turn_page(self.page-1))
+        self.button_last.grid(column=0,row=0)
+        self.label_page = tk.Label(self.frame_pgturner,text='-/- 页')
+        self.label_page.grid(column=1,row=0)
+        self.button_next = ttk.Button(self.frame_pgturner,text='下一页',command=lambda:self.turn_page(self.page+1))
+        self.button_next.grid(column=2,row=0)
+        self.entry_page = ttk.Entry(self.frame_pgturner,exportselection=0,width=10)
+        self.entry_page.grid(column=0,row=1,columnspan=2,sticky='e')
+        self.button_tp = ttk.Button(self.frame_pgturner,text='跳页',command=lambda:self.turn_page(int(self.entry_page.get())))
+        self.button_tp.grid(column=2,row=1)
+
+    def _update_zone_om(self,unknown=None):
+        print(unknown)
+        main_var = self.strvar_main_zone.get()
+        if main_var == 'All':
+            self.om_child_zone.set_menu('All','All')
+            self.om_child_zone.grid_remove()
+        else:
+            tmplist = ['All']+[biliapis.bilicodes.video_zone_child[tid] for tid in biliapis.bilicodes.video_zone_relation[self.zone[main_var]]]
+            self.om_child_zone.set_menu('All',*tmplist)
+            self.om_child_zone.grid()
+        self.strvar_child_zone.set('All')
+
+    def _get_zone(self,main_var=None):
+        if not main_var:
+            main_var = self.strvar_main_zone.get()
+        child_var = self.strvar_child_zone.get()
+        if main_var == 'All':
+            return 0
+        else:
+            if child_var == 'All':
+                return self.zone[main_var]
+            else:
+                return self.zone[child_var]
+
+    def jump_by_bvid(self,bvid):
+        w = CommonVideoWindow(bvid)
+
+    def search(self,*kws,page=1):
+        if not kws:
+            return
+        def tmp(duration,sort,zone,page,kws):
+            try:
+                data = biliapis.video.search(*kws,page=page,order=self.sort_methods[sort],zone=zone,duration=self.duration_methods[duration])
+            except biliapis.BiliError as e:
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','BiliError code {}:\n{}'.format(e.code,e.msg)))
+                return
+            except Exception as e:
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('',str(e)))
+                if config['devmode']:
+                    raise e
+                return
+            else:
+                self.task_queue.put_nowait(lambda s=sort:self.om_sort.set_menu(s,*list(self.sort_methods.keys())))
+                self.task_queue.put_nowait(lambda d=duration:self.om_duration.set_menu(d,*list(self.duration_methods.keys())))
+                self.task_queue.put_nowait(lambda p=page,tp=data['total_pages']:self.label_page.configure(text='{}/{}'.format(p,tp)))
+                self.task_queue.put_nowait(lambda t=data['time_cost']:self.label_searchtime.configure(text=f'搜索用时: {t}s'))
+                self.task_queue.put_nowait(lambda c=data['result_count']:self.label_searchcount.configure(text=f'共有 {c} 个结果'))
+                self.total_page = data['total_pages']
+                self.page = page
+                self.kws = kws
+                def fill_data(widgetlist,dataobj):
+                    #封面加载交给imgloader
+                    widgetlist[1].bind('<Button-1>',lambda event,bvid=dataobj['bvid']:self.jump_by_bvid(bvid=bvid))
+                    #时长
+                    widgetlist[2]['text'] = dataobj['duration']
+                    #标题
+                    widgetlist[3]['state'] = 'normal'
+                    widgetlist[3].delete(1.0,'end')
+                    widgetlist[3].insert('end',dataobj['title'])
+                    widgetlist[3]['state'] = 'disabled'
+                    #播放数
+                    widgetlist[5]['text'] = '播放数: '+biliapis.convert_number(dataobj['stat']['view'])
+                    #发布时间
+                    widgetlist[6]['text'] = '发布时间: '+time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(dataobj['date_publish']))
+                    #up主
+                    widgetlist[7]['text'] = 'UP: '+dataobj['uploader']['name']
+                    #tooltip
+                    widgetlist[8].change_text('{title}\n{bvid}\nUP主: {uploader[name]}\n'\
+                                              '匹配类型: {hit_type}\n点击封面跳转详情页.'.format(**dataobj))
+                    
+                def clear_data(widgetlist):
+                    widgetlist[1].clear()
+                    widgetlist[1].unbind('<Button-1>')
+                    widgetlist[3]['state'] = 'normal'
+                    widgetlist[3].delete(1.0,'end')
+                    widgetlist[3]['state'] = 'disabled'
+                    widgetlist[5]['text'] = '播放数: -'
+                    widgetlist[6]['text'] = '发布时间: ----------'
+                    widgetlist[7]['text'] = 'UP: -'
+                    widgetlist[8].change_text(None)
+                
+                if data['result']:
+                    self.task_queue.put_nowait(lambda:self.frame_pgturner.grid())
+                    for i in range(len(self.tk_objs)):
+                        w = self.tk_objs[i]
+                        self.task_queue.put_nowait(lambda wl=w:clear_data(wl))
+                        if i <= len(data['result'])-1:
+                            d = data['result'][i]
+                            self.task_queue.put_nowait(lambda wl=w:wl[0].grid())
+                            start_new_thread(lambda url=d['cover'],widget=w[1]:
+                                             (self.task_queue.put_nowait(lambda widget=widget,img=BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(url,w=200))):
+                                                                         widget.set(img))))
+                            self.task_queue.put_nowait(lambda wl=w,do=d:fill_data(wl,do))
+                        else:
+                            self.task_queue.put_nowait(lambda wl=w:wl[0].grid_remove())
+                else:
+                    self.task_queue.put_nowait(lambda:self.frame_pgturner.grid_remove())
+                    self.task_queue.put_nowait(lambda:msgbox.showwarning('','没有搜索结果'))
+                    
+        kwargs = {
+            'duration':self.strvar_duration.get(),
+            'sort':self.strvar_sort.get(),
+            'zone':self._get_zone(),
+            'page':page,
+            'kws':kws
+            }
+        start_new_thread(tmp,kwargs=kwargs)
+
+    def refresh(self):
+        if self.kws:
+            self.search(*self.kws,page=1)
+
+    def turn_page(self,page):
+        if self.kws:
+            if page > self.total_page or page < 1:
+                pass
+            else:
+                self.search(*self.kws,page=page)
+#好麻烦的说...
+
+class SearchWindow(Window):
+    def __init__(self,*init_kws):
+        #Notebook.children[Notebook.select().split('.')[-1]] #可以用这个来返回被选中的tab的框架的tk对象
+        #亦可以通过 tab_frame_signs.index(Notebook.select()) 来确定选中了哪个tab, 这个索引值同时还是tab_id
+
+        #搜索类型:
+        #0 - 普通视频
+        #1 - 番
+        #2 - 用户
+        #(待扩充)
+
+        super().__init__('BiliTools - Search',True,config['topmost'],config['alpha'])
+        #输入区
+        self.frame_input = tk.Frame(self.window)
+        self.frame_input.grid(column=0,row=0)
+        self.entry = ttk.Entry(self.frame_input,width=40)
+        self.entry.grid(column=0,row=0,pady=10)
+        self.entry.bind('<Return>',lambda event=None:self.search())
+        self.button_start = ttk.Button(self.frame_input,text='搜索',width=5)
+        self.button_start.grid(column=1,row=0)
+        ttk.Button(self.frame_input,text='粘贴',command=lambda:self.set_entry(self.entry,text=clipboard.getText()),width=5).grid(column=2,row=0)
+        ttk.Button(self.frame_input,text='清空',command=lambda:self.entry.delete(0,'end'),width=5).grid(column=3,row=0)
+        #输出区
+        self.nb = ttk.Notebook(self.window)
+        self.nb.grid(column=0,row=1)
+        self.button_start['command'] = self.search
+        #普通视频
+        self.frame_common_video = _CommonVideoSearchShower(self.nb,self.task_queue,height=500)
+        self.nb.add(self.frame_common_video,text='普通视频')
+
+        if init_kws:
+            self.search(*init_kws)
+            self.entry.insert('end',' '.join(init_kws))
+        self.window.mainloop()
+
+    def search(self,*kws):
+        if not kws:
+            kws = self.entry.get().strip().split()
+        if kws: 
+            target = self.nb.children[self.nb.select().split('.')[-1]]
+            target.search(*kws)
+        else:
+            msgbox.showwarning('','关键字列表为空.')
+
+    def set_nb_state(self,nb,state='normal'):
+        for i in range(len(nb.tabs())):
+            nb.tab(i,state=state)
 
 if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
     load_config()

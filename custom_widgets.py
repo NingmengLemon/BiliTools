@@ -3,7 +3,7 @@ import tkinter as tk
 import io
 from PIL import Image,ImageTk
 
-__all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame','VerticalScrolledFrame_v2']
+__all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame']
 
 def tkImg(file=None,scale=1,size=()):
     if file:
@@ -170,7 +170,7 @@ class ToolTip:
         """
         创建一个带有工具提示文本的 topoltip 窗口
         """
-        if self.tip_window:
+        if self.tip_window or not self.text:
             return
         else:
             self.tip_window = _TipWindow(self.widget)
@@ -257,9 +257,6 @@ class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在hei
         reqwidth = self._canvas.winfo_reqwidth()
         reqheight = self.inner_frame.winfo_reqheight()
         self._canvas.configure(scrollregion=(0, 0, reqwidth, reqheight),width=self.inner_frame.winfo_reqwidth())
-
-        for widget in self.inner_frame.children.values():
-            self._bind_scroll_event(widget)
 
     def scroll_to_top(self):
         self._canvas.yview_moveto(0)
