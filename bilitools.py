@@ -44,12 +44,12 @@ biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
 biliapis.requester.load_local_cookies()
+development_mode = False
 
 config = {
     'topmost':False,
     'alpha':1.0,# 0.0 - 1.0
     'filter_emoji':False,
-    'devmode':True, #开发模式开关
     'download':{
         'video':{
             'quality_regular':[],
@@ -70,7 +70,7 @@ biliapis.filter_emoji = config['filter_emoji']
 #日志模块设置
 logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S',
-                    level={True:logging.DEBUG,False:logging.INFO}[config['devmode']]
+                    level={True:logging.DEBUG,False:logging.INFO}[development_mode]
                     )
 
 tips = [
@@ -161,7 +161,7 @@ class DownloadManager(object):
         self.running_indexes = [] #存放运行中的任务在data_objs中的索引
         self.done_indexes = [] #存放已完成任务在data_objs中的索引
         start_new_thread(self.auto_thread_starter) #启动线程启动器
-        if os.path.exists(config['download']['progress_backup_path']) and (not config['devmode'] or '-run_window' in sys.argv):
+        if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-run_window' in sys.argv):
             if os.path.getsize(config['download']['progress_backup_path']) >= 50:
                 self.show()
                 if msgbox.askyesno('PrgRecovery','恢复下载进度？'):
@@ -266,7 +266,7 @@ class DownloadManager(object):
         except Exception as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if config['devmode']:
+            if development_mode:
                 raise e
         else:
             self.done_indexes.append(index)
@@ -318,7 +318,7 @@ class DownloadManager(object):
         except Exception as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if config['devmode']:
+            if development_mode:
                 raise e
         else:
             self.done_indexes.append(index)
@@ -369,7 +369,7 @@ class DownloadManager(object):
         except Exception as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if config['devmode']:
+            if development_mode:
                 raise e
         else:
             self.done_indexes.append(index)
@@ -398,20 +398,23 @@ class DownloadManager(object):
             tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
             final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
+            #注意这里判断的是成品文件是否存在
+            #断点续传和中间文件存在判断是交给requester的
             if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
+                size = os.path.getsize(os.path.join(path,final_filename))
             elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
+                size = os.path.getsize(os.path.join(path,final_filename_audio_only)+'.'+audio_format)
             else:
                 #Audio Stream
-                size = 0
                 a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
                 for donesize,totalsize,percent in a_session:
                     self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
-                size += totalsize
+                size = totalsize
                 #Video Stream
                 if audiostream_only:
-                    self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
+                    self._edit_display_list(index,'size','{} MB'.format(round(size/(1024**2),2)))
                     if audio_format and audio_format not in ['aac','copy']:
                         self._edit_display_list(index,'status','混流/转码')
                         ffdriver.convert_audio(os.path.join(path,tmpname_audio),
@@ -427,7 +430,7 @@ class DownloadManager(object):
                     for donesize,totalsize,percent in v_session:
                         self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
                     size += totalsize
-                    self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
+                    self._edit_display_list(index,'size','{} MB'.format(round(size/(1024**2),2)))
                     #Mix
                     self._edit_display_list(index,'status','混流/转码')
                     ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
@@ -445,7 +448,7 @@ class DownloadManager(object):
         except Exception as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if config['devmode']:
+            if development_mode:
                 raise e
         else:
             self.done_indexes.append(index)
@@ -1451,7 +1454,7 @@ class CommonVideoWindow(Window):
         tk.Label(self.frame_debug,text='Queue:').grid(column=3,row=0)
         self.label_queue_count = tk.Label(self.frame_debug,text='0')
         self.label_queue_count.grid(column=4,row=0)
-        if config['devmode']:
+        if development_mode:
             self.update_debug_info()
         else:
             self.frame_debug.grid_remove()
@@ -2389,9 +2392,9 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
         self.button_tp = ttk.Button(self.frame_pgturner,text='跳页',command=lambda:self.turn_page(int(self.entry_page.get())))
         self.button_tp.grid(column=2,row=1)
 
-    def _update_zone_om(self,unknown=None):
-        print(unknown)
-        main_var = self.strvar_main_zone.get()
+    def _update_zone_om(self,main_var=None):
+        if not main_var:
+            main_var = self.strvar_main_zone.get()
         if main_var == 'All':
             self.om_child_zone.set_menu('All','All')
             self.om_child_zone.grid_remove()
@@ -2427,7 +2430,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
                 return
             except Exception as e:
                 self.task_queue.put_nowait(lambda e=e:msgbox.showerror('',str(e)))
-                if config['devmode']:
+                if development_mode:
                     raise e
                 return
             else:
@@ -2557,7 +2560,9 @@ class SearchWindow(Window):
         for i in range(len(nb.tabs())):
             nb.tab(i,state=state)
 
-if (__name__ == '__main__' and not config['devmode']) or '-run_window' in sys.argv:
+if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
+    if '-debug' in sys.argv:
+        logging.basicConfig(level=logging.DEBUG)
     load_config()
     logging.info('Program Running.')
     w = MainWindow()    
