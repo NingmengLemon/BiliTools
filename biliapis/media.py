@@ -2,12 +2,13 @@ from .error import error_raiser,BiliError
 from . import requester
 from . import bilicodes
 import json
+from urllib import parse
 
 __all__ = ['search_bangumi','get_detail']
 
 def search_bangumi(*keywords,page=1):
     api = 'https://api.bilibili.com/x/web-interface/search/type'\
-          '?search_type=media_bangumi&keyword={}&page={page}'.format(
+          '?search_type=media_bangumi&keyword={}&page={}'.format(
               '+'.join([parse.quote(keyword) for keyword in keywords]),page)
     data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])

@@ -203,40 +203,71 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
         yield 0,0,100.00
     else:
         tmpfile = file+'.download'
+        #安装cookies
         if cookies and use_cookies:
             opener = request.build_opener(request.HTTPCookieProcessor(cookies))
         else:
             opener = request.build_opener()
+        #检查上次下载遗留文件
         if os.path.exists(tmpfile):
             size = os.path.getsize(tmpfile)
+            mtime = time.mktime(time.gmtime(os.path.getmtime(tmpfile)))
         else:
             size = 0
+            mtime = time.mktime(time.gmtime(time.time()))
+        #拷贝请求头
         headers = copy.deepcopy(headers)
-        headers['Range'] = 'bytes={}-'.format(size)
+        #预请求
+        #核对文件信息
+        with opener.open(request.Request(url,headers=headers),timeout=timeout) as pre_response:
+            total_size = int(pre_response.getheader('content-length'))
+            if pre_response.getheader('accept-ranges') == 'bytes' and time.mktime(time.strptime(pre_response.getheader('last-modified'),'%a, %d %b %Y %H:%M:%S %Z')) < mtime and\
+               size <= total_size and os.path.exists(tmpfile):#满足这些条件时才会断点续传, 否则直接覆盖download文件
+                #条件: 支持range操作, 服务器端修改日期早于本地端修改日期, 本地文件大小小于服务端文件大小
+                #生成range头
+                headers['Range'] = 'bytes={}-{}'.format(size,total_size)
+                write_mode = 'ab+'
+                done_size = size
+            else:
+                done_size = size = 0
+                write_mode = 'wb+'
+        pre_response.close()
         chunk_size = 1*1024
-        done_size = size
-        try:
-            with opener.open(request.Request(url,headers=headers)) as fp_web: #网络文件
-                total_size = int(fp_web.getheader('content-length'))
-                with open(tmpfile,'ab+') as fp_local: #本地文件
-                    logging.debug('Fetching data from {}, start_byte={}'.format(url,size)) 
-                    while True:
-                        data = fp_web.read(chunk_size)
-                        if not data:
-                            break
-                        fp_local.write(data)
-                        done_size += chunk_size
-                        yield done_size,total_size,round(done_size/total_size*100,2)
+        if size == total_size:
+            pass
+        else:
+            try:
+                with opener.open(request.Request(url,headers=headers),timeout=timeout) as fp_web: #网络文件
+                    logging.debug('Fetching data from {}, start_byte={}, Code {}'.format(url,size,fp_web.getcode())) 
+                    with open(tmpfile,write_mode) as fp_local: #本地文件
+                        while True:
+                            data = fp_web.read(chunk_size)
+                            if not data:
+                                break
+                            fp_local.write(data)
+                            done_size += chunk_size
+                            yield done_size,total_size,round(done_size/total_size*100,2)
+            except Exception as e:
+                raise e
             if check:
                 if os.path.getsize(tmpfile) != total_size:
                     error_size = os.path.getsize(tmpfile)
                     os.remove(tmpfile)
                     raise RuntimeError('File Size not Match. The size given by server is {} Bytes, '\
                         'howerver the received file\'s size is {} Bytes.'.format(total_size,error_size))
-            os.rename(tmpfile,file)
-            yield total_size,total_size,100.00
-        except error.HTTPError as e:
-            if e.code == 416:
-                yield size,size,100.00
-            else:
-                raise e
+        os.rename(tmpfile,file)
+        yield total_size,total_size,100.00
+
+def _join_files(main_file,*files,delete=False):
+    chunk_size = 1*1024*1024
+    with open(main_file,'wb+') as f:
+        for file in files:
+            with open(file,'rb') as tf:
+                while True:
+                    data = tf.read(chunk_size)
+                    if data:
+                        f.write(data)
+                    else:
+                        break
+            if delete:
+                os.remove(file)
