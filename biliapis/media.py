@@ -14,24 +14,25 @@ def search_bangumi(*keywords,page=1):
     error_raiser(data['code'],data['message'])
     data = data['data']
     tmp = []
-    for res in data['result']:
-        tmp.append({
-            'mdid':res['media_id'],
-            'ssid':res['season_id'],
-            'title':res['title'].replace('<em class="keyword">','').replace('</em>',''),
-            'title_org':res['org_title'].replace('<em class="keyword">','').replace('</em>',''),
-            'cover':'https:'+res['cover'],
-            'media_type':bilicodes.media_type[res['media_type']],
-            'season_type':bilicodes.media_type[res['season_type']],
-            'is_follow':bool(res['is_follow']),#Login
-            'area':res['areas'],
-            'style':res['styles'],
-            'cv':res['cv'],
-            'staff':res['staff'],
-            'url':res['goto_url'],
-            'time_publish':res['pubtime'],
-            'hit_type':res['hit_columns']
-            })
+    if 'result' in data:
+        for res in data['result']:
+            tmp.append({
+                'mdid':res['media_id'],
+                'ssid':res['season_id'],
+                'title':res['title'].replace('<em class="keyword">','').replace('</em>',''),
+                'title_org':res['org_title'].replace('<em class="keyword">','').replace('</em>',''),
+                'cover':'https:'+res['cover'],
+                'media_type':bilicodes.media_type[res['media_type']],
+                'season_type':bilicodes.media_type[res['season_type']],
+                'is_follow':bool(res['is_follow']),#Login
+                'area':res['areas'],
+                'style':res['styles'],
+                'cv':res['cv'],
+                'staff':res['staff'],
+                'url':res['goto_url'],
+                'time_publish':res['pubtime'],
+                'hit_type':res['hit_columns']
+                })
     result = {
         'seid':data['seid'],
         'page':data['page'],
