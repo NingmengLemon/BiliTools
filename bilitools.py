@@ -44,7 +44,7 @@ biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
 biliapis.requester.load_local_cookies()
-development_mode = False
+development_mode = True
 
 config = {
     'topmost':False,
@@ -53,10 +53,15 @@ config = {
     'download':{
         'video':{
             'quality_regular':[],
-            'audio_convert':'mp3'
+            'audio_convert':'mp3',
+            'subtitle':True,
+            'subtitle_lang_regular':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW',
+                                     'en-US','en-GB','ja','ja-JP'],
+            'danmaku':False
             },
         'audio':{
-            'convert':'mp3'
+            'convert':'mp3',
+            'lyrics':True
             },
         'manga':{
             'save_while_viewing':False,
@@ -161,7 +166,7 @@ class DownloadManager(object):
         self.running_indexes = [] #存放运行中的任务在data_objs中的索引
         self.done_indexes = [] #存放已完成任务在data_objs中的索引
         start_new_thread(self.auto_thread_starter) #启动线程启动器
-        if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-run_window' in sys.argv):
+        if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-debug' in sys.argv):
             if os.path.getsize(config['download']['progress_backup_path']) >= 50:
                 self.show()
                 if msgbox.askyesno('PrgRecovery','恢复下载进度？'):
@@ -250,6 +255,19 @@ class DownloadManager(object):
         audiostream = audiostreams[aqs.index(max(aqs))]
         return videostream,audiostream
 
+    def choose_subtitle_lang(self,bccdata,regular=config['download']['video']['subtitle_lang_regular']):
+        if bccdata:
+            if len(bccdata) == 1:
+                return bccdata[0]
+            else:
+                abbs = [sub['lang_abb'] for sub in bccdata]
+                for reg in regular:
+                    if reg in abbs:
+                        return bccdata[abbs.index(reg)]
+                return bccdata[0]
+        else:
+            return None
+
     def _edit_display_list(self,index,colname,var):#供download_thread调用
         self.table_display_list[index][list(self.table_columns.keys()).index(colname)] = var
 
@@ -327,7 +345,7 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def _audio_download_thread(self,index,auid,path,audio_format='mp3',**trash):
+    def _audio_download_thread(self,index,auid,path,audio_format='mp3',lyrics=True,**trash):
         #跟下面辣个函数差不多, 流程稍微简单些
         self.thread_counter += 1
         self.running_indexes.append(index)
@@ -345,11 +363,12 @@ class DownloadManager(object):
             self._edit_display_list(index,'size','{} MB'.format(round(stream['size']/(1024**2),2)))
             #下载
             tmp_filename = replaceChr('{}_{}.aac'.format(auid,stream['quality_id']))
-            final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里
-            if os.path.exists(final_filename+'.'+audio_format):
+            final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里, 不带后缀名
+            lyrics_filename = replaceChr('{}_{}.lrc'.format(audio_info['title'],stream['quality']))
+            if os.path.exists(os.path.join(path,final_filename+'.'+audio_format)):
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
             else:
-                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path,)
+                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path)
                 for donesize,totalsize,percent in session:
                     self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
                 #进一步处理
@@ -362,6 +381,14 @@ class DownloadManager(object):
                         pass
                 else:
                     os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
+            if not os.path.exists(os.path.join(path,lyrics_filename)) and lyrics:
+                self._edit_display_list(index,'status','获取歌词')
+                lrcdata = biliapis.audio.get_lyrics(auid)
+                if lrcdata == 'Fatal: API error':
+                    pass
+                else:
+                    with open(os.path.join(path,lyrics_filename),'w+',encoding='utf-8',errors='ignore') as f:
+                        f.write(lrcdata)
             self._edit_display_list(index,'status','完成')
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
@@ -378,7 +405,8 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def _video_download_thread(self,index,cid,bvid,title,path,audio_format='mp3',audiostream_only=False,quality_regular=[],**trash):#放在子线程里运行
+    def _video_download_thread(self,index,cid,bvid,title,path,audio_format='mp3',audiostream_only=False,quality_regular=[],subtitle=True,danmaku=False,
+                               subtitle_regular=config['download']['video']['subtitle_lang_regular'],**trash):#放在子线程里运行
         #此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
         #此处index为task_receiver为其分配的在tabled_display_list中的索引
         self.thread_counter += 1
@@ -397,15 +425,24 @@ class DownloadManager(object):
             tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
             tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
-            final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))
+            final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
+            #字幕
+            subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
+            if subtitle and not audiostream_only:
+                self._edit_display_list(index,'status','获取字幕')
+                bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid),subtitle_regular)
+                if bccdata:
+                    if not os.path.exists(os.path.join(path,subtitle_filename)):
+                        bccdata = json.loads(biliapis.requester.get_content_str(bccdata['url']))
+                        srtdata = biliapis.subtitle.bcc_to_srt(bccdata)
+                        with open(os.path.join(path,subtitle_filename),'w+',encoding='utf-8',errors='ignore') as f:
+                            f.write(srtdata)
             #注意这里判断的是成品文件是否存在
             #断点续传和中间文件存在判断是交给requester的
             if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
-                size = os.path.getsize(os.path.join(path,final_filename))
             elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
-                size = os.path.getsize(os.path.join(path,final_filename_audio_only)+'.'+audio_format)
             else:
                 #Audio Stream
                 a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
@@ -495,7 +532,7 @@ path: 输出位置
                     msgbox.showerror('',str(e))
                     return
                 #提取分P索引列表
-                if 'pids' in options:
+                if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
                     pids = options['pids']
                 else:
                     pids = []
@@ -505,7 +542,10 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                for key in ['audiostream_only','quality_regular']:#过滤download_thread不需要的, 防止出错
+                pre_opts['subtitle'] = config['download']['video']['subtitle']
+                pre_opts['danmaku'] = config['download']['video']['danmaku']
+                pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
+                for key in ['audiostream_only','quality_regular','subtitle','danmaku','subtitle_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
                 pre_opts['bvid'] = video_data['bvid']
@@ -565,7 +605,10 @@ path: 输出位置
                 pre_opts = {}
                 pre_opts['audio_format'] = config['download']['video']['audio_convert']
                 pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                for key in ['audiostream_only','audio_format','quality_regular']:#过滤download_thread不需要的, 防止出错
+                pre_opts['subtitle'] = config['download']['video']['subtitle']
+                pre_opts['danmaku'] = config['download']['video']['danmaku']
+                pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
+                for key in ['audiostream_only','audio_format','quality_regular','subtitle','danmaku','subtitle_regular']:#过滤download_thread不需要的, 防止出错
                     if key in options:
                         pre_opts[key] = options[key]
                 pre_opts['path'] = path
@@ -585,11 +628,13 @@ path: 输出位置
             tmpdict = {
                 'index':len(self.data_objs),
                 'auid':options['auid'],
-                'path':path
+                'path':path,
+                'audio_format':config['download']['audio']['convert'],
+                'lyrics':config['download']['audio']['lyrics']
                 }
-            tmpdict['audio_format'] = config['download']['audio']['convert']
             if 'audio_format' in options:
                 tmpdict['audio_format'] = options['audio_format']
+            tmpdict = tmpdict.copy()
             self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
             self.table_display_list.append([str(len(self.data_objs)),'','','','音频下载','','','',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
@@ -836,7 +881,8 @@ class MainWindow(Window):
         #Basic Funcs
         self.frame_basicfuncs = tk.Frame(self.window)
         self.frame_basicfuncs.grid(column=2,row=2,sticky='se')
-        ttk.Button(self.frame_basicfuncs,text='设置',width=11,command=self.goto_config).grid(column=0,row=1)#等待建设
+        self.button_config = ttk.Button(self.frame_basicfuncs,text='设置',width=11,command=self.goto_config)
+        self.button_config.grid(column=0,row=1)
         ttk.Button(self.frame_basicfuncs,text='关于',width=11,command=lambda:msgbox.showinfo('',about_info)).grid(column=0,row=2)
         #Funcs Area
         self.frame_funcarea = tk.LabelFrame(self.window,text='功能区')
@@ -854,7 +900,7 @@ class MainWindow(Window):
         self.entry_source.bind('<Tab>',lambda x=0:(self.intvar_entrymode.set((self.intvar_entrymode.get()+1)%3),
                                                    self.window.after(10,lambda:self.entry_source.focus())))
 
-        self.window.mainloop()
+        self.mainloop()
 
     def _clear_face(self):
         self.label_face.clear()
@@ -943,9 +989,12 @@ class MainWindow(Window):
         w = BatchWindow()
 
     def goto_config(self):
+        self.button_config['state'] = 'disabled'
         w = ConfigWindow()
-        self.window.wm_attributes('-topmost',config['topmost'])
-        self.window.wm_attributes('-alpha',config['alpha'])
+        if self.is_alive():
+            self.button_config['state'] = 'normal'
+            self.window.wm_attributes('-topmost',config['topmost'])
+            self.window.wm_attributes('-alpha',config['alpha'])
 
     def changeTips(self,index=None):
         if index == None:
@@ -1076,7 +1125,7 @@ class BatchWindow(Window):
         self.button_start = ttk.Button(self.window,text='走你',command=self.start)
         self.button_start.grid(column=0,row=3,sticky='e')
 
-        self.window.mainloop()
+        self.mainloop()
 
     def start(self,text=None):
         if not text:
@@ -1091,6 +1140,27 @@ class BatchWindow(Window):
                     source,flag = biliapis.parse_url(line)
                     if flag in ['avid','bvid']:
                         download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
+
+class InputWindow(Window):
+    def __init__(self,master,label=None,text=None):
+        super().__init__('BiliTools - Inputer',True,config['topmost'],config['alpha'],master=master)
+        self.return_value = None
+        tk.Label(self.window,text=label).grid(column=0,row=0,sticky='w')
+        self.sctext = scrolledtext.ScrolledText(self.window,width=40,height=20)
+        self.sctext.grid(column=0,row=1)
+        if text:
+            self.sctext.insert('end',text)
+        ttk.Button(self.window,text='完成',command=self.finish).grid(column=0,row=2,sticky='e')
+        ttk.Button(self.window,text='取消',command=self.close).grid(column=0,row=2,sticky='w')
+        self.mainloop()
+
+    def finish(self):
+        var = self.sctext.get(1.0,'end').strip()
+        if var:
+            self.return_value = var
+            self.close()
+        else:
+            pass
             
 class ConfigWindow(Window):
     def __init__(self):
@@ -1138,13 +1208,61 @@ class ConfigWindow(Window):
         self.strvar_video_quality = tk.StringVar(self.window,default_vq)
         tk.Label(self.frame_download,text='优先画质: ').grid(column=0,row=1,sticky='e')
         ttk.OptionMenu(self.frame_download,self.strvar_video_quality,default_vq,*list(bilicodes.stream_dash_video_quality.values())).grid(column=1,row=1,sticky='w')
+
+        #Subtitle
+        self.frame_subtitle = tk.LabelFrame(self.window,text='字幕与歌词')
+        self.frame_subtitle.grid(column=0,row=1,sticky='w',columnspan=2)
+        self.subtitle_preset = {
+            '中文优先':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
+            '英文优先':['en-US','en-GB','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','ja','ja-JP'],
+            '日文优先':['ja','ja-JP','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB']
+            }
+        self.boolvar_subtitle = tk.BooleanVar(self.window,config['download']['video']['subtitle'])
+        self.checkbutton_subtitle = ttk.Checkbutton(self.frame_subtitle,text='下载字幕',onvalue=True,offvalue=False,variable=self.boolvar_subtitle)
+        self.checkbutton_subtitle.grid(column=0,row=0,columnspan=2,sticky='w')
+        init_subtitle_om_text = self._get_subtitle_preset_text()
+        self.strvar_subtitle_preset = tk.StringVar(self.window,init_subtitle_om_text)
+        tk.Label(self.frame_subtitle,text='多字幕视频的字幕方案:').grid(column=0,row=1,sticky='e')
+        self.om_subtitle_preset = ttk.OptionMenu(self.frame_subtitle,self.strvar_subtitle_preset,init_subtitle_om_text,*list(self.subtitle_preset.keys()),'自定义',command=self._subtitle_preset_command)
+        self.om_subtitle_preset.grid(column=1,row=1,sticky='w')
+        self.subtitle_regular = config['download']['video']['subtitle_lang_regular']
+        self.boolvar_lyrics = tk.BooleanVar(self.window,config['download']['audio']['lyrics'])
+        self.checkbutton_lyrics = ttk.Checkbutton(self.frame_subtitle,text='下载歌词',onvalue=True,offvalue=False,variable=self.boolvar_lyrics)
+        self.checkbutton_lyrics.grid(column=0,row=2,columnspan=2,sticky='w')
+        
         # Save or Cancel
         self.frame_soc = tk.Frame(self.window)
-        self.frame_soc.grid(column=1,row=1,sticky='se')
+        self.frame_soc.grid(column=1,row=2,sticky='se')
         ttk.Button(self.frame_soc,text='取消',width=5,command=self.close).grid(column=0,row=0)
         ttk.Button(self.frame_soc,text='保存',width=5,command=self.save_config).grid(column=1,row=0)
 
-        self.window.mainloop()
+        self.mainloop()
+
+    def _get_subtitle_preset_text(self,method_list=None):
+        if not method_list:
+            method_list = config['download']['video']['subtitle_lang_regular']
+        if method_list in list(self.subtitle_preset.values()):
+            init_subtitle_om_text = list(self.subtitle_preset.keys())[list(self.subtitle_preset.values()).index(method_list)]
+        else:
+            init_subtitle_om_text = '...'
+        return init_subtitle_om_text
+
+    def _subtitle_preset_command(self,selectvar):
+        if selectvar == '自定义':
+            self.om_subtitle_preset['state'] = 'disabled'
+            w = InputWindow(
+                master=self.window,
+                label='输入一个新的方案.\n每行一种语言, 程序会按照顺序进行匹配.',
+                text='\n'.join(self.subtitle_regular)
+                )
+            if self.is_alive():
+                self.om_subtitle_preset['state'] = 'normal'
+            if w.return_value:
+                self.subtitle_regular = w.return_value.split('\n')
+        else:
+            self.subtitle_regular = self.subtitle_preset[selectvar]
+        if self.is_alive():
+            self.strvar_subtitle_preset.set(self._get_subtitle_preset_text(self.subtitle_regular))
 
     def apply_config(self):#
         global config
@@ -1154,6 +1272,9 @@ class ConfigWindow(Window):
         config['download']['max_thread_num'] = self.intvar_threadnum.get()
         config['download']['video']['quality_regular'] = make_quality_regular(self.strvar_video_quality.get())
         biliapis.requester.filter_emoji = config['filter_emoji']
+        config['download']['video']['subtitle_lang_regular'] = self.subtitle_regular
+        config['download']['video']['subtitle'] = self.boolvar_subtitle.get()
+        config['download']['audio']['lyrics'] = self.boolvar_lyrics.get()
         dump_config()
 
     def save_config(self):
@@ -1214,7 +1335,7 @@ class AudioWindow(Window):
         self.frame_operation.grid(column=0,row=8,columnspan=2)
 
         self.refresh_data()
-        self.window.mainloop()
+        self.mainloop()
 
     def download_audio(self):
         self.button_download_cover['state'] = 'disabled'
@@ -1460,7 +1581,7 @@ class CommonVideoWindow(Window):
             self.frame_debug.grid_remove()
         self.refresh_data()
 
-        self.window.mainloop()
+        self.mainloop()
 
     def show_pbp(self):
         if not self.video_data:
@@ -1729,7 +1850,7 @@ class LoginWindow(object):
         
         self.fresh()
         logging.info('LoginWindow Initialization Completed')
-        self.window.mainloop()
+        self.mainloop()
 
     def fresh(self):
         self.button_refresh['state'] = 'disabled'
@@ -1811,7 +1932,7 @@ class PbpShower(Window):
         self.label_rtlength = tk.Label(self.frame_datashower,text='--------')
         self.label_rtlength.grid(column=1,row=1,sticky='w')
 
-        self.window.mainloop()
+        self.mainloop()
 
     def move_away(self,event):
         self.chart.itemconfig(self.x_scanline,state='hidden')
@@ -1878,7 +1999,7 @@ class PartsChooser(Window):
         ttk.Button(self.frame_opt,text='取消',command=self.close).grid(column=0,row=0,sticky='e')
         ttk.Button(self.frame_opt,text='返回全部项',command=self.return_all).grid(column=1,row=0,sticky='e')
         ttk.Button(self.frame_opt,text='返回选中项',command=self.return_selected).grid(column=2,row=0,sticky='e')
-        self.window.mainloop()
+        self.mainloop()
 
     def return_selected(self):
         sel = []
@@ -1945,7 +2066,7 @@ class BlackroomWindow(Window):
         self.load_data()
         self.turn_page(self.page)
 
-        self.window.mainloop()
+        self.mainloop()
 
     def load_data(self):
         self.loaded_page += 1
@@ -2037,7 +2158,7 @@ class BangumiWindow(Window):
         self.text_desc.grid(column=0,row=2,sticky='w')
 
         self.load_data()
-        self.window.mainloop()
+        self.mainloop()
 
     def _add_section_tab(self,tabname,section_data,section_index=-1):
         #传入的section_data是个列表, 来源biliapis.media.get_info获得的剧集列表
@@ -2318,10 +2439,10 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
         #分区筛选
         tk.Label(self.frame_filter,text='\t分区:').grid(column=4,row=0)
         self.strvar_main_zone = tk.StringVar(value='All')
-        self.om_main_zone = ttk.OptionMenu(self.frame_filter,self.strvar_main_zone,'All',*list(biliapis.bilicodes.video_zone_main.values()),command=self._update_zone_om)
+        self.om_main_zone = ttk.OptionMenu(self.frame_filter,self.strvar_main_zone,'All','All',*list(biliapis.bilicodes.video_zone_main.values()),command=self._update_zone_om)
         self.om_main_zone.grid(column=5,row=0)
         self.strvar_child_zone = tk.StringVar(value='All')
-        self.om_child_zone = ttk.OptionMenu(self.frame_filter,self.strvar_child_zone,'All',*list(biliapis.bilicodes.video_zone_child.values()))
+        self.om_child_zone = ttk.OptionMenu(self.frame_filter,self.strvar_child_zone,'All','All',*list(biliapis.bilicodes.video_zone_child.values()))
         self.om_child_zone.grid(column=6,row=0)
         self.om_child_zone.grid_remove()
         self.zone = {v:k for k,v in biliapis.bilicodes.video_zone_main.items()}
@@ -2399,8 +2520,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
             self.om_child_zone.set_menu('All','All')
             self.om_child_zone.grid_remove()
         else:
-            tmplist = ['All']+[biliapis.bilicodes.video_zone_child[tid] for tid in biliapis.bilicodes.video_zone_relation[self.zone[main_var]]]
-            self.om_child_zone.set_menu('All',*tmplist)
+            self.om_child_zone.set_menu('All','All',*[biliapis.bilicodes.video_zone_child[tid] for tid in biliapis.bilicodes.video_zone_relation[self.zone[main_var]]])
             self.om_child_zone.grid()
         self.strvar_child_zone.set('All')
 
@@ -2511,6 +2631,17 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
             else:
                 self.search(*self.kws,page=page)
 #好麻烦的说...
+class _BangumiSearchShower(cusw.VerticalScrolledFrame):
+    def __init__(self,master,task_queue,height=400):
+        #需要传入父组件的task_queue以执行多线程任务
+        super().__init__(master=master,height=height)
+        self.kws = None
+        self.page = 1
+        self.total_page = 1
+        self.task_queue = task_queue
+        columnnum = 5
+        rownum = 4
+        self.page_size = columnnum*rownum #此值必须为20
 
 class SearchWindow(Window):
     def __init__(self,*init_kws):
@@ -2545,7 +2676,7 @@ class SearchWindow(Window):
         if init_kws:
             self.search(*init_kws)
             self.entry.insert('end',' '.join(init_kws))
-        self.window.mainloop()
+        self.mainloop()
 
     def search(self,*kws):
         if not kws:

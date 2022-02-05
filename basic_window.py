@@ -5,11 +5,11 @@ import queue
 import logging
 
 class Window(object):#程序中所有常规窗口的父类
-    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0):
+    def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0,master=None):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象
 
-        if toplevel:
-            self.window = tk.Toplevel()
+        if toplevel or master:
+            self.window = tk.Toplevel(master=master)
         else:
             self.window = tk.Tk()
         self.window.title(title)
@@ -48,8 +48,18 @@ class Window(object):#程序中所有常规窗口的父类
             sctext['state'] = 'disabled'
 
     def close(self):
-        self.window.quit()
         self.window.destroy()
 
     def start_window(self,winobj,args=()):
         w = winobj(args)
+
+    def is_alive(self):
+        try:
+            self.window.state()
+        except tk.TclError:
+            return False
+        else:
+            return True
+
+    def mainloop(self):
+        self.window.wait_window(self.window)

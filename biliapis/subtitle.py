@@ -2,6 +2,7 @@ from .error import error_raiser,BiliError
 from . import requester
 from . import bilicodes
 import json
+import math
 
 __all__ = ['get_bcc','bcc_to_srt']
 
@@ -21,22 +22,22 @@ def get_bcc(cid,avid=None,bvid=None):
     for item in data:
         res.append({
             'id':item['id'],
-            'lang':item['lan_doc'],
-            'lang_abb':item['lan'],
-            'author_uid':item['author_mid'],
-            'url':'https:'+item['subtitle_url']
+            'lang':item['lan_doc'],#语言
+            'lang_abb':item['lan'],#语言简写
+            #'author_uid':item['author_mid'],
+            'url':'https:'+item['subtitle_url']#将请求此项获得的json数据交给下面那个函数即可
             })
     return res
 
 def bcc_to_srt(jsondata):
      srt_file = ''
-     bccdata = jsondata #？
+     bccdata = jsondata['body']
      i = 1
      for data in bccdata:
          start = data['from']  # 获取开始时间
          stop = data['to']  # 获取结束时间
          content = data['content']  # 获取字幕内容
-         srt_file += '{}\n'.format(i)  # 加入序号
+         srt_file += '{}\n'.format(i)  # 加入序号(没有下标)
          hour = math.floor(start) // 3600
          minute = (math.floor(start) - hour * 3600) // 60
          sec = math.floor(start) - hour * 3600 - minute * 60
