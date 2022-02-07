@@ -57,19 +57,19 @@ def get_stream_dash(cid,avid=None,bvid=None,dolby=False,hdr=False,_4k=False):
     audio = []
     for au in data['audio']:
         audio.append({
-            'quality':au['id'],#对照表bilicodes.stream_dash_audio_quality
+            'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
             'url':au['baseUrl'],
             'encoding':au['codecs'],
             })
     video = []
     for vi in data['video']:
         video.append({
-            'quality':vi['id'],#对照表bilicodes.stream_dash_video_quality
+            'quality':vi['id'],#对照表 .bilicodes.stream_dash_video_quality
             'url':vi['baseUrl'],
             'encoding':vi['codecs'],
             'width':vi['width'],
             'height':vi['height'],
-            'frame_rate':vi['frameRate'],
+            'frame_rate':vi['frameRate'],#帧率
             
             })
     stream = {
@@ -181,7 +181,7 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
                     'view':res['play'],
                     'danmaku':res['video_review'],
                     'collect':res['favorites'],
-                    'num_comment':res['review']
+                    'comment':res['review']
                     },
                 'tags':res['tag'].split(','),
                 'date_publish':res['pubdate'], #timestamp

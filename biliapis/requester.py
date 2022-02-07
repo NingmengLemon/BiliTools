@@ -11,7 +11,6 @@ import logging
 import copy
 import time
 
-import emoji
 import brotli
 
 filter_emoji = False
@@ -36,6 +35,14 @@ fake_headers_post = {
 local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
 
 timeout = 15
+
+def remove_emoji(string):
+    # 过滤表情
+    try:
+        co = re.compile(u'[\U00010000-\U0010ffff]')
+    except re.error:
+        co = re.compile(u'[\uD800-\uDBFF][\uDC00-\uDFFF]')
+    return co.sub('', string)
 
 def _replaceChr(text):
     repChr = {'/':'／',
@@ -126,8 +133,11 @@ def _post_request(url,data,headers=fake_headers_post):
     return response
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
-    response = _post_request(url,data,headers)
-    return response.data.decode(encoding, 'ignore')
+    content = _post_request(url,data,headers).data
+    data = content.decode(encoding, 'ignore')
+    if filter_emoji:
+        data = remove_emoji(data)
+    return data
 
 def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8'):
     response = _post_request(url,data,headers)
@@ -144,7 +154,7 @@ def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     data = content.decode(encoding, 'ignore')
     if filter_emoji:
-        data = emoji.demojize(data)
+        data = remove_emoji(data)
     return data
 
 def get_content_bytes(url, headers=fake_headers_get):

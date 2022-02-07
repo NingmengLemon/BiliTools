@@ -1,6 +1,4 @@
-pywin32
 pillow
 qrcode
 beautifulsoup4
-emoji
 brotli
