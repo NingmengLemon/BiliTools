@@ -27,6 +27,4 @@
 
 **媒体处理依赖 ffmpeg.exe**
 
-感谢[danmaku2ass](https://github.com/m13253/danmaku2ass)项目的开发者提供的弹幕转换器
-
 感谢[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)项目的开发者提供的API文档
