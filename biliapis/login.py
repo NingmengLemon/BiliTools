@@ -31,6 +31,7 @@ def check_scan(oauthkey):
     headers['Referer'] = "https://passport.bilibili.com/login"
     data = json.loads(requester.post_data_str('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey},headers))
     #-1：密钥错误 -2：密钥超时 -4：未扫描 -5：未确认
+    #error_raiser(data['code'],data['message'])
     status = data['status']
     if status:
         return True,data['data']['url'],0 #成功与否,URL,状态码

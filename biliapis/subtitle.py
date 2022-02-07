@@ -25,7 +25,7 @@ def get_bcc(cid,avid=None,bvid=None):
             'lang':item['lan_doc'],#语言
             'lang_abb':item['lan'],#语言简写
             #'author_uid':item['author_mid'],
-            'url':'https:'+item['subtitle_url']#将请求此项获得的json数据交给下面那个函数即可
+            'url':'https:'+item['subtitle_url']#将请求此url获得的json数据交给下面那个函数即可
             })
     return res
 
