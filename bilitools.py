@@ -34,7 +34,7 @@ import ffmpeg_driver as ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev08'
+version = '2.0.0_Dev09'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -44,7 +44,7 @@ biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
 biliapis.requester.load_local_cookies()
-development_mode = False
+development_mode = True
 
 config = {
     'version':version,
@@ -58,7 +58,13 @@ config = {
             'subtitle':True,
             'subtitle_lang_regular':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
             'danmaku':False,
-            'convert_danmaku':True
+            'convert_danmaku':True,
+            'danmaku_filter':{
+                'keyword':[],
+                'regex':[],
+                'user':[], #用户uid的hash, crc32
+                'filter_level':0 #0-10
+                }
             },
         'audio':{
             'convert':'mp3',
@@ -68,7 +74,7 @@ config = {
             'save_while_viewing':False,
             'auto_save_path':os.path.join(inner_data_path,'MangaAutoSave')
             },
-        'max_thread_num':4,
+        'max_thread_num':2,
         'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
         },
     }
@@ -81,23 +87,28 @@ logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
 
 tips = [
         '欢迎使用基于Bug开发的BiliTools（',
-        '不管怎样，你得先告诉我你要去哪儿啊',
         'Bug是此程序的核心部分',
-        '鸽子是此程序的作者的本体（咕',
-        '想要反馈Bug？那你得先找到作者再说',
-        'No one knows CREATING BUGs better than me！',
+        '你知道吗，其实此程序的作者是只鸽子（认真脸',
         '有一个程序员前来修Bug',
-        '给我来一份烫烫烫的锟斤拷',
-        '我好不容易写好一次, 你却崩溃得这么彻底',
+        '我好不容易写好一次，你却崩溃得这么彻底',
         '（`Oω|',
         '点我是可以刷新Tips哒ヾ(•ω•`)o',
-        
+        '啊哈哈哈哈，我滴程序完成辣！',
+        '『世界』——！',
+        'Damedane~dameyo~',
+        '《程序员的取悦手段》',
+        '不写注释一时爽，维护程序火葬场',
+        '“你的生命不是为了飘散而绽放的。”',
+        '“来吧，乘风破浪，将世俗的眼光统统超越。”',
+        '“你没有活着真是太好了。”',
         ]
 
 about_info = '\n'.join([
     'BiliTools v.%s'%version,
     '一些功能需要 FFmpeg 的支持.',
     'Made by: @NingmengLemon（GitHub）',
+    '引用开源程序: danmaku2ass',
+
     '---------------------------',
     '此程序严禁用于任何商业用途.',
     '此程序的作者不会为任何因使用此程序所造成的后果负责.',
@@ -110,7 +121,7 @@ def dump_config(fp=config_path):
 
 def load_config(fp=config_path):
     global config
-    if os.path.exists(fp) and not development_mode:
+    if os.path.exists(fp):# and not development_mode:
         tmp = json.load(open(fp,'r',encoding='utf-8',errors='ignore'))
         if 'version' in tmp:
             if tmp['version'] == version:
@@ -126,7 +137,8 @@ def load_config(fp=config_path):
 
 def danmaku_to_ass(xmlfilename,outputfile,w=1920,h=1080,reduce_when_full=True):
     try:
-        danmaku2ass.Danmaku2ASS(xmlfilename,'autodetect',outputfile,w,h,is_reduce_comments=reduce_when_full)
+        danmaku2ass.Danmaku2ASS(xmlfilename,'autodetect',outputfile,w,h,is_reduce_comments=reduce_when_full,
+                                font_face='黑体',font_size=40.0,duration_marquee=5.0,duration_still=10.0,)
     except Exception as e:
         logging.error('Error while converting danmaku: '+str(e))
     else:
@@ -442,6 +454,7 @@ class DownloadManager(object):
             final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
             final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
             #字幕
+            is_sbt_downloaded = False
             subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
             if subtitle and not audiostream_only:
                 self._edit_display_list(index,'status','获取字幕')
@@ -451,15 +464,20 @@ class DownloadManager(object):
                     srtdata = biliapis.subtitle.bcc_to_srt(bccdata)
                     with open(os.path.join(path,subtitle_filename),'w+',encoding='utf-8',errors='ignore') as f:
                         f.write(srtdata)
+                    is_sbt_downloaded = True
             #弹幕
             danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#弹幕文件名与视频文件保持一致
             if danmaku and not audiostream_only:
                 self._edit_display_list(index,'status','获取弹幕')
                 xmlstr = biliapis.video.get_danmaku_xmlstr(cid)
+                self._edit_display_list(index,'status','过滤弹幕')
+                xmlstr = biliapis.video.filter_danmaku(xmlstr,**config['download']['video']['danmaku_filter'])
                 with open(os.path.join(path,danmaku_filename),'w+',encoding='utf-8',errors='ignore') as f:
                     f.write(xmlstr)
                 if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
                     ass_danmaku_filename = replaceChr('{}_{}.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
+                    if os.path.exists(ass_danmaku_filename) and is_sbt_downloaded:
+                        ass_danmaku_filename = replaceChr('{}_{}_danmaku.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']])) #弹幕与字幕同时存在时优先保留字幕
                     danmaku_to_ass(os.path.join(path,danmaku_filename),os.path.join(path,ass_danmaku_filename),w=vstream['width'],h=vstream['height'])
             #注意这里判断的是成品文件是否存在
             #断点续传和中间文件存在判断是交给requester的
@@ -1272,10 +1290,34 @@ class ConfigWindow(Window):
         self.frame_danmaku.grid(column=2,row=0,sticky='wnse')
         self.boolvar_danmaku = tk.BooleanVar(self.window,config['download']['video']['danmaku'])
         self.checkbutton_danmaku = ttk.Checkbutton(self.frame_danmaku,text='下载弹幕',onvalue=True,offvalue=False,variable=self.boolvar_danmaku)
-        self.checkbutton_danmaku.grid(column=0,row=0,columnspan=2,sticky='w')
+        self.checkbutton_danmaku.grid(column=0,row=0,sticky='w')
+        #filter
+        self.frame_dmfilter = tk.LabelFrame(self.frame_danmaku,text='弹幕过滤')
+        self.frame_dmfilter.grid(column=0,row=1,sticky='we')
+        tk.Label(self.frame_dmfilter,text='过滤等级:').grid(column=0,row=0,sticky='e')
+        self.strvar_dmflevel = tk.StringVar(self.window,str(config['download']['video']['danmaku_filter']['filter_level']))
+        self.om_dmflevel = ttk.OptionMenu(self.frame_dmfilter,self.strvar_dmflevel,self.strvar_dmflevel.get(),*[str(i) for i in list(range(0,11))])
+        self.om_dmflevel.grid(column=1,row=0,sticky='w')
+        #过滤规则计数
+        tk.Label(self.frame_dmfilter,text='关键词:').grid(column=0,row=1,sticky='e')
+        self.label_dmfkwcount = tk.Label(self.frame_dmfilter,text='{} 个'.format(len(config['download']['video']['danmaku_filter']['keyword'])))
+        self.label_dmfkwcount.grid(column=1,row=1,sticky='w')
+        tk.Label(self.frame_dmfilter,text='正则:').grid(column=0,row=2,sticky='e')
+        self.label_dmfrecount = tk.Label(self.frame_dmfilter,text='{} 个'.format(len(config['download']['video']['danmaku_filter']['regex'])))
+        self.label_dmfrecount.grid(column=1,row=2,sticky='w')
+        tk.Label(self.frame_dmfilter,text='用户:').grid(column=0,row=3,sticky='e')
+        self.label_dmfusercount = tk.Label(self.frame_dmfilter,text='{} 个'.format(len(config['download']['video']['danmaku_filter']['user'])))
+        self.label_dmfusercount.grid(column=1,row=3,sticky='w')
+        self.frame_dmfrule_opt = tk.Frame(self.frame_dmfilter)
+        self.frame_dmfrule_opt.grid(column=0,row=4,columnspan=2,sticky='w')
+        ttk.Button(self.frame_dmfrule_opt,text='清空',command=self._clear_dmfrule).grid(column=0,row=0)
+        ttk.Button(self.frame_dmfrule_opt,text='同步',command=self._sync_dmfrule).grid(column=1,row=0)
+        self.dmfrule = copy.deepcopy(config['download']['video']['danmaku_filter'])
+        
+        #convert
         self.boolvar_convert_danmaku = tk.BooleanVar(self.window,config['download']['video']['convert_danmaku'])
         self.checkbutton_convert_danmaku = ttk.Checkbutton(self.frame_danmaku,text='转换弹幕',onvalue=True,offvalue=False,variable=self.boolvar_convert_danmaku)
-        self.checkbutton_convert_danmaku.grid(column=0,row=1,columnspan=2,sticky='w')
+        self.checkbutton_convert_danmaku.grid(column=0,row=2,sticky='w')
         if not config['download']['video']['danmaku']:
             self.checkbutton_convert_danmaku['state'] = 'disabled'
         self.checkbutton_danmaku['command'] = lambda:self.checkbutton_convert_danmaku.configure(state={True:'normal',False:'disabled'}[self.boolvar_danmaku.get()])
@@ -1287,6 +1329,33 @@ class ConfigWindow(Window):
         ttk.Button(self.frame_soc,text='保存',width=5,command=self.save_config).grid(column=1,row=0)
 
         self.mainloop()
+
+    def _clear_dmfrule(self):
+        self.dmfrule = {
+            'keyword':[],
+            'regex':[],
+            'user':[],
+            'filter_level':int(self.strvar_dmflevel.get())
+            }
+        self.label_dmfkwcount['text'] = '{} 个'.format(len(self.dmfrule['keyword']))
+        self.label_dmfrecount['text'] = '{} 个'.format(len(self.dmfrule['regex']))
+        self.label_dmfusercount['text'] = '{} 个'.format(len(self.dmfrule['user']))
+
+    def _sync_dmfrule(self):
+        try:
+            rule = biliapis.user.get_danmaku_filter()
+        except biliapis.BiliError as e:
+            if e.code == '-101':
+                msgbox.showwarning('','未登录.',parent=self.window)
+            else:
+                msgbox.showerror('',str(e),parent=self.window)
+        except Exception as e:
+            msgbox.showerror('',str(e),parent=self.window)
+        else:
+            self.dmfrule = rule
+            self.label_dmfkwcount['text'] = '{} 个'.format(len(rule['keyword']))
+            self.label_dmfrecount['text'] = '{} 个'.format(len(rule['regex']))
+            self.label_dmfusercount['text'] = '{} 个'.format(len(rule['user']))
 
     def _get_subtitle_preset_text(self,method_list=None):
         if not method_list:
@@ -1327,6 +1396,8 @@ class ConfigWindow(Window):
         config['download']['audio']['lyrics'] = self.boolvar_lyrics.get()
         config['download']['video']['danmaku'] = self.boolvar_danmaku.get()
         config['download']['video']['convert_danmaku'] = self.boolvar_convert_danmaku.get()
+        config['download']['video']['danmaku_filter'] = self.dmfrule
+        config['download']['video']['danmaku_filter']['filter_level'] = int(self.strvar_dmflevel.get())
         dump_config()
 
     def save_config(self):
@@ -2768,5 +2839,4 @@ if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
     logging.info('Program Running.')
     w = MainWindow()    
 else:
-    #dump_config()
-    pass
+    dump_config()

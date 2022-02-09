@@ -5,6 +5,7 @@ import json
 import hashlib
 from urllib import parse
 import logging
+import re
 from bs4 import BeautifulSoup
 
 __all__ = ['get_recommend','get_stream_dash',
@@ -12,7 +13,60 @@ __all__ = ['get_recommend','get_stream_dash',
            'bvid_to_avid_offline','avid_to_bvid_offline',
            'bvid_to_cid_online','avid_to_cid_online',
            'get_danmaku_xmlstr','get_online_nop',
-           'get_shortlink','get_pbp','get_archive_list']
+           'get_shortlink','get_pbp','get_archive_list',
+           'filter_danmaku']
+
+def _parse_danmaku_d(dp):
+    appeartime,mode,size,color,timestamp,pool,user,dmid,level = dp.split(',')
+    color = ('#'+hex(int(color))[2:]).upper()
+    #mode:1-3:普通,4:底,5:顶,6:逆向,7:高级,8:代码,9:BAS
+    res = {
+        'appear_time':float(appeartime),
+        'mode':int(mode),
+        'size':int(size),
+        'color':color,
+        'timestamp':int(timestamp),
+        'pool':int(pool),
+        'userhash':user,
+        'dmid':int(dmid),
+        'level':int(level)
+        }
+    return res
+
+def filter_danmaku(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
+    bs = BeautifulSoup(xmlstr,'lxml')
+    counter = 0
+    i = 0
+    for d in bs.find_all('d'):
+        content = d.get_text()
+        dp = _parse_danmaku_d(d.get('p'))
+        if dp['mode'] == '7':
+            content = json.loads(content)[4]
+        userhash = dp['userhash']
+        flag = False
+        if filter_level > dp['level']:
+            flag = True
+        if not flag:
+            for kw in keyword:
+                if kw in content:
+                    flag = True
+                    break
+        if not flag:
+            for uhash in user:
+                if userhash == uhash:
+                    flag = True
+                break
+        if not flag:
+            for reg in regex:
+                if re.search(reg,content):
+                    flag = True
+                    break
+        if flag:
+            d.extract()
+            counter += 1
+        i += 1
+    logging.info(f'{counter} of {i} danmaku are filtered.')
+    return str(bs).replace('<html><body>','').replace('</body></html>','')
 
 def get_recommend(avid=None,bvid=None):
     '''
