@@ -16,13 +16,18 @@ def get_desktop():
     return winreg.QueryValueEx(key,"Desktop")[0]
 
 def convert_number(a):
-    y = a/(10000**2)
-    if y >= 1:
-        return f'{round(y,2)}亿'
-    w = a/10000
-    if w >= 1:
-        return f'{round(w,2)}万'
-    return str(a)
+    try:
+        a = int(a)
+    except:
+        return '-'
+    else:        
+        y = a/(10000**2)
+        if y >= 1:
+            return f'{round(y,2)}亿'
+        w = a/10000
+        if w >= 1:
+            return f'{round(w,2)}万'
+        return str(a)
 
 def second_to_time(sec):
     h = sec // 3600
@@ -87,6 +92,10 @@ def parse_url(url):
     res = re.findall(r'mc([0-9]+)',url,re.I)
     if res:
         return int(res[0]),'mcid'
+    #歌单
+    res = re.findall(r'am([0-9]+)',url,re.I)
+    if res:
+        return int(res[0]),'amid'
     #用户空间相关
     uid = re.findall(r'space\.bilibili\.com\/([0-9]+)',url,re.I)
     if uid:

@@ -28,6 +28,7 @@ from biliapis import bilicodes
 import custom_widgets as cusw
 from basic_window import Window
 import imglib
+from textlib import tips
 import ffmpeg_driver as ffdriver
 
 #注意：
@@ -68,7 +69,7 @@ config = {
             },
         'audio':{
             'convert':'mp3',
-            'lyrics':True
+            'lyrics':False
             },
         'manga':{
             'save_while_viewing':False,
@@ -85,30 +86,11 @@ logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
                     level={True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
                     )
 
-tips = [
-        '欢迎使用基于Bug开发的BiliTools（',
-        'Bug是此程序的核心部分',
-        '你知道吗，其实此程序的作者是只鸽子（认真脸',
-        '有一个程序员前来修Bug',
-        '我好不容易写好一次，你却崩溃得这么彻底',
-        '（`Oω|',
-        '点我是可以刷新Tips哒ヾ(•ω•`)o',
-        '啊哈哈哈哈，我滴程序完成辣！',
-        '『世界』——！',
-        'Damedane~dameyo~',
-        '《程序员的取悦手段》',
-        '不写注释一时爽，维护程序火葬场',
-        '“你的生命不是为了飘散而绽放的。”',
-        '“来吧，乘风破浪，将世俗的眼光统统超越。”',
-        '“你没有活着真是太好了。”',
-        ]
-
 about_info = '\n'.join([
     'BiliTools v.%s'%version,
     '一些功能需要 FFmpeg 的支持.',
     'Made by: @NingmengLemon（GitHub）',
     '引用开源程序: danmaku2ass',
-
     '---------------------------',
     '此程序严禁用于任何商业用途.',
     '此程序的作者不会为任何因使用此程序所造成的后果负责.',
@@ -131,14 +113,13 @@ def load_config(fp=config_path):
                 dump_config(fp)
         else:
             dump_config(fp)
-        
     else:
         dump_config(fp)
 
 def danmaku_to_ass(xmlfilename,outputfile,w=1920,h=1080,reduce_when_full=True):
     try:
         danmaku2ass.Danmaku2ASS(xmlfilename,'autodetect',outputfile,w,h,is_reduce_comments=reduce_when_full,
-                                font_face='黑体',font_size=40.0,duration_marquee=5.0,duration_still=10.0,)
+                                font_face='黑体',font_size=40.0,duration_marquee=7.0,duration_still=10.0,)
     except Exception as e:
         logging.error('Error while converting danmaku: '+str(e))
     else:
@@ -307,7 +288,7 @@ class DownloadManager(object):
             session = biliapis.requester.download_yield(url,filename,path)
             for donesize,totalsize,percent in session:
                 self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
-            self._edit_display_list(index,'size','{} MB'.format(round(totalsize/(1024**2),2)))
+            self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
         except Exception as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
@@ -372,14 +353,17 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def _audio_download_thread(self,index,auid,path,audio_format='mp3',lyrics=True,**trash):
+    def _audio_download_thread(self,index,auid,path,audio_format='mp3',lyrics=True,data=None,**trash):
         #跟下面辣个函数差不多, 流程稍微简单些
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
             #收集信息
             self._edit_display_list(index,'status','收集信息')
-            audio_info = biliapis.audio.get_info(auid)
+            if data:
+                audio_info = data
+            else:
+                audio_info = biliapis.audio.get_info(auid) #因为外面套了一层try所以不用做错误处理
             self._edit_display_list(index,'length',biliapis.second_to_time(audio_info['length']))
             self._edit_display_list(index,'title',audio_info['title'])
             self._edit_display_list(index,'target','Auid{}'.format(auid))
@@ -387,27 +371,10 @@ class DownloadManager(object):
             self._edit_display_list(index,'status','正在取流')
             stream = biliapis.audio.get_stream(auid)
             self._edit_display_list(index,'quality',stream['quality'])
-            self._edit_display_list(index,'size','{} MB'.format(round(stream['size']/(1024**2),2)))
             #下载
             tmp_filename = replaceChr('{}_{}.aac'.format(auid,stream['quality_id']))
             final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里, 不带后缀名
             lyrics_filename = replaceChr('{}_{}.lrc'.format(audio_info['title'],stream['quality']))
-            if os.path.exists(os.path.join(path,final_filename+'.'+audio_format)):
-                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
-            else:
-                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path)
-                for donesize,totalsize,percent in session:
-                    self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
-                #进一步处理
-                if audio_format and audio_format not in ['aac','copy']:
-                    self._edit_display_list(index,'status','转码')
-                    ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
-                    try:
-                        os.remove(os.path.join(path,tmp_filename))
-                    except:
-                        pass
-                else:
-                    os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
             if not os.path.exists(os.path.join(path,lyrics_filename)) and lyrics:
                 self._edit_display_list(index,'status','获取歌词')
                 lrcdata = biliapis.audio.get_lyrics(auid)
@@ -416,7 +383,26 @@ class DownloadManager(object):
                 else:
                     with open(os.path.join(path,lyrics_filename),'w+',encoding='utf-8',errors='ignore') as f:
                         f.write(lrcdata)
-            self._edit_display_list(index,'status','完成')
+            if os.path.exists(os.path.join(path,final_filename+'.'+audio_format)):
+                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
+                self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
+            else:
+                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path)
+                for donesize,totalsize,percent in session:
+                    self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
+                self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
+                #进一步处理
+                if audio_format and audio_format not in ['aac','copy']:
+                    self._edit_display_list(index,'status','转码')
+                    ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
+                    self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
+                    try:
+                        os.remove(os.path.join(path,tmp_filename))
+                    except:
+                        pass
+                else:
+                    os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
+                self._edit_display_list(index,'status','完成')
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+e.msg)
@@ -440,7 +426,7 @@ class DownloadManager(object):
         self.running_indexes.append(index)
         try:
             self._edit_display_list(index,'status','正在取流')
-            stream_data = biliapis.video.get_stream_dash(cid,bvid=bvid,hdr=True,_4k=True)
+            stream_data = biliapis.video.get_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
             vstream,astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality_regular)
             if audiostream_only:
                 self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
@@ -476,8 +462,6 @@ class DownloadManager(object):
                     f.write(xmlstr)
                 if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
                     ass_danmaku_filename = replaceChr('{}_{}.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
-                    if os.path.exists(ass_danmaku_filename) and is_sbt_downloaded:
-                        ass_danmaku_filename = replaceChr('{}_{}_danmaku.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']])) #弹幕与字幕同时存在时优先保留字幕
                     danmaku_to_ass(os.path.join(path,danmaku_filename),os.path.join(path,ass_danmaku_filename),w=vstream['width'],h=vstream['height'])
             #注意这里判断的是成品文件是否存在
             #断点续传和中间文件存在判断是交给requester的
@@ -493,7 +477,7 @@ class DownloadManager(object):
                 size = totalsize
                 #Video Stream
                 if audiostream_only:
-                    self._edit_display_list(index,'size','{} MB'.format(round(size/(1024**2),2)))
+                    self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
                     if audio_format and audio_format not in ['aac','copy']:
                         self._edit_display_list(index,'status','混流/转码')
                         ffdriver.convert_audio(os.path.join(path,tmpname_audio),
@@ -509,7 +493,7 @@ class DownloadManager(object):
                     for donesize,totalsize,percent in v_session:
                         self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
                     size += totalsize
-                    self._edit_display_list(index,'size','{} MB'.format(round(size/(1024**2),2)))
+                    self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
                     #Mix
                     self._edit_display_list(index,'status','混流/转码')
                     ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
@@ -678,9 +662,12 @@ path: 输出位置
                 }
             if 'audio_format' in options:
                 tmpdict['audio_format'] = options['audio_format']
+            if data:
+                assert data['auid']==options['auid'],'预请求数据包内容不匹配'
+                tmpdict['data'] = data.copy()
             tmpdict = tmpdict.copy()
             self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
-            self.table_display_list.append([str(len(self.data_objs)),'','','','音频下载','','','',path,'待处理'])
+            self.table_display_list.append([str(len(self.data_objs)),'','','Auid'+str(tmpdict['auid']),'音频下载','','','',path,'待处理'])
             self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
         elif mode == 'common':
             tmpdict = {
@@ -1150,7 +1137,7 @@ class MainWindow(Window):
                 path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
                 if path:
                     collection = biliapis.video.get_archive_list(*source,page_size=100)
-                    if len(collection['archives']):
+                    if collection['archives']:
                         indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in collection['archives']],
                                                columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
                         if indexes:
@@ -1160,6 +1147,26 @@ class MainWindow(Window):
                         msgbox.showinfo('合集没有内容',parent=self.window)
             elif flag == 'favlist':#收藏夹
                 pass
+            elif flag == 'amid':
+                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+                if path:
+                    data = biliapis.audio.get_list(source)
+                    if data:
+                        tp = data['total_page']
+                        audio_list = data['data']
+                        if tp > 1:
+                            if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
+                                for p in range(2,tp+1):
+                                    audio_list += biliapis.audio.get_list(source,page=p)['data']
+                                    time.sleep(0.5)
+                        if audio_list:
+                            indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
+                                                   columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
+                            if indexes:
+                                for index in indexes:
+                                    download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+                    else:
+                        msgbox.showinfo('','歌单是空的.',parent=self.window)
             else:
                 msgbox.showinfo('','暂不支持%s的快速下载'%flag,parent=self.window)
 
@@ -2839,4 +2846,5 @@ if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
     logging.info('Program Running.')
     w = MainWindow()    
 else:
-    dump_config()
+    #dump_config()
+    pass
