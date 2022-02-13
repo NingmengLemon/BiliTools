@@ -229,7 +229,9 @@ stream_dash_video_quality = {
     112:'1080P+',
     116:'1080P60',
     120:'4K',
-    125:'HDR'
+    125:'HDR',
+    126:'Dolby Vision',
+    127:'8K',
     }
 
 stream_dash_video_quality_ = {v: k for k, v in stream_dash_video_quality.items()}

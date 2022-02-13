@@ -221,19 +221,17 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
         #检查上次下载遗留文件
         if os.path.exists(tmpfile):
             size = os.path.getsize(tmpfile)
-            mtime = time.mktime(time.gmtime(os.path.getmtime(tmpfile)))
         else:
             size = 0
-            mtime = time.mktime(time.gmtime(time.time()))
         #拷贝请求头
         headers = copy.deepcopy(headers)
         #预请求
         #核对文件信息
         with opener.open(request.Request(url,headers=headers),timeout=timeout) as pre_response:
             total_size = int(pre_response.getheader('content-length'))
-            if pre_response.getheader('accept-ranges') == 'bytes' and time.mktime(time.strptime(pre_response.getheader('last-modified'),'%a, %d %b %Y %H:%M:%S %Z')) < mtime and\
-               size <= total_size and os.path.exists(tmpfile):#满足这些条件时才会断点续传, 否则直接覆盖download文件
-                #条件: 支持range操作, 服务器端修改日期早于本地端修改日期, 本地文件大小小于服务端文件大小
+            if pre_response.getheader('accept-ranges') == 'bytes' and size <= total_size:
+                #满足这些条件时才会断点续传, 否则直接覆盖download文件
+                #条件: 支持range操作, 本地文件大小小于服务端文件大小
                 #生成range头
                 headers['Range'] = 'bytes={}-{}'.format(size,total_size)
                 write_mode = 'ab+'

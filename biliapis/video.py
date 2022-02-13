@@ -34,6 +34,7 @@ def _parse_danmaku_d(dp):
     return res
 
 def filter_danmaku(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
+    #参数名称与.user.get_danmaku_filter返回值保持一致
     bs = BeautifulSoup(xmlstr,'lxml')
     counter = 0
     i = 0
@@ -55,7 +56,7 @@ def filter_danmaku(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
             for uhash in user:
                 if userhash == uhash:
                     flag = True
-                break
+                    break
         if not flag:
             for reg in regex:
                 if re.search(reg,content):
@@ -88,26 +89,40 @@ def get_recommend(avid=None,bvid=None):
         res.append(_video_detail_handler(data_,False))
     return res
 
-def get_stream_dash(cid,avid=None,bvid=None,dolby=False,hdr=False,_4k=False):
+def get_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
+                    _4k=False,_8k=False):
     '''Choose one parameter between avid and bvid'''
     fnval = 16
-    if dolby:
-        fnval = fnval|256
+    fourk = 0
     if hdr:
         fnval = fnval|64
     if _4k:
+        fourk = 1
         fnval = fnval|128
+    #if dolby_audio:
+    #    fnval = fnval|256
+    if dolby_vision:
+        fnval = fnval|512
+    if _8k:
+        fnval = fnval|1024
         
     if avid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=1'%(avid,cid,fnval)
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s'%(avid,cid,fnval,fourk)
     elif bvid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=1'%(bvid,cid,fnval)
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s'%(bvid,cid,fnval,fourk)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
     data = requester.get_content_str(api)
     data = json.loads(data)
-    error_raiser(data['code'],data['message'])
-    data = data['data']['dash']
+    if data['code'] == -404:
+        api = api.replace('api.bilibili.com/x/player/playurl','api.bilibili.com/pgc/player/web/playurl')
+        data = requester.get_content_str(api)
+        data = json.loads(data)
+        error_raiser(data['code'],data['message'])
+        data = data['result']['dash']
+    else:
+        error_raiser(data['code'],data['message'])
+        data = data['data']['dash']
     audio = []
     for au in data['audio']:
         audio.append({
