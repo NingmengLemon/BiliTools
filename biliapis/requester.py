@@ -229,7 +229,7 @@ def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_
         #核对文件信息
         with opener.open(request.Request(url,headers=headers),timeout=timeout) as pre_response:
             total_size = int(pre_response.getheader('content-length'))
-            if pre_response.getheader('accept-ranges') == 'bytes' and size <= total_size:
+            if pre_response.getheader('accept-ranges') == 'bytes' and size <= total_size and size > 0:
                 #满足这些条件时才会断点续传, 否则直接覆盖download文件
                 #条件: 支持range操作, 本地文件大小小于服务端文件大小
                 #生成range头
