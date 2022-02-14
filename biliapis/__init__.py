@@ -36,7 +36,7 @@ def second_to_time(sec):
     s = sec % 60
     return '%d:%02d:%02d'%(h,m,s)
 
-def format_img(url,w=None,h=None,f=None):
+def format_img(url,w=None,h=None,f='jpg'):
     '''For *.hdslb.com/bfs/* only.'''
     if '.hdslb.com/bfs' not in url:
         raise RuntimeError('Not-supported URL Type:%s'%url)
