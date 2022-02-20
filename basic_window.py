@@ -4,6 +4,8 @@ import tkinter.filedialog as filedialog
 import queue
 import logging
 
+__all__ = ['Window']
+
 class Window(object):#程序中所有常规窗口的父类
     def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0,master=None):
         self.task_queue = queue.Queue() #此队列用于储存来自子线程的无参函数对象

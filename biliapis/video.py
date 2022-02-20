@@ -7,13 +7,14 @@ from urllib import parse
 import logging
 import re
 from bs4 import BeautifulSoup
+import math
 
 __all__ = ['get_recommend','get_stream_dash',
            'get_tags','get_detail','search','bvid_to_avid_online',
            'bvid_to_avid_offline','avid_to_bvid_offline',
            'bvid_to_cid_online','avid_to_cid_online',
            'get_danmaku_xmlstr','get_online_nop',
-           'get_shortlink','get_pbp','get_archive_list',
+           'get_shortlink','get_pbp','get_archive_list','get_series_list',
            'filter_danmaku']
 
 def _parse_danmaku_d(dp):
@@ -49,7 +50,7 @@ def filter_danmaku(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
             flag = True
         if not flag:
             for kw in keyword:
-                if kw in content:
+                if kw.lower() in content.lower():
                     flag = True
                     break
         if not flag:
@@ -319,7 +320,7 @@ def avid_to_cid_online(avid):
     return res
 
 def get_danmaku_xmlstr(cid):
-    data = requester.get_content_str(f'https://comment.bilibili.com/{cid}.xml')
+    data = requester.get_content_str(f'https://api.bilibili.com/x/v1/dm/list.so?oid={cid}')
     return data
 
 def get_online_nop(cid,avid=None,bvid=None):
@@ -391,6 +392,40 @@ def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
             'cover':i['pic'],
             'title':i['title'],
             'stat':i['stat'], #是个字典, 里面只有view一个键
-            } for i in data['archives']]
+            } for i in data['archives']],
+        'page':data['page']['page_num'],
+        'page_size':data['page']['page_size'],
+        'total_page':math.ceil(data['page']['total']/data['page']['page_size'])
         }
     return res
+
+def get_series_list(uid,sid,reverse=False,page=1,page_size=30):
+    #获取系列
+    #sid是系列id
+    api = 'https://api.bilibili.com/x/series/archives?'\
+          'mid={}&series_id={}&only_normal=true&sort={}&pn={}&ps={}'.format(uid,sid,
+                                                                            {False:'desc',True:'asc'}[reverse],
+                                                                            page,page_size)
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = {
+        'archives':[{
+            'avid':i['aid'],
+            'bvid':i['bvid'],
+            'duration':i['duration'],
+            'is_interact_video':i['interactive_video'],
+            'cover':i['pic'],
+            'title':i['title'],
+            'stat':i['stat'], #是个字典, 里面只有view一个键
+            } for i in data['archives']],
+        'page':data['page']['num'],
+        'page_size':data['page']['size'],
+        'total_page':math.ceil(data['page']['total']/data['page']['size']),
+        'total':data['page']['total']
+        }
+    return res
+
+def get_series_detail(uid,sid):
+    pass
