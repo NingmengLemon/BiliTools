@@ -2,8 +2,12 @@ from tkinter import ttk
 import tkinter as tk
 import io
 from PIL import Image,ImageTk
+from basic_window import Window
+import threading
+import time
 
-__all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame']
+__all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame',
+           'run_with_gui']
 
 def tkImg(file=None,scale=1,size=()):
     if file:
@@ -263,3 +267,80 @@ class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在hei
 
     def _scroll_event(self,event):
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
+
+class Thread_with_gui(Window):
+    def __init__(self,func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False):
+        '''由于涉及到GUI, 该方法只能在主线程中运行...
+is_progress_hook_available 的意思是, 传入的函数是否可以被传入progress_hook参数,
+函数通过修改该变量可以向GUI通报进度或状态.
+progress_hook是一个字典, 可以包含: status:(str),progress:(done(int),total(int))(tuple)/None
+is_task_queue_available 的意思是, 传入的函数是否可以被传入task_queue参数, 该参数是一个队列, 线程可以向它提交无参函数给主线程执行'''
+        super().__init__('BiliTools - Working...',master=master,topmost=True)
+        self.window.overrideredirect(True)
+        ww,wh = (420,65)
+        sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
+        self.window.geometry('%dx%d+%d+%d'%(ww,wh,(sw-ww)/2,(sh-wh)/2))
+
+        self.func = func
+        self.master = master
+        self.progress_hook = {
+            'status':'Working...',
+            'progress':None #当此项为None时, 进度条左右游荡, 为元组时进度条显示进度
+            }
+        if is_progress_hook_available:
+            kwargs['progress_hook'] = self.progress_hook
+        if is_task_queue_available:
+            kwargs['task_queue'] = self.task_queue
+        self.return_value = None
+        self.thread = threading.Thread(target=self.thread_func,args=args,kwargs=kwargs,daemon=True)
+        self.error = None
+        self.loop_schedule = None
+
+        self.prgbar = ttk.Progressbar(self.window,length=400)
+        self.prgbar.grid(column=0,row=0,sticky='w',padx=10,pady=10)
+        self.label = tk.Label(self.window,text='-')
+        self.label.grid(column=0,row=1,sticky='w')
+
+        self.thread.start()
+        if self.master:
+            self.master.attributes('-disabled',1)
+        self.refresh_gui()
+
+    def thread_func(self,*args,**kwargs):
+        try:
+            self.return_value = self.func(*args,**kwargs)
+        except Exception as e:
+            self.error = e
+
+    def refresh_gui(self):
+        if self.thread.is_alive():
+            if self.progress_hook['progress']:
+                done,total = self.progress_hook['progress']
+                if self.prgbar['mode'] != 'determinate':
+                    self.prgbar['mode'] = 'determinate'
+                self.prgbar['maximum'] = total
+                self.prgbar['value'] = done
+            else:
+                if self.prgbar['mode'] != 'indeterminate':
+                    self.prgbar['mode'] = 'indeterminate'
+                self.prgbar.step()
+            self.label['text'] = self.progress_hook['status']
+            self.loop_schedule = self.window.after(50,self.refresh_gui)
+        else:
+            if self.loop_schedule:
+                self.window.after_cancel(self.loop_schedule)
+                self.loop_schedule = None
+            if self.error:
+                msgbox.showerror('','出现错误: '+str(self.error))
+                logging.error('Unexpected Error occurred while running function {} with gui: {}'.format(str(self.func),str(self.error)))
+            self.close()
+            if self.master:
+                self.master.attributes('-disabled',0)
+            if self.error:
+                raise self.error #将异常传达到主线程抛出
+
+def run_with_gui(func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False):
+    thread = Thread_with_gui(func,args,kwargs,master,is_progress_hook_available,is_task_queue_available)
+    thread.mainloop()
+    return thread.return_value
+run_with_gui.__doc__ = Thread_with_gui.__init__.__doc__

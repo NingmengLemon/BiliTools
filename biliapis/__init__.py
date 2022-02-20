@@ -110,5 +110,10 @@ def parse_url(url):
             fid = re.findall(r'fid\=([0-9]+)',url,re.I)
             if fid:
                 return (uid,int(fid[0])),'favlist'
+        #系列
+        elif 'seriesdetail' in url.lower():
+            sid = re.findall(r'sid\=([0-9]+)',url,re.I)
+            if sid:
+                return (uid,int(sid[0])),'series'
         return uid,'uid'
     return None,'unknown'

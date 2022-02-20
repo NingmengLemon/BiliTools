@@ -10,6 +10,7 @@ from io import BytesIO
 import logging
 import copy
 import time
+import functools
 
 import brotli
 
@@ -35,6 +36,24 @@ fake_headers_post = {
 local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
 
 timeout = 15
+retry_time = 3
+
+def auto_retry(retry_time=3):
+    def retry_decorator(func):
+        @functools.wraps(func)
+        def wrapped(*args,**kwargs):
+            _run_counter = 0
+            while True:
+                _run_counter += 1
+                try:
+                    return func(*args,**kwargs)
+                except Exception as e:
+                    logging.error('Unexpected Error occurred while executing function {}: '\
+                                  '{}; Retrying...'.format(str(func),str(e)))
+                    if _run_counter > retry_time:
+                        raise e
+        return wrapped
+    return retry_decorator
 
 def remove_emoji(string):
     # 过滤表情
@@ -83,6 +102,7 @@ def _dict_to_headers(dict_to_conv):
         res.append((keys[i],values[i]))
     return res
 
+@auto_retry(retry_time)
 def _get_response(url, headers=fake_headers_get):
     # install cookies
     if cookies:
@@ -108,6 +128,7 @@ def _get_response(url, headers=fake_headers_get):
     logging.debug('Get Response from: '+url)
     return response
 
+@auto_retry(retry_time)
 def _post_request(url,data,headers=fake_headers_post):
     if cookies:
         opener = request.build_opener(request.HTTPCookieProcessor(cookies))
@@ -143,13 +164,6 @@ def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8'):
     response = _post_request(url,data,headers)
     return response.data
 
-def get_cookies(url):
-    tmpcookiejar = cookiejar.MozillaCookieJar()
-    handler = request.HTTPCookieProcessor(tmpcookiejar)
-    opener = request.build_opener(handler)
-    opener.open(url)
-    return tmpcookiejar
-
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     data = content.decode(encoding, 'ignore')
@@ -181,6 +195,7 @@ def load_local_cookies():
         f.close()
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
+    logging.debug('Cookiejar loaded from '+local_cookiejar_path)
 
 @atexit.register
 def refresh_local_cookies():

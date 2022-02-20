@@ -19,6 +19,7 @@ import json
 import base64
 import subprocess
 import copy
+import functools
 
 import qrcode
 import danmaku2ass
@@ -44,7 +45,6 @@ if not os.path.exists(inner_data_path):
 biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
-biliapis.requester.load_local_cookies()
 development_mode = True
 
 config = {
@@ -96,6 +96,8 @@ about_info = '\n'.join([
     '此程序的作者不会为任何因使用此程序所造成的后果负责.',
     '感谢您的使用.'
     ])
+
+biliapis.requester.load_local_cookies()
 
 def dump_config(fp=config_path):
     json.dump(config,open(fp,'w+',encoding='utf-8',errors='ignore'))
@@ -153,6 +155,7 @@ class DownloadManager(object):
         self.window = None
         self.task_queue = queue.Queue()
         self.refresh_loop_schedule = None
+        self.task_receiving_lock = threading.Lock()
         self.table_columns = {
             'number':'序号',
             'title':'标题',
@@ -452,7 +455,7 @@ class DownloadManager(object):
                         f.write(srtdata)
                     is_sbt_downloaded = True
             #弹幕
-            danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#弹幕文件名与视频文件保持一致
+            danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
             if danmaku and not audiostream_only:
                 self._edit_display_list(index,'status','获取弹幕')
                 xmlstr = biliapis.video.get_danmaku_xmlstr(cid)
@@ -525,6 +528,7 @@ class DownloadManager(object):
 path: 输出位置
 若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid],
 -附加参数: audiostream_only,audio_format,quality_regular(如不指定后两者则从config中读取),subtitle,danmaku,subtitle_regular
+#弹幕过滤列表因为太长所以直接由线程从config中读取
 -avid/bvid专用附加参数:pids(分P索引列表,可为空)
 -mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
 -可选参数: data, 传入预请求的数据包(dict), 避免再次请求
@@ -533,201 +537,215 @@ path: 输出位置
 -附加参数: audio_format(如不指定则从config中读取)
 若mode为common, 则必须指定url和filename, 无附加参数.
 若mode为manga, 则必须指定[epid/mcid]; epindexes参数可选, 但在指定epid时无效
-'''
-        self.show()
-        mode = mode.lower()
-        if mode == 'video':
-            #普通视频
-            if 'avid' in options or 'bvid' in options:
-                video_data = None
-                try:
-                    if data:
-                        #提取预处理数据包
-                        if 'avid' in options:
-                            assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+'''     
+        with self.task_receiving_lock: #多线程操作防止资源混乱
+            is_mainthread = isinstance(threading.current_thread(),threading._MainThread)
+            if is_mainthread:
+                self.show() #规避 main thread not in main loop 错误
+            mode = mode.lower()
+            if mode == 'video':
+                #普通视频
+                if 'avid' in options or 'bvid' in options:
+                    video_data = None
+                    try:
+                        if data:
+                            #提取预处理数据包
+                            if 'avid' in options:
+                                assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+                            else:
+                                assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
+                            video_data = data
                         else:
-                            assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
-                        video_data = data
+                            #提取avid/bvid
+                            if 'avid' in options:
+                                video_data = biliapis.video.get_detail(avid=options['avid'])
+                            else:
+                                video_data = biliapis.video.get_detail(bvid=options['bvid'])
+                    except Exception as e:
+                        if is_mainthread:
+                            msgbox.showerror('',str(e),parent=self.window)
+                            return
+                        else:
+                            raise e
+                    #提取分P索引列表
+                    if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
+                        pids = options['pids']
                     else:
-                        #提取avid/bvid
-                        if 'avid' in options:
-                            video_data = biliapis.video.get_detail(avid=options['avid'])
+                        pids = []
+                    if not pids:
+                        pids = list(range(0,len(video_data['parts'])))
+                    #选项预处理
+                    pre_opts = {}
+                    pre_opts['audio_format'] = config['download']['video']['audio_convert']
+                    pre_opts['quality_regular'] = config['download']['video']['quality_regular']
+                    pre_opts['subtitle'] = config['download']['video']['subtitle']
+                    pre_opts['danmaku'] = config['download']['video']['danmaku']
+                    pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
+                    pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
+                    for key in ['audiostream_only','quality_regular','subtitle','danmaku','subtitle_regular','convert_danmaku']:#过滤download_thread不需要的, 防止出错
+                        if key in options:
+                            pre_opts[key] = options[key]
+                    pre_opts['bvid'] = video_data['bvid']
+                    pre_opts['path'] = path
+                    #分发任务
+                    for pid in pids:
+                        if pid < len(video_data['parts']) and pid >= 0:
+                            part = video_data['parts'][pid]
+                            tmpdict = copy.deepcopy(pre_opts)
+                            tmpdict['cid'] = part['cid']
+                            tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
+                            tmpdict['index'] = len(self.data_objs)
+                            self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
+                            self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
+                            self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
+                elif 'ssid' in options or 'mdid' in options or 'epid' in options:
+                    try:
+                        if data:
+                            if 'mdid' in options:
+                                assert options['mdid']==data['mdid'],'预请求数据包内容不匹配'
+                                bangumi_data = data
+                            elif 'ssid' in options:
+                                assert options['ssid']==data['ssid'],'预请求数据包内容不匹配'
+                                bangumi_data = data
+                            else:
+                                bangumi_data = biliapis.media.get_detail(epid=options['epid'])
                         else:
-                            video_data = biliapis.video.get_detail(bvid=options['bvid'])
-                except Exception as e:
-                    msgbox.showerror('',str(e),parent=self.window)
-                    return
-                #提取分P索引列表
-                if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
-                    pids = options['pids']
-                else:
-                    pids = []
-                if not pids:
-                    pids = list(range(0,len(video_data['parts'])))
-                #选项预处理
-                pre_opts = {}
-                pre_opts['audio_format'] = config['download']['video']['audio_convert']
-                pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['subtitle'] = config['download']['video']['subtitle']
-                pre_opts['danmaku'] = config['download']['video']['danmaku']
-                pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
-                pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
-                for key in ['audiostream_only','quality_regular','subtitle','danmaku','subtitle_regular','convert_danmaku']:#过滤download_thread不需要的, 防止出错
-                    if key in options:
-                        pre_opts[key] = options[key]
-                pre_opts['bvid'] = video_data['bvid']
-                pre_opts['path'] = path
-                #分发任务
-                for pid in pids:
-                    if pid < len(video_data['parts']) and pid >= 0:
-                        part = video_data['parts'][pid]
-                        tmpdict = copy.deepcopy(pre_opts)
-                        tmpdict['cid'] = part['cid']
-                        tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
-                        tmpdict['index'] = len(self.data_objs)
-                        self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
-                        self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
-            elif 'ssid' in options or 'mdid' in options or 'epid' in options:
-                try:
-                    if data:
-                        if 'mdid' in options:
-                            assert options['mdid']==data['mdid'],'预请求数据包内容不匹配'
-                            bangumi_data = data
-                        elif 'ssid' in options:
-                            assert options['ssid']==data['ssid'],'预请求数据包内容不匹配'
-                            bangumi_data = data
+                            if 'mdid' in options:
+                                bangumi_data = biliapis.media.get_detail(mdid=options['mdid'])
+                            elif 'ssid' in options:
+                                bangumi_data = biliapis.media.get_detail(ssid=options['ssid'])
+                            else:
+                                bangumi_data = biliapis.media.get_detail(epid=options['epid'])
+                    except Exception as e:
+                        if is_mainthread:
+                            msgbox.showerror('',str(e),parent=self.window)
+                            return
                         else:
-                            bangumi_data = biliapis.media.get_detail(epid=options['epid'])
+                            raise e
+                    main_title = bangumi_data['title']
+                    #选择正片/番外
+                    if 'section_index' in options:
+                        if options['section_index'] > len(bangumi_data['sections'])-1 or options['section_index'] < 0:
+                            return
+                        else:
+                            section = bangumi_data['sections'][options['section_index']]
+                            sstitle = section['title']
+                            episodes = section['episodes']
                     else:
-                        if 'mdid' in options:
-                            bangumi_data = biliapis.media.get_detail(mdid=options['mdid'])
-                        elif 'ssid' in options:
-                            bangumi_data = biliapis.media.get_detail(ssid=options['ssid'])
-                        else:
-                            bangumi_data = biliapis.media.get_detail(epid=options['epid'])
-                except Exception as e:
-                    msgbox.showerror('',str(e),parent=self.window)
-                    return
-                main_title = bangumi_data['title']
-                #选择正片/番外
-                if 'section_index' in options:
-                    if options['section_index'] > len(bangumi_data['sections'])-1 or options['section_index'] < 0:
-                        return
+                        episodes = bangumi_data['episodes']
+                        sstitle = '正片'
+                    #提取EP
+                    if 'epindexes' in options:
+                        epindexes = options['epindexes']
                     else:
-                        section = bangumi_data['sections'][options['section_index']]
-                        sstitle = section['title']
-                        episodes = section['episodes']
-                else:
-                    episodes = bangumi_data['episodes']
-                    sstitle = '正片'
-                #提取EP
-                if 'epindexes' in options:
-                    epindexes = options['epindexes']
-                else:
-                    epindexes = []
-                if not epindexes:
-                    epindexes = list(range(0,len(episodes)))
-                #提取参数
-                pre_opts = {}
-                pre_opts['audio_format'] = config['download']['video']['audio_convert']
-                pre_opts['quality_regular'] = config['download']['video']['quality_regular']
-                pre_opts['subtitle'] = config['download']['video']['subtitle']
-                pre_opts['danmaku'] = config['download']['video']['danmaku']
-                pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
-                pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
-                for key in ['audiostream_only','audio_format','quality_regular','subtitle','danmaku','subtitle_regular','convert_danmaku']:#过滤download_thread不需要的, 防止出错
-                    if key in options:
-                        pre_opts[key] = options[key]
-                pre_opts['path'] = path
-                #分发任务
-                for epindex in epindexes:
-                    if epindex < len(episodes) and epindex >= 0:
-                        episode = episodes[epindex]
-                        tmpdict = copy.deepcopy(pre_opts)
-                        tmpdict['title'] = '{}_{}_{}.{}'.format(main_title,sstitle,epindex+1,episode['title'])#文件名格式编辑在这里
-                        tmpdict['cid'] = episode['cid']
-                        tmpdict['bvid'] = episode['bvid']
-                        tmpdict['index'] = len(self.data_objs)
-                        self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
-                        self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
-        elif mode == 'audio':
-            tmpdict = {
-                'index':len(self.data_objs),
-                'auid':options['auid'],
-                'path':path,
-                'audio_format':config['download']['audio']['convert'],
-                'lyrics':config['download']['audio']['lyrics']
-                }
-            if 'audio_format' in options:
-                tmpdict['audio_format'] = options['audio_format']
-            if data:
-                assert data['auid']==options['auid'],'预请求数据包内容不匹配'
-                tmpdict['data'] = data.copy()
-            tmpdict = tmpdict.copy()
-            self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
-            self.table_display_list.append([str(len(self.data_objs)),'','','Auid'+str(tmpdict['auid']),'音频下载','','','',path,'待处理'])
-            self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
-        elif mode == 'common':
-            tmpdict = {
-                'index':len(self.data_objs),
-                'url':options['url'],
-                'filename':options['filename'],
-                'path':path
-                }
-            self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
-            self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
-            self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
-        elif mode == 'manga':
-            if 'mcid' in options:
-                #提取预处理数据
-                try:
+                        epindexes = []
+                    if not epindexes:
+                        epindexes = list(range(0,len(episodes)))
+                    #提取参数
+                    pre_opts = {}
+                    pre_opts['audio_format'] = config['download']['video']['audio_convert']
+                    pre_opts['quality_regular'] = config['download']['video']['quality_regular']
+                    pre_opts['subtitle'] = config['download']['video']['subtitle']
+                    pre_opts['danmaku'] = config['download']['video']['danmaku']
+                    pre_opts['subtitle_regular'] = config['download']['video']['subtitle_lang_regular']
+                    pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
+                    for key in ['audiostream_only','audio_format','quality_regular','subtitle','danmaku','subtitle_regular','convert_danmaku']:#过滤download_thread不需要的, 防止出错
+                        if key in options:
+                            pre_opts[key] = options[key]
+                    pre_opts['path'] = path
+                    #分发任务
+                    for epindex in epindexes:
+                        if epindex < len(episodes) and epindex >= 0:
+                            episode = episodes[epindex]
+                            tmpdict = copy.deepcopy(pre_opts)
+                            tmpdict['title'] = '{}_{}_{}.{}'.format(main_title,sstitle,epindex+1,episode['title'])#文件名格式编辑在这里
+                            tmpdict['cid'] = episode['cid']
+                            tmpdict['bvid'] = episode['bvid']
+                            tmpdict['index'] = len(self.data_objs)
+                            self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
+                            self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
+                            self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
+            elif mode == 'audio':
+                tmpdict = {
+                    'index':len(self.data_objs),
+                    'auid':options['auid'],
+                    'path':path,
+                    'audio_format':config['download']['audio']['convert'],
+                    'lyrics':config['download']['audio']['lyrics']
+                    }
+                if 'audio_format' in options:
+                    tmpdict['audio_format'] = options['audio_format']
+                if data:
+                    assert data['auid']==options['auid'],'预请求数据包内容不匹配'
+                    tmpdict['data'] = data.copy()
+                tmpdict = tmpdict.copy()
+                self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
+                self.table_display_list.append([str(len(self.data_objs)),'','','Auid'+str(tmpdict['auid']),'音频下载','','','',path,'待处理'])
+                self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
+            elif mode == 'common':
+                tmpdict = {
+                    'index':len(self.data_objs),
+                    'url':options['url'],
+                    'filename':options['filename'],
+                    'path':path
+                    }
+                self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
+                self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
+                self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
+            elif mode == 'manga':
+                if 'mcid' in options:
+                    #提取预处理数据
                     if data:
                         assert data['mcid']==options['mcid'],'预请求数据包内容不匹配'
                     else:
-                        data = biliapis.manga.get_detail(options['mcid'])
-                except Exception as e:
-                    msgbox.showerror('',str(e),parent=self.window)
-                    return
-                #提取epindexes
-                if 'epindexes' in options:
-                    indexes = options['epindexes']
-                    if not indexes:
-                        list(range(0,len(data['ep_list'])))
-                #分发任务
-                else:
-                    indexes = list(range(0,len(data['ep_list'])))
-                #分发任务
-                for index in indexes:
+                        try:
+                            data = biliapis.manga.get_detail(options['mcid'])
+                        except Exception as e:
+                            if is_mainthread:
+                                msgbox.showerror('',str(e),parent=self.window)
+                                return
+                            else:
+                                raise e
+                    #提取epindexes
+                    if 'epindexes' in options:
+                        indexes = options['epindexes']
+                        if not indexes:
+                            list(range(0,len(data['ep_list'])))
+                    #分发任务
+                    else:
+                        indexes = list(range(0,len(data['ep_list'])))
+                    #分发任务
+                    for index in indexes:
+                        tmpdict = {
+                            'index':len(self.data_objs),
+                            'epid':data['ep_list'][index]['epid'],
+                            'path':path
+                            }
+                        self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
+                        self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['ep_list'][index]['eptitle'],'EP'+str(data['ep_list'][index]['epid']),'漫画下载','','-','',path,'待处理'])
+                        self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
+                elif 'epid' in options:
+                    #提取预处理数据
+                    try:
+                        if data:
+                            assert data['epid']==options['epid'],'预请求数据包内容不匹配'
+                        else:
+                            data = biliapis.manga.get_episode_info(options['epid'])
+                    except Exception as e:
+                        if is_mainthread:
+                            msgbox.showerror('',str(e),parent=self.window)
+                            return
+                        else:
+                            raise e
                     tmpdict = {
                         'index':len(self.data_objs),
-                        'epid':data['ep_list'][index]['epid'],
+                        'epid':options['epid'],
                         'path':path
                         }
                     self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
-                    self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['ep_list'][index]['eptitle'],'EP'+str(data['ep_list'][index]['epid']),'漫画下载','','-','',path,'待处理'])
+                    self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['eptitle'],'EP'+str(data['epid']),'漫画下载','','-','',path,'待处理'])
                     self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
-            elif 'epid' in options:
-                #提取预处理数据
-                try:
-                    if data:
-                        assert data['epid']==options['epid'],'预请求数据包内容不匹配'
-                    else:
-                        data = biliapis.manga.get_episode_info(options['epid'])
-                except Exception as e:
-                    msgbox.showerror('',str(e),parent=self.window)
-                    return
-                tmpdict = {
-                    'index':len(self.data_objs),
-                    'epid':options['epid'],
-                    'path':path
-                    }
-                self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
-                self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['eptitle'],'EP'+str(data['epid']),'漫画下载','','-','',path,'待处理'])
-                self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
-            
-        self.save_progress()
+            self.save_progress()
 
     def retry_all_failed(self):
         if self.failed_indexes:
@@ -943,16 +961,22 @@ class MainWindow(Window):
 
     def _new_login(self):
         self.window.wm_attributes('-topmost',False)
-        w = LoginWindow()
-        if w.status:
-            biliapis.requester.load_local_cookies()
-            self.refresh_data()
+        try:
+            w = LoginWindow()
+        except Exception as e:
+            msgbox.showwarning('','登录出现错误: \n'+str(e),parent=self.window)
+            logging.error('Unexpected Error occurred when login: '+str(e))
+            self.button_login.configure(state='normal')
         else:
-            msgbox.showwarning('','登录未完成.',parent=self.window)
-            self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
+            if w.status:
+                biliapis.requester.load_local_cookies()
+                self.refresh_data()
+            else:
+                msgbox.showwarning('','登录未完成.',parent=self.window)
+                self.button_login.configure(state='normal')
         self.window.wm_attributes('-topmost',config['topmost'])
 
-    def refresh_data(self):
+    def refresh_data(self,init=False):
         def tmp():
             self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
             self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='disabled'))
@@ -960,20 +984,25 @@ class MainWindow(Window):
                 data = biliapis.login.get_login_info()
             except biliapis.BiliError as e:
                 if e.code == -101:
-                    self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.',parent=self.window))
+                    if init:
+                        self.task_queue.put_nowait(self._new_login)
+                    else:
+                        self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.',parent=self.window))
                 else:
                     self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('',ei,parent=self.window))
                 self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
                 self.task_queue.put_nowait(self._clear_face)
                 self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
             except Exception as e:
-                self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('',ei,parent=self.window))
+                logging.error('Unexpected Error occurred when login: '+str(e))
+                self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('','登录时出现错误: \n'+ei,parent=self.window))
                 self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
                 self.task_queue.put_nowait(self._clear_face)
                 self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
             else:
                 def load_user_info(user_data):
-                    self.label_face.set(BytesIO(biliapis.requester.get_content_bytes(biliapis.format_img(user_data['face'],w=120,h=120))))
+                    start_new_thread(lambda url=biliapis.format_img(user_data['face'],w=120,h=120):
+                                     self.task_queue.put_nowait(lambda img=BytesIO(biliapis.requester.get_content_bytes(url)):self.label_face.set(img)))
                     self.label_face_text.grid_remove()
                     self.label_face.bind('<Button-1>',
                                          lambda event=None,text='{name}\nUID{uid}\nLv.{level}\n{vip_type}\nCoin: {coin}\nMoral: {moral}'.format(**user_data):msgbox.showinfo('User Info',text,parent=self.window))
@@ -984,21 +1013,7 @@ class MainWindow(Window):
         start_new_thread(tmp,())
 
     def login(self,init=False):
-        def tmp():
-            self.task_queue.put_nowait(lambda:self.button_login.configure(state='disabled'))
-            if biliapis.login.check_login():
-                self.refresh_data()
-                self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
-                self.task_queue.put_nowait(lambda:self.button_refresh.configure(state='normal'))
-                self.task_queue.put_nowait(lambda:self.button_login.configure(text='退出登录',command=self.logout))
-            else:
-                if not init:
-                    self.task_queue.put_nowait(self._new_login)
-                else:
-                    self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
-                    self.task_queue.put_nowait(self._clear_face)
-                    self.task_queue.put_nowait(lambda:self.button_login.configure(text='登录',command=self.login))
-        start_new_thread(tmp,())
+        self.refresh_data(init=init)
             
     def logout(self):
         self.button_login.configure(state='disabled')
@@ -1046,6 +1061,24 @@ class MainWindow(Window):
         else:
             self.label_tips['text'] = 'Tips: '+tips[index]
 
+    def _jump_by_source(self,source):
+        source,flag = biliapis.parse_url(source)
+        if flag == 'unknown':
+            msgbox.showinfo('','无法解析......',parent=self.window)
+        elif flag == 'auid':
+            w = AudioWindow(source)
+        elif flag == 'avid' or flag == 'bvid':
+            w = CommonVideoWindow(source)
+        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
+            w = BangumiWindow(**{flag:source})
+        elif flag == 'cvid':
+            pass
+        elif flag == 'uid':
+            pass
+        else:
+            msgbox.showinfo('','暂不支持%s的跳转'%flag,parent=self.window)
+        return
+
     def start(self,source=None):
         if source == None:
             source = self.entry_source.get().strip()
@@ -1054,22 +1087,7 @@ class MainWindow(Window):
             return
         mode = self.intvar_entrymode.get()
         if mode == 0:#跳转模式
-            source,flag = biliapis.parse_url(source)
-            if flag == 'unknown':
-                msgbox.showinfo('','无法解析......',parent=self.window)
-            elif flag == 'auid':
-                w = AudioWindow(source)
-            elif flag == 'avid' or flag == 'bvid':
-                w = CommonVideoWindow(source)
-            elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':
-                w = BangumiWindow(**{flag:source})
-            elif flag == 'cvid':
-                pass
-            elif flag == 'uid':
-                pass
-            else:
-                msgbox.showinfo('','暂不支持%s的跳转'%flag,parent=self.window)
-            return
+            self._jump_by_source(source)
         elif mode == 1:#搜索模式
             if source:
                 kws = source.split()
@@ -1137,16 +1155,54 @@ class MainWindow(Window):
                 path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
                 if path:
                     collection = biliapis.video.get_archive_list(*source,page_size=100)
-                    if collection['archives']:
-                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in collection['archives']],
+                    archives = collection['archives']
+                    tp = collection['total_page']
+                    if archives:
+                        if tp > 1:
+                            if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
+                                def get_archives(source,tp):
+                                    archives = []
+                                    for p in range(2,tp+1):
+                                        archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
+                                        time.sleep(0.5)
+                                    return archives
+                                archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
                                                columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
                         if indexes:
-                            for index in indexes:
-                                download_manager.task_receiver('video',path,bvid=collection['archives'][index]['bvid'])
+                            def putin_tasks(indexes,archives):
+                                for index in indexes:
+                                    download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                            cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
                     else:
                         msgbox.showinfo('合集没有内容',parent=self.window)
             elif flag == 'favlist':#收藏夹
                 pass
+            elif flag == 'series':#系列
+                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+                if path:
+                    series = biliapis.video.get_series_list(*source,page_size=100)
+                    archives = series['archives']
+                    tp = series['total_page']
+                    if archives:
+                        if tp > 1:
+                            if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
+                                def get_archives(source,tp):
+                                    archives = []
+                                    for p in range(2,tp+1):
+                                        archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
+                                        time.sleep(0.5)
+                                    return archives
+                                archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
+                                               columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                        if indexes:
+                            def putin_tasks(indexes,archives):
+                                for index in indexes:
+                                    download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                            cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
+                    else:
+                        msgbox.showinfo('没有内容',parent=self.window)
             elif flag == 'amid':
                 path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
                 if path:
@@ -1156,15 +1212,21 @@ class MainWindow(Window):
                         audio_list = data['data']
                         if tp > 1:
                             if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
-                                for p in range(2,tp+1):
-                                    audio_list += biliapis.audio.get_list(source,page=p)['data']
-                                    time.sleep(0.5)
+                                def get_audio_lists(source,tp):
+                                    audio_list = []
+                                    for p in range(2,tp+1):
+                                        audio_list += biliapis.audio.get_list(source,page=p)['data']
+                                        time.sleep(0.5)
+                                    return audio_list
+                                audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
                         if audio_list:
                             indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
                                                    columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
                             if indexes:
-                                for index in indexes:
-                                    download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+                                def putin_tasks(indexes,audio_list):
+                                    for index in indexes:
+                                        download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+                                cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
                     else:
                         msgbox.showinfo('','歌单是空的.',parent=self.window)
             else:
@@ -1175,7 +1237,7 @@ class BatchWindow(Window):
         super().__init__('BiliTools - Batch',True,config['topmost'],config['alpha'])
 
         #Main Entry
-        tk.Label(self.window,text='每行一个网址, 仅支持批量下载普通视频.\n所有分P均会被下载.\n可能会出现未响应的情况, 请耐心等待.',justify='left').grid(column=0,row=0,sticky='w')
+        tk.Label(self.window,text='每行一个网址, 仅支持批量下载普通视频.\n所有分P均会被下载.\n请耐心等待.',justify='left').grid(column=0,row=0,sticky='w')
         self.scrollbar_x = ttk.Scrollbar(self.window,orient=tk.HORIZONTAL)
         self.entry_main = scrolledtext.ScrolledText(self.window,width=70,height=20,wrap='none',xscrollcommand=self.scrollbar_x.set)
         self.entry_main.grid(column=0,row=1)
@@ -1194,16 +1256,20 @@ class BatchWindow(Window):
     def start(self,text=None):
         if not text:
             text = self.entry_main.get(1.0,'end')
-        path = filedialog.askdirectory(title='输出至',parent=self.window)
-        if text and path:
-            audiomode = self.boolvar_audiomode.get()
-            self.close()
-            lines = text.split('\n')
-            for line in lines:
-                if line:
-                    source,flag = biliapis.parse_url(line)
-                    if flag in ['avid','bvid']:
-                        download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
+        if text:
+            path = filedialog.askdirectory(title='输出至',parent=self.window)
+            if path:
+                audiomode = self.boolvar_audiomode.get()
+                self.close()
+                cusw.run_with_gui(self.working_thread,(text,audiomode,path))
+            
+    def working_thread(self,text,audiomode,path):
+        lines = text.split('\n')
+        for line in lines:
+            if line:
+                source,flag = biliapis.parse_url(line)
+                if flag in ['avid','bvid']:
+                    download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
 
 class InputWindow(Window):
     def __init__(self,master,label=None,text=None):
