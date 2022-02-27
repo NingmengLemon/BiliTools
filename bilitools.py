@@ -985,9 +985,9 @@ class MainWindow(Window):
             except biliapis.BiliError as e:
                 if e.code == -101:
                     if init:
-                        self.task_queue.put_nowait(self._new_login)
+                        pass
                     else:
-                        self.task_queue.put_nowait(lambda:msgbox.showwarning('','未登录.',parent=self.window))
+                        self.task_queue.put_nowait(self._new_login)
                 else:
                     self.task_queue.put_nowait(lambda ei=str(e):msgbox.showerror('',ei,parent=self.window))
                 self.task_queue.put_nowait(lambda:self.button_login.configure(state='normal'))
