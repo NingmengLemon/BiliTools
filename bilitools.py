@@ -2698,19 +2698,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
                 l += [cusw.ToolTip(l[0])]
                 self.tk_objs.append(l)
         #翻页姬
-        self.frame_pgturner = tk.Frame(self.inner_frame)
-        self.frame_pgturner.grid(column=0,row=3,columnspan=2)
-        self.frame_pgturner.grid_remove()
-        self.button_last = ttk.Button(self.frame_pgturner,text='上一页',command=lambda:self.turn_page(self.page-1))
-        self.button_last.grid(column=0,row=0)
-        self.label_page = tk.Label(self.frame_pgturner,text='-/- 页')
-        self.label_page.grid(column=1,row=0)
-        self.button_next = ttk.Button(self.frame_pgturner,text='下一页',command=lambda:self.turn_page(self.page+1))
-        self.button_next.grid(column=2,row=0)
-        self.entry_page = ttk.Entry(self.frame_pgturner,exportselection=0,width=10)
-        self.entry_page.grid(column=0,row=1,columnspan=2,sticky='e')
-        self.button_tp = ttk.Button(self.frame_pgturner,text='跳页',command=lambda:self.turn_page(int(self.entry_page.get())))
-        self.button_tp.grid(column=2,row=1)
+        
 
     def _fast_download(self,bvid,audiostream_only=False):
         path = filedialog.askdirectory(title='下载到',parent=self.master)
@@ -2769,7 +2757,6 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
             else:
                 self.task_queue.put_nowait(lambda s=sort:self.om_sort.set_menu(s,*list(self.sort_methods.keys())))
                 self.task_queue.put_nowait(lambda d=duration:self.om_duration.set_menu(d,*list(self.duration_methods.keys())))
-                self.task_queue.put_nowait(lambda p=page,tp=data['total_pages']:self.label_page.configure(text='{}/{}'.format(p,tp)))
                 self.task_queue.put_nowait(lambda t=data['time_cost']:self.label_searchtime.configure(text=f'搜索用时: {t}s'))
                 self.task_queue.put_nowait(lambda c=data['result_count']:self.label_searchcount.configure(text=f'共有 {c} 个结果'))
                 self.total_page = data['total_pages']
@@ -2808,7 +2795,6 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
                     widgetlist[8].change_text(None)
                 
                 if data['result']:
-                    self.task_queue.put_nowait(lambda:self.frame_pgturner.grid())
                     for i in range(len(self.tk_objs)):
                         w = self.tk_objs[i]
                         self.task_queue.put_nowait(lambda wl=w:clear_data(wl))
@@ -2822,7 +2808,6 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
                         else:
                             self.task_queue.put_nowait(lambda wl=w:wl[0].grid_remove())
                 else:
-                    self.task_queue.put_nowait(lambda:self.frame_pgturner.grid_remove())
                     self.task_queue.put_nowait(lambda:msgbox.showwarning('','没有搜索结果',parent=self.master))
                     
         kwargs = {
@@ -2832,7 +2817,8 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
             'page':page,
             'kws':kws
             }
-        start_new_thread(tmp,kwargs=kwargs)
+        cusw.run_with_gui(tmp,kwargs=kwargs,master=self.master,no_window=True)
+        return self.page,self.total_page
 
     def refresh(self):
         if self.kws:
@@ -2841,10 +2827,11 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
     def turn_page(self,page):
         if self.kws:
             if page > self.total_page or page < 1:
-                pass
+                msgbox.showerror('','超出页数范围.',parent=self.master)
             else:
                 self.search(*self.kws,page=page)
-            self.scroll_to_top()
+                self.scroll_to_top()
+        return self.page,self.total_page
 #好麻烦的说...
 class _BangumiSearchShower(cusw.VerticalScrolledFrame):
     def __init__(self,master,task_queue,height=400):
@@ -2870,6 +2857,9 @@ class SearchWindow(Window):
         #(待扩充)
 
         super().__init__('BiliTools - Search',True,config['topmost'],config['alpha'])
+        ww,wh = (1125,650)
+        sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
+        self.window.geometry('%dx%d+%d+%d'%(ww,wh,(sw-ww)/2,(sh-wh)/2-40))
         #输入区
         self.frame_input = tk.Frame(self.window)
         self.frame_input.grid(column=0,row=0)
@@ -2887,21 +2877,61 @@ class SearchWindow(Window):
         #普通视频
         self.frame_common_video = _CommonVideoSearchShower(self.nb,self.task_queue,height=500)
         self.nb.add(self.frame_common_video,text='普通视频')
+        #翻页姬
+        self.frame_pgturner = tk.Frame(self.window)
+        self.frame_pgturner.grid(column=0,row=2)
+        self.frame_pgturner.grid_remove()
+        self.button_last = ttk.Button(self.frame_pgturner,text='上一页',command=lambda:self.turn_page(offset=-1))
+        self.button_last.grid(column=0,row=0)
+        self.label_page = tk.Label(self.frame_pgturner,text='-/- 页')
+        self.label_page.grid(column=1,row=0)
+        self.button_next = ttk.Button(self.frame_pgturner,text='下一页',command=lambda:self.turn_page(offset=1))
+        self.button_next.grid(column=2,row=0)
+        self.entry_page = ttk.Entry(self.frame_pgturner,exportselection=0,width=10)
+        self.entry_page.grid(column=0,row=1,columnspan=2,sticky='e')
+        self.entry_page.bind('<Return>',self._jump_page)
+        self.button_tp = ttk.Button(self.frame_pgturner,text='跳页',command=lambda:self._jump_page)
+        self.button_tp.grid(column=2,row=1)
 
         if init_kws:
             self.search(*init_kws)
             self.entry.insert('end',' '.join(init_kws))
         self.mainloop()
 
+    def _jump_page(self,event=None):
+        try:
+            self.turn_page(page=int(self.entry_page.get().strip()))
+        except ValueError:
+            msgbox.showwarning('','输入的不是数字.')
+
     def search(self,*kws):
+        self.button_start['state'] = 'disabled'
         if not kws:
             kws = self.entry.get().strip().split()
         if kws: 
             target = self.nb.children[self.nb.select().split('.')[-1]]
-            target.search(*kws)
+            p,tp = target.search(*kws)
+            self.label_page.configure(text='{}/{}'.format(p,tp))
+            self.frame_pgturner.grid()
         else:
             msgbox.showwarning('','关键字列表为空.',parent=self.window)
+        self.button_start['state'] = 'normal'
 
+    def turn_page(self,offset=None,page=None):
+        target = self.nb.children[self.nb.select().split('.')[-1]]
+        self.button_next['state'] = 'disabled'
+        self.button_last['state'] = 'disabled'
+        self.button_tp['state'] = 'disabled'
+        if page:
+            p,tp = target.turn_page(page)
+            self.label_page.configure(text='{}/{}'.format(p,tp))
+        if offset:
+            p,tp = target.turn_page(target.page+offset)
+            self.label_page.configure(text='{}/{}'.format(p,tp))
+        self.button_next['state'] = 'normal'
+        self.button_last['state'] = 'normal'
+        self.button_tp['state'] = 'normal'
+        
     def set_nb_state(self,nb,state='normal'):
         for i in range(len(nb.tabs())):
             nb.tab(i,state=state)

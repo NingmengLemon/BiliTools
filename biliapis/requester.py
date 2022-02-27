@@ -19,6 +19,7 @@ user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
 
 cookies = None
+proxy = None
 fake_headers_get = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
     'Accept-Charset': 'UTF-8,*;q=0.5',
@@ -102,20 +103,25 @@ def _dict_to_headers(dict_to_conv):
         res.append((keys[i],values[i]))
     return res
 
+def make_opener():
+    if cookies and proxy:
+        opener = request.build_opener(request.HTTPCookieProcessor(cookies),request.ProxyHandler({'http':proxy,'https':proxy}))
+    elif cookies and not proxy:
+        opener = request.build_opener(request.HTTPCookieProcessor(cookies))
+    elif not cookies and proxy:
+        opener = request.build_opener(request.ProxyHandler({'http':proxy,'https':proxy}))
+    else:
+        opener = request.build_opener()
+    return opener
+
 @auto_retry(retry_time)
 def _get_response(url, headers=fake_headers_get):
     # install cookies
-    if cookies:
-        opener = request.build_opener(request.HTTPCookieProcessor(cookies))
-    else:
-        opener = request.build_opener()
+    opener = make_opener()
 
-    if headers:
-        response = opener.open(
-            request.Request(url, headers=headers), None, timeout=timeout
-        )
-    else:
-        response = opener.open(url, timeout=timeout)
+    response = opener.open(
+        request.Request(url, headers=headers), None, timeout=timeout
+    )
 
     data = response.read()
     if response.info().get('Content-Encoding') == 'gzip':
@@ -130,15 +136,9 @@ def _get_response(url, headers=fake_headers_get):
 
 @auto_retry(retry_time)
 def _post_request(url,data,headers=fake_headers_post):
-    if cookies:
-        opener = request.build_opener(request.HTTPCookieProcessor(cookies))
-    else:
-        opener = request.build_opener()
+    opener = make_opener()
     params = parse.urlencode(data).encode()
-    if headers:
-        response = opener.open(request.Request(url,data=params,headers=headers), timeout=timeout)
-    else:
-        response = opener.open(request.Request(url,data=params), timeout=timeout)
+    response = opener.open(request.Request(url,data=params,headers=headers), timeout=timeout)
     data = response.read()
     if response.info().get('Content-Encoding') == 'gzip':
         data = _ungzip(data)
@@ -204,11 +204,19 @@ def refresh_local_cookies():
         cookies.save(local_cookiejar_path)
 
 #Download Operation
-def download_common(url,tofile,progressfunc=None,headers=fake_headers_get):
-    opener = request.build_opener()
-    opener.addheaders = _dict_to_headers(headers)
-    request.install_opener(opener)
-    request.urlretrieve(url,tofile,progressfunc)
+def download_common(url,tofile,headers=fake_headers_get):
+    opener = make_opener()
+    chunk_size = 1024
+    with opener.open(request.Request(url,headers=headers),timeout=timeout) as response:
+        with open(tofile,'wb+') as f:
+            while True:
+                data = response.read(chunk_size)
+                if data:
+                    f.write(data)
+                else:
+                    break
+    logging.debug('Download file from {} to {}.'.format(url,tofile))
+            
 
 def convert_size(size):#单位:Byte
     if size < 1024:
@@ -222,17 +230,15 @@ def convert_size(size):#单位:Byte
     size /= 1024
     return '%.2f GB'%size
 
-def download_yield(url,filename,path='./',use_cookies=True,headers=fake_headers_get,check=True):
+def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
     if os.path.exists(file):
-        yield 0,0,100.00
+        size = os.path.getsize(file)
+        yield size,size,100.00
     else:
         tmpfile = file+'.download'
         #安装cookies
-        if cookies and use_cookies:
-            opener = request.build_opener(request.HTTPCookieProcessor(cookies))
-        else:
-            opener = request.build_opener()
+        opener = make_opener()
         #检查上次下载遗留文件
         if os.path.exists(tmpfile):
             size = os.path.getsize(tmpfile)
