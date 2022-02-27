@@ -5,6 +5,8 @@ from PIL import Image,ImageTk
 from basic_window import Window
 import threading
 import time
+from tkinter import messagebox as msgbox
+import logging
 
 __all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame',
            'run_with_gui']
@@ -269,7 +271,7 @@ class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在hei
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
 class Thread_with_gui(Window):
-    def __init__(self,func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False):
+    def __init__(self,func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
         '''由于涉及到GUI, 该方法只能在主线程中运行...
 is_progress_hook_available 的意思是, 传入的函数是否可以被传入progress_hook参数,
 函数通过修改该变量可以向GUI通报进度或状态.
@@ -291,6 +293,7 @@ is_task_queue_available 的意思是, 传入的函数是否可以被传入task_q
             kwargs['progress_hook'] = self.progress_hook
         if is_task_queue_available:
             kwargs['task_queue'] = self.task_queue
+        self.no_window = no_window
         self.return_value = None
         self.thread = threading.Thread(target=self.thread_func,args=args,kwargs=kwargs,daemon=True)
         self.error = None
@@ -302,8 +305,10 @@ is_task_queue_available 的意思是, 传入的函数是否可以被传入task_q
         self.label.grid(column=0,row=1,sticky='w')
 
         self.thread.start()
-        if self.master:
+        if self.master and not self.no_window:
             self.master.attributes('-disabled',1)
+        if self.no_window:
+            self.window.withdraw()
         self.refresh_gui()
 
     def thread_func(self,*args,**kwargs):
@@ -331,16 +336,16 @@ is_task_queue_available 的意思是, 传入的函数是否可以被传入task_q
                 self.window.after_cancel(self.loop_schedule)
                 self.loop_schedule = None
             if self.error:
-                msgbox.showerror('','出现错误: '+str(self.error))
+                #msgbox.showerror('','出现错误: '+str(self.error))
                 logging.error('Unexpected Error occurred while running function {} with gui: {}'.format(str(self.func),str(self.error)))
             self.close()
-            if self.master:
+            if self.master and not self.no_window:
                 self.master.attributes('-disabled',0)
             if self.error:
                 raise self.error #将异常传达到主线程抛出
 
-def run_with_gui(func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False):
-    thread = Thread_with_gui(func,args,kwargs,master,is_progress_hook_available,is_task_queue_available)
+def run_with_gui(func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
+    thread = Thread_with_gui(func,args,kwargs,master,is_progress_hook_available,is_task_queue_available,no_window)
     thread.mainloop()
     return thread.return_value
 run_with_gui.__doc__ = Thread_with_gui.__init__.__doc__
