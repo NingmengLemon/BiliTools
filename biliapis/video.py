@@ -4,71 +4,19 @@ from . import bilicodes
 import json
 import hashlib
 from urllib import parse
+from bs4 import BeautifulSoup
 import logging
 import re
-from bs4 import BeautifulSoup
 import math
 
 __all__ = ['get_recommend','get_stream_dash',
            'get_tags','get_detail','search','bvid_to_avid_online',
            'bvid_to_avid_offline','avid_to_bvid_offline',
            'bvid_to_cid_online','avid_to_cid_online',
-           'get_danmaku_xmlstr','get_online_nop',
+           'get_online_nop',
            'get_shortlink','get_pbp','get_archive_list','get_series_list',
-           'filter_danmaku']
-
-def _parse_danmaku_d(dp):
-    appeartime,mode,size,color,timestamp,pool,user,dmid,level = dp.split(',')
-    color = ('#'+hex(int(color))[2:]).upper()
-    #mode:1-3:普通,4:底,5:顶,6:逆向,7:高级,8:代码,9:BAS
-    res = {
-        'appear_time':float(appeartime),
-        'mode':int(mode),
-        'size':int(size),
-        'color':color,
-        'timestamp':int(timestamp),
-        'pool':int(pool),
-        'userhash':user,
-        'dmid':int(dmid),
-        'level':int(level)
-        }
-    return res
-
-def filter_danmaku(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
-    #参数名称与.user.get_danmaku_filter返回值保持一致
-    bs = BeautifulSoup(xmlstr,'lxml')
-    counter = 0
-    i = 0
-    for d in bs.find_all('d'):
-        content = d.get_text()
-        dp = _parse_danmaku_d(d.get('p'))
-        if dp['mode'] == '7':
-            content = json.loads(content)[4]
-        userhash = dp['userhash']
-        flag = False
-        if filter_level > dp['level']:
-            flag = True
-        if not flag:
-            for kw in keyword:
-                if kw.lower() in content.lower():
-                    flag = True
-                    break
-        if not flag:
-            for uhash in user:
-                if userhash == uhash:
-                    flag = True
-                    break
-        if not flag:
-            for reg in regex:
-                if re.search(reg,content):
-                    flag = True
-                    break
-        if flag:
-            d.extract()
-            counter += 1
-        i += 1
-    logging.info(f'{counter} of {i} danmaku are filtered.')
-    return str(bs).replace('<html><body>','').replace('</body></html>','')
+           'get_stream_flv'
+           ]
 
 def get_recommend(avid=None,bvid=None):
     '''
@@ -88,6 +36,45 @@ def get_recommend(avid=None,bvid=None):
     res = []
     for data_ in data:
         res.append(_video_detail_handler(data_,False))
+    return res
+
+def get_stream_flv(cid,avid=None,bvid=None,quality_id=64):
+    fnval = 0
+    fourk = 0
+    if int(quality_id) == 120:
+        fnval = fnval|128
+        fourk = 1
+    if avid != None:
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(avid,cid,fnval,fourk,quality_id)
+    elif bvid != None:
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(bvid,cid,fnval,fourk,quality_id)
+    else:
+        raise RuntimeError('You must choose one parameter between avid and bvid.')
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    if data['code'] == -404:
+        api = api.replace('api.bilibili.com/x/player/playurl','api.bilibili.com/pgc/player/web/playurl')
+        data = requester.get_content_str(api)
+        data = json.loads(data)
+        error_raiser(data['code'],data['message'])
+        data = data['result']
+    else:
+        error_raiser(data['code'],data['message'])
+        data = data['data']
+    parts = []
+    for p in data['durl']:
+        parts.append({
+            'order':p['order'],#分段序号
+            'length':p['length']/1000,#sec,
+            'size':p['size'],
+            'url':p['url'],
+            'urls_backup':p['backup_url']
+            })
+    res = {
+        'parts':parts,
+        'quality':data['quality'],
+        'length':data['timelength']/1000
+        }
     return res
 
 def get_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
@@ -144,7 +131,8 @@ def get_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
             })
     stream = {
         'audio':audio,
-        'video':video
+        'video':video,
+        'length':data['timelength']/1000 #sec
         }
     return stream
 
@@ -318,10 +306,6 @@ def avid_to_cid_online(avid):
     for i in data:
         res.append(i['cid'])
     return res
-
-def get_danmaku_xmlstr(cid):
-    data = requester.get_content_str(f'https://api.bilibili.com/x/v1/dm/list.so?oid={cid}')
-    return data
 
 def get_online_nop(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''

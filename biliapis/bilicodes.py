@@ -244,6 +244,17 @@ stream_dash_audio_quality = {
 
 stream_dash_audio_quality_ = {v: k for k, v in stream_dash_audio_quality.items()}
 
+stream_flv_video_quality = {
+    16:'360P',
+    32:'480P',
+    64:'720P',
+    74:'720P60',
+    80:'1080P',
+    112:'1080P+',
+    116:'1080P60',
+    120:'4K'
+    }
+
 media_type = {
     1:'番剧',
     2:'电影',

@@ -458,9 +458,9 @@ class DownloadManager(object):
             danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
             if danmaku and not audiostream_only:
                 self._edit_display_list(index,'status','获取弹幕')
-                xmlstr = biliapis.video.get_danmaku_xmlstr(cid)
+                xmlstr = biliapis.danmaku.get_xmlstr(cid)
                 self._edit_display_list(index,'status','过滤弹幕')
-                xmlstr = biliapis.video.filter_danmaku(xmlstr,**config['download']['video']['danmaku_filter'])
+                xmlstr = biliapis.danmaku.filter(xmlstr,**config['download']['video']['danmaku_filter'])
                 with open(os.path.join(path,danmaku_filename),'w+',encoding='utf-8',errors='ignore') as f:
                     f.write(xmlstr)
                 if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
