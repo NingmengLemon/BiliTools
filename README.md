@@ -2,7 +2,7 @@
 
 ## Bilibili工具箱
 
-**此项目仍在开发中……**
+此项目仍在**开发中**……
 
 ### 现有以下功能：
 
@@ -11,23 +11,27 @@
 扫二维码登录 | 
 没卵用的tips | 
 查询并下载音频区的音频 | 
-查询视频区的视频信息 | 
 下载普通视频/番剧的音轨 | 
 查看小黑屋 | 
 查看普通视频的弹幕增量趋势 | 
-下载普通视频 | 仅DASH方式
+查询并下载普通视频 | 仅DASH方式
 查询并下载番剧 | 仅DASH方式 
 批量下载普通视频 | 仅DASH方式 
 下载漫画 |  
 搜索普通视频 |
 解析合集 |
 解析频道 | 或者说是系列？
-解析歌单 |
+解析歌单 | 
+调用ffplay进行播放 | 
+
+媒体处理依赖 ffmpeg.exe
+
+媒体播放依赖 ffplay.exe
 
 我真的太逊了（逃
 
-**（关于本项目的上一代BiliDownloader详见[release](https://github.com/NingmengLemon/BiliTools/releases/tag/v.1.0.3)）**
-
-**媒体处理依赖 ffmpeg.exe**
+（关于本项目的**上一代**BiliDownloader详见[release](https://github.com/NingmengLemon/BiliTools/releases/tag/v.1.0.3)）
 
 感谢[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)项目的开发者提供的API文档
+
+既然都看到这里了，不如点个star叭 (。・∀・)ノ
