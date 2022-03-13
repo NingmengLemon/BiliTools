@@ -1,4 +1,4 @@
-from . import audio,comment,manga,media,subtitle,user,video,danmaku
+from . import audio,comment,manga,media,subtitle,user,video,danmaku,live
 from . import bilicodes 
 from . import login,other
 from . import requester
@@ -7,7 +7,7 @@ from .error import BiliError
 import winreg
 import re
 
-__all__ = ['audio','comment','login','manga','media','subtitle','user','video','danmaku',
+__all__ = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
            'bilicodes','other','requester','BiliError',
            'get_desktop','second_to_time','format_img','parse_url','convert_number']
 

@@ -30,13 +30,13 @@ import custom_widgets as cusw
 from basic_window import Window
 import imglib
 from textlib import tips
-import ffmpeg_driver as ffdriver
+import ffdriver
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev09'
+version = '2.0.0_Dev10'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -78,6 +78,13 @@ config = {
         'max_thread_num':2,
         'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
         },
+    'play':{
+        'video_quality':64,#720P
+        'audio_quality':2,  #320K
+        'repeat':0,
+        'fullscreen':False,
+        'auto_exit':False
+        }
     }
 biliapis.filter_emoji = config['filter_emoji']
 #日志模块设置
@@ -397,7 +404,7 @@ class DownloadManager(object):
                 #进一步处理
                 if audio_format and audio_format not in ['aac','copy']:
                     self._edit_display_list(index,'status','转码')
-                    ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format)
+                    ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format,stream['quality'].lower())
                     self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
                     try:
                         os.remove(os.path.join(path,tmp_filename))
@@ -430,6 +437,7 @@ class DownloadManager(object):
         try:
             self._edit_display_list(index,'status','正在取流')
             stream_data = biliapis.video.get_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
+            self._edit_display_list(index,'length',biliapis.second_to_time(stream_data['length']))
             vstream,astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality_regular)
             if audiostream_only:
                 self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
@@ -484,7 +492,8 @@ class DownloadManager(object):
                     if audio_format and audio_format not in ['aac','copy']:
                         self._edit_display_list(index,'status','混流/转码')
                         ffdriver.convert_audio(os.path.join(path,tmpname_audio),
-                                      os.path.join(path,final_filename_audio_only),audio_format)
+                                               os.path.join(path,final_filename_audio_only),audio_format,
+                                               bilicodes.stream_dash_audio_quality[astream['quality']].lower())
                         try:
                             os.remove(os.path.join(path,tmpname_audio))
                         except:
@@ -1298,7 +1307,7 @@ class ConfigWindow(Window):
         
         #Basic
         self.frame_basic = tk.LabelFrame(self.window,text='基础')
-        self.frame_basic.grid(column=0,row=0,sticky='nw')
+        self.frame_basic.grid(column=0,row=0,rowspan=2,sticky='nw')
         #Topmost
         self.boolvar_topmost = tk.BooleanVar(self.window,config['topmost'])
         self.checkbutton_topmost = ttk.Checkbutton(self.frame_basic,text='置顶',onvalue=True,offvalue=False,variable=self.boolvar_topmost)
@@ -1322,7 +1331,7 @@ class ConfigWindow(Window):
 
         #Download
         self.frame_download = tk.LabelFrame(self.window,text='下载')
-        self.frame_download.grid(column=1,row=0,sticky='nswe')
+        self.frame_download.grid(column=1,row=0,sticky='nwe')
         #Thread Number
         self.intvar_threadnum = tk.IntVar(self.window,config['download']['max_thread_num'])
         tk.Label(self.frame_download,text='最大线程数: ').grid(column=0,row=0,sticky='e')
@@ -1338,7 +1347,7 @@ class ConfigWindow(Window):
 
         #Subtitle
         self.frame_subtitle = tk.LabelFrame(self.window,text='字幕与歌词')
-        self.frame_subtitle.grid(column=0,row=1,sticky='we',columnspan=2)
+        self.frame_subtitle.grid(column=0,row=2,sticky='we',columnspan=2)
         self.subtitle_preset = {
             '中文优先':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
             '英文优先':['en-US','en-GB','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','ja','ja-JP'],
@@ -1360,7 +1369,7 @@ class ConfigWindow(Window):
         
         #Danmaku
         self.frame_danmaku = tk.LabelFrame(self.window,text='弹幕')
-        self.frame_danmaku.grid(column=2,row=0,sticky='wnse')
+        self.frame_danmaku.grid(column=2,row=0,rowspan=2,sticky='wnse')
         self.boolvar_danmaku = tk.BooleanVar(self.window,config['download']['video']['danmaku'])
         self.checkbutton_danmaku = ttk.Checkbutton(self.frame_danmaku,text='下载弹幕',onvalue=True,offvalue=False,variable=self.boolvar_danmaku)
         self.checkbutton_danmaku.grid(column=0,row=0,sticky='w')
@@ -1386,7 +1395,6 @@ class ConfigWindow(Window):
         ttk.Button(self.frame_dmfrule_opt,text='清空',command=self._clear_dmfrule).grid(column=0,row=0)
         ttk.Button(self.frame_dmfrule_opt,text='同步',command=self._sync_dmfrule).grid(column=1,row=0)
         self.dmfrule = copy.deepcopy(config['download']['video']['danmaku_filter'])
-        
         #convert
         self.boolvar_convert_danmaku = tk.BooleanVar(self.window,config['download']['video']['convert_danmaku'])
         self.checkbutton_convert_danmaku = ttk.Checkbutton(self.frame_danmaku,text='转换弹幕',onvalue=True,offvalue=False,variable=self.boolvar_convert_danmaku)
@@ -1394,10 +1402,42 @@ class ConfigWindow(Window):
         if not config['download']['video']['danmaku']:
             self.checkbutton_convert_danmaku['state'] = 'disabled'
         self.checkbutton_danmaku['command'] = lambda:self.checkbutton_convert_danmaku.configure(state={True:'normal',False:'disabled'}[self.boolvar_danmaku.get()])
+
+        #Play
+        self.frame_play = tk.LabelFrame(self.window,text='播放')
+        self.frame_play.grid(column=1,row=1,sticky='nse')
+        #audio
+        self.strvar_play_aq = tk.StringVar(self.window,bilicodes.stream_audio_quality[config['play']['audio_quality']])
+        self.frame_play_audio = tk.LabelFrame(self.frame_play,text='音频区')
+        self.frame_play_audio.grid(column=0,row=0,columnspan=2,sticky='we')
+        tk.Label(self.frame_play_audio,text='音质:').grid(column=0,row=0,sticky='e')
+        self.om_play_aq = ttk.OptionMenu(self.frame_play_audio,self.strvar_play_aq,self.strvar_play_aq.get(),*list(bilicodes.stream_audio_quality.values())[1:])
+        self.om_play_aq.grid(column=1,row=0,sticky='w')
+        #video
+        self.strvar_play_vq = tk.StringVar(self.window,bilicodes.stream_flv_video_quality[config['play']['video_quality']])
+        self.frame_play_video = tk.LabelFrame(self.frame_play,text='视频区')
+        self.frame_play_video.grid(column=0,row=1,columnspan=2,sticky='we')
+        tk.Label(self.frame_play_video,text='画质:').grid(column=0,row=0,sticky='e')
+        self.om_play_vq = ttk.OptionMenu(self.frame_play_video,self.strvar_play_vq,self.strvar_play_vq.get(),*list(bilicodes.stream_flv_video_quality.values()))
+        self.om_play_vq.grid(column=1,row=0,sticky='w')
+        #repeat
+        self.frame_play_repeat = tk.LabelFrame(self.frame_play,text='循环播放')
+        self.frame_play_repeat.grid(column=0,row=2,sticky='w')
+        self.doublevar_play_repeat = tk.DoubleVar(self.window,float(config['play']['repeat']))
+        self.label_play_repeat_shower = tk.Label(self.frame_play_repeat,text=str(config['play']['repeat'])+' 次',width=6)
+        self.label_play_repeat_shower.grid(column=0,row=0,sticky='e')
+        self.scale_play_repeat = ttk.Scale(self.frame_play_repeat,from_=0,to=999,orient=tk.HORIZONTAL,length=150,
+                                           variable=self.doublevar_play_repeat,command=lambda coor:self.label_play_repeat_shower.configure(text='%s 次'%(int(float(coor)))))
+        self.scale_play_repeat.grid(column=1,row=0)
+        #other
+        self.boolvar_play_fs = tk.BooleanVar(self.window,config['play']['fullscreen'])
+        ttk.Checkbutton(self.frame_play,variable=self.boolvar_play_fs,onvalue=True,offvalue=False,text='全屏启动').grid(column=0,row=3,sticky='w')
+        self.boolvar_play_ae = tk.BooleanVar(self.window,config['play']['auto_exit'])
+        ttk.Checkbutton(self.frame_play,variable=self.boolvar_play_ae,onvalue=True,offvalue=False,text='播完自动退出').grid(column=0,row=4,sticky='w')
         
         # Save or Cancel
         self.frame_soc = tk.Frame(self.window)
-        self.frame_soc.grid(column=2,row=1,sticky='se')
+        self.frame_soc.grid(column=2,row=2,sticky='se')
         ttk.Button(self.frame_soc,text='取消',width=5,command=self.close).grid(column=0,row=0)
         ttk.Button(self.frame_soc,text='保存',width=5,command=self.save_config).grid(column=1,row=0)
 
@@ -1461,6 +1501,7 @@ class ConfigWindow(Window):
         config['topmost'] = self.boolvar_topmost.get()
         config['alpha'] = round(self.doublevar_winalpha.get(),2)
         config['filter_emoji'] = self.boolvar_filteremoji.get()
+        
         config['download']['max_thread_num'] = self.intvar_threadnum.get()
         config['download']['video']['quality_regular'] = make_quality_regular(self.strvar_video_quality.get())
         biliapis.requester.filter_emoji = config['filter_emoji']
@@ -1471,6 +1512,13 @@ class ConfigWindow(Window):
         config['download']['video']['convert_danmaku'] = self.boolvar_convert_danmaku.get()
         config['download']['video']['danmaku_filter'] = self.dmfrule
         config['download']['video']['danmaku_filter']['filter_level'] = int(self.strvar_dmflevel.get())
+
+        config['play']['video_quality'] = bilicodes.stream_flv_video_quality_[self.strvar_play_vq.get()]
+        config['play']['audio_quality'] = bilicodes.stream_audio_quality_[self.strvar_play_aq.get()]
+        config['play']['repeat'] = int(self.doublevar_play_repeat.get())
+        config['play']['fullscreen'] = self.boolvar_play_fs.get()
+        config['play']['auto_exit'] = self.boolvar_play_ae.get()
+        
         dump_config()
 
     def save_config(self):
@@ -1486,15 +1534,15 @@ class AudioWindow(Window):
 
         #cover
         self.label_cover_shower = cusw.ImageLabel(self.window,width=300,height=300)
-        self.label_cover_shower.grid(column=0,row=0,rowspan=4,sticky='w')
+        self.label_cover_shower.grid(column=0,row=0,rowspan=4)
         self.label_cover_text = tk.Label(self.window,text='加载中',font=('Microsoft YaHei UI',8),bg='#ffffff')
         self.label_cover_text.grid(column=0,row=0,rowspan=4)
-        #audio name
+        #title
         self.text_name = tk.Text(self.window,font=('Microsoft YaHei UI',10,'bold'),width=37,height=2,state='disabled',bg='#f0f0f0',bd=0)
         self.text_name.grid(column=0,row=4)
         self.tooltip_name = cusw.ToolTip(self.text_name)
         #id
-        self.label_auid = tk.Label(self.window,text='auID0')
+        self.label_auid = tk.Label(self.window,text='AuID0')
         self.label_auid.grid(column=0,row=5,sticky='e')
         #description
         tk.Label(self.window,text='简介↓').grid(column=0,row=6,sticky='w')
@@ -1521,17 +1569,32 @@ class AudioWindow(Window):
         #operations
         self.frame_operation = tk.Frame(self.window)
         self.button_download_audio = ttk.Button(self.frame_operation,text='下载音频',command=self.download_audio)
-        self.button_download_audio.grid(column=0,row=0)
+        self.button_download_audio.grid(column=1,row=0)
         self.button_download_cover = ttk.Button(self.frame_operation,text='下载封面',command=self.download_cover)
-        self.button_download_cover.grid(column=1,row=0)
+        self.button_download_cover.grid(column=2,row=0)
         self.button_download_lyrics = ttk.Button(self.frame_operation,text='下载歌词',command=self.download_lyrics)
-        self.button_download_lyrics.grid(column=2,row=0)
+        self.button_download_lyrics.grid(column=3,row=0)
         self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开',command=lambda:webbrowser.open(f'https://www.bilibili.com/audio/au{self.auid}'))
-        self.button_open_in_ex.grid(column=3,row=0)
+        self.button_open_in_ex.grid(column=4,row=0)
+        self.button_play = ttk.Button(self.frame_operation,text='播放',command=self.play_audio)
+        self.button_play.grid(column=0,row=0)
         self.frame_operation.grid(column=0,row=8,columnspan=2)
 
         self.refresh_data()
         self.mainloop()
+
+    def play_audio(self):
+        def process():
+            try:
+                stream = biliapis.audio.get_stream(self.auid,quality=config['play']['audio_quality'])
+                ffdriver.call_ffplay(stream['url'],title='[Au{auid}/{quality}] {title}'.format(**stream),is_audio=True,repeat=config['play']['repeat'],
+                                     fullscreen=config['play']['fullscreen'],auto_exit=config['play']['auto_exit'])
+            except Exception as e:
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('',str(e),parent=self.window))
+        self.button_play['state'] = 'disabled'
+        cusw.run_with_gui(process,no_window=True)
+        if self.is_alive():
+            self.button_play['state'] = 'normal'
 
     def download_audio(self):
         self.button_download_cover['state'] = 'disabled'
@@ -1577,16 +1640,18 @@ class AudioWindow(Window):
         
     def refresh_data(self):
         def tmp():
-            if not self.check_usable():
-                self.task_queue.put_nowait(lambda:msgbox.showerror('','音频不存在',parent=self.window))
-                self.task_queue.put_nowait(self.close)
-                return
-            data = biliapis.audio.get_info(self.auid)
+            try:
+                data = biliapis.audio.get_info(self.auid)
+            except biliapis.BiliError as e:
+                if e.code == -404 or e.code == 7201006:
+                    self.task_queue.put_nowait(lambda:msgbox.showerror('','音频不存在',parent=self.window))
+                    self.task_queue.put_nowait(self.close)
+                    return
             self.audio_data = data
             self.title = data['title']
             self.task_queue.put_nowait(lambda:self.set_text(self.text_name,text=data['title'],lock=True))
             self.task_queue.put_nowait(lambda:self.tooltip_name.change_text(data['title']))
-            self.task_queue.put_nowait(lambda:self.label_auid.configure(text='auID%s'%data['auid']))
+            self.task_queue.put_nowait(lambda:self.label_auid.configure(text='AuID%s'%data['auid']))
             if data['description'].strip():
                 self.task_queue.put_nowait(lambda:self.set_text(self.sctext_desc,text=data['description'],lock=True))
             else:
@@ -1612,17 +1677,6 @@ class AudioWindow(Window):
             self.task_queue.put_nowait(lambda:self.label_uploader_face.set(face))
             self.task_queue.put_nowait(lambda:self.label_uploader_face_text.grid_remove())
         start_new_thread(tmp,())
-
-    def check_usable(self):
-        try:
-            biliapis.audio.get_info(self.auid)
-        except biliapis.BiliError as e:
-            if e.code == -404 or e.code == 7201006:
-                return False
-            else:
-                raise e
-        else:
-            return True
 
 class CommonVideoWindow(Window):
     def __init__(self,abvid):
@@ -1686,12 +1740,16 @@ class CommonVideoWindow(Window):
         #operation
         self.frame_operation = tk.Frame(self.frame_left_1)
         self.frame_operation.grid(column=0,row=5)
+        self.button_play = ttk.Button(self.frame_operation,text='播放视频',command=lambda:self.play_video(False))
+        self.button_play.grid(column=0,row=0)
+        self.button_play_audio = ttk.Button(self.frame_operation,text='播放音轨',command=lambda:self.play_video(True))
+        self.button_play_audio.grid(column=0,row=1)
         self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开')
-        self.button_open_in_ex.grid(column=0,row=0)
-        self.button_download_audio = ttk.Button(self.frame_operation,text='下载音频',command=self.download_audio)
-        self.button_download_audio.grid(column=1,row=0)
+        self.button_open_in_ex.grid(column=1,row=0)
+        self.button_download_audio = ttk.Button(self.frame_operation,text='下载音轨',command=self.download_audio)
+        self.button_download_audio.grid(column=2,row=0)
         self.button_download_video = ttk.Button(self.frame_operation,text='下载视频',command=self.download_video)
-        self.button_download_video.grid(column=2,row=0)
+        self.button_download_video.grid(column=2,row=1)
         #左起第2列
         self.frame_left_2 = tk.Frame(self.window)
         self.frame_left_2.grid(column=1,row=0)
@@ -1849,6 +1907,53 @@ class CommonVideoWindow(Window):
                 download_manager.task_receiver('video',path,bvid=self.video_data['bvid'],pids=indexes)
         if self.is_alive():
             self.button_download_video['state'] = 'normal'
+
+    def play_video(self,audio_only=False):
+        if not self.video_data:
+            msgbox.showwarning('','加载尚未完成',parent=self.window)
+            return
+        self.button_play['state'] = 'disabled'
+        self.button_play_audio['state'] = 'disabled'
+        parts = self.video_data['parts']
+        if len(parts) > 1:
+            tmp = []
+            for part in parts:
+                tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+            indexes = PartsChooser(tmp).return_values
+        else:
+            indexes = [0]
+        if indexes:
+            if len(indexes) > 1:
+                msgbox.showwarning('','你选择了多个分P，但一次只能播放一个啊awa')
+            index = indexes[0]
+            part = parts[index]
+            self._call_ffplay(part,index,audio_only)
+        if self.is_alive():
+            self.button_play['state'] = 'normal'
+            self.button_play_audio['state'] = 'normal'
+
+    def _call_ffplay(self,part,index,audio_only=False):
+        def process():
+            bvid = self.video_data['bvid']
+            title = self.video_data['title']
+            quality = config['play']['video_quality']
+            try:
+                if audio_only:
+                    stream = biliapis.video.get_stream_dash(part['cid'],bvid=bvid)['audio']
+                    qs = [i['quality'] for i in stream]
+                    stream = stream[qs.index(max(qs))]
+                    urls = [stream['url']]
+                    real_quality = bilicodes.stream_dash_audio_quality[stream['quality']]
+                else:
+                    stream = biliapis.video.get_stream_flv(part['cid'],bvid=bvid,quality_id=quality)
+                    urls = [i['url'] for i in stream['parts']]
+                    real_quality = bilicodes.stream_flv_video_quality[stream['quality']]
+                window_title = '[{}/P{}/{}] {} - {}'.format(bvid,index+1,real_quality,title,part['title'])
+                ffdriver.call_ffplay(*urls,title=window_title,repeat=config['play']['repeat'],is_audio=audio_only,
+                                     fullscreen=config['play']['fullscreen'],auto_exit=config['play']['auto_exit'])
+            except Exception as e:
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','Error:\n'+str(e),parent=self.window))
+        cusw.run_with_gui(process,no_window=True)
 
     def jump_by_recommend(self,abvid):
         if abvid != '-' and abvid.strip():
@@ -2414,8 +2519,52 @@ class BangumiWindow(Window):
         self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的PBP',command=lambda tbi=tab_index,sei=section_index:self._see_pbp(tbi,sei))] #
         self.section_tabs[-1][8].grid(column=2,row=1)
         self.section_tabs[-1] += [tk.BooleanVar(self.section_tabs[-1][5],False)]
-        self.section_tabs[-1] += [ttk.Checkbutton(self.section_tabs[-1][5],text='仅抽取音轨',onvalue=True,offvalue=False,variable=self.section_tabs[-1][9])]
-        self.section_tabs[-1][10].grid(column=0,row=0)
+        self.section_tabs[-1] += [ttk.Checkbutton(self.section_tabs[-1][5],text='仅音轨',onvalue=True,offvalue=False,variable=self.section_tabs[-1][9])]
+        self.section_tabs[-1][10].grid(column=0,row=0,sticky='w')
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='播放选中项',command=lambda tbi=tab_index,sei=section_index:self._play_video(tbi,sei))]
+        self.section_tabs[-1][11].grid(column=1,row=0)
+
+    def _play_video(self,tab_index,section_index=-1):
+        if not self.media_data:
+            raise RuntimeError('Not loaded yet.')
+        button = self.section_tabs[tab_index][11]
+        button['state'] = 'disabled'
+        #此函数供section_tabs内的按钮调用
+        ep_indexes = []
+        for item in self.section_tabs[tab_index][2].selection():
+            ep_indexes.append(int(self.section_tabs[tab_index][2].item(item,"values")[0])-1)
+        if ep_indexes:
+            if len(ep_indexes) > 1:
+                msgbox.showwarning('','若选中多项则只播放第一项',parent=self.window)
+            index = ep_indexes[0]
+            if section_index == -1:
+                ep = self.media_data['episodes'][index]
+            else:
+                ep = self.media_data['sections'][section_index]['episodes'][index]
+            self._call_ffplay(ep,self.section_tabs[tab_index][9].get())
+        else:
+            msgbox.showwarning('','你什么都没选中',parent=self.window)
+        button['state'] = 'normal'
+
+    def _call_ffplay(self,ep,audio_only=False):
+        #供self._play_video调用
+        def process():
+            try:
+                if audio_only:
+                    stream = biliapis.video.get_stream_dash(ep['cid'],bvid=ep['bvid'])
+                    qs = [i['quality'] for i in stream['audio']]
+                    astream = stream['audio'][qs.index(max(qs))]
+                    urls = [astream['url']]
+                    title = '[Ep{}/AudioOnly/{}] {} - {}: {}'.format(ep['epid'],bilicodes.stream_dash_audio_quality[astream['quality']],ep['media_title'],ep['section_title'],ep['title'])
+                else:
+                    stream = biliapis.video.get_stream_flv(ep['cid'],bvid=ep['bvid'],quality_id=config['play']['video_quality'])
+                    urls = [i['url'] for i in stream['parts']]
+                    title = '[Ep{}/{}] {} - {}: {}'.format(ep['epid'],bilicodes.stream_flv_video_quality[stream['quality']],ep['media_title'],ep['section_title'],ep['title'])
+                ffdriver.call_ffplay(*urls,title=title,is_audio=audio_only,repeat=config['play']['repeat'],
+                                     fullscreen=config['play']['fullscreen'],auto_exit=config['play']['auto_exit'])
+            except Exception as e:
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','Error:\n'+str(e)))
+        cusw.run_with_gui(process,no_window=True)
 
     def _see_pbp(self,tab_index,section_index=-1):
         if not self.media_data:

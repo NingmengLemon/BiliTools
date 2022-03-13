@@ -217,6 +217,8 @@ error_code = {
     72010027:'版权音乐重定向',
     12002:'评论区已关闭',
     12009:'评论区Type不合法',
+    19002003:'房间信息不存在',
+    60004:'直播间不存在',
     'NaN':'未知错误'
 }
 
@@ -255,6 +257,8 @@ stream_flv_video_quality = {
     120:'4K'
     }
 
+stream_flv_video_quality_ = {v: k for k, v in stream_flv_video_quality.items()}
+
 media_type = {
     1:'番剧',
     2:'电影',
@@ -271,6 +275,8 @@ stream_audio_quality = {
     2:'320K',
     3:'FLAC'
     }
+
+stream_audio_quality_ = {v: k for k, v in stream_audio_quality.items()}
 
 ban_reason = {
     1:"刷屏",
@@ -317,4 +323,17 @@ ban_origin = {
     8:"专栏",
     10:"动态",
     11:"相簿"
+    }
+
+live_stream_quality = {
+    2:"流畅",
+    3:"高清",
+    4:"原画"
+    }
+
+live_stream_qn = {
+    80:"流畅",
+    150:"高清",
+    400:"蓝光",
+    10000:"原画"
     }

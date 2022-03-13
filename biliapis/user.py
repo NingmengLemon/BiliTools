@@ -30,6 +30,23 @@ def get_danmaku_filter():
         }
     return res
 
+def get_liveroom(uid):
+    api = 'http://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?'\
+          'mid='+str(uid)
+    data = json.loads(requester.get_content_str(api))
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = {
+        'has_room':bool(data['roomStatus']),
+        'is_rounding':bool(data['roundStatus']),#是否正在轮播
+        'is_living':bool(data['liveStatus']),
+        'url':data['url'],
+        'title':data['title'],
+        'cover':data['cover'],
+        'short_id':data['roomid']
+        }
+    return res
+
 def search(*keywords,page=1,order='0',order_sort=0,user_type=0):
     '''order = 0(default) / fans / level
     order_sort = 0(high->low) / 1(low->high)
