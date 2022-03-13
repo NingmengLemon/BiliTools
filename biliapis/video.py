@@ -107,19 +107,19 @@ def get_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
         data = requester.get_content_str(api)
         data = json.loads(data)
         error_raiser(data['code'],data['message'])
-        data = data['result']['dash']
+        data = data['result']
     else:
         error_raiser(data['code'],data['message'])
-        data = data['data']['dash']
+        data = data['data']
     audio = []
-    for au in data['audio']:
+    for au in data['dash']['audio']:
         audio.append({
             'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
             'url':au['baseUrl'],
             'encoding':au['codecs'],
             })
     video = []
-    for vi in data['video']:
+    for vi in data['dash']['video']:
         video.append({
             'quality':vi['id'],#对照表 .bilicodes.stream_dash_video_quality
             'url':vi['baseUrl'],

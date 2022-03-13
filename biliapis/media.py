@@ -74,7 +74,9 @@ def get_detail(ssid=None,epid=None,mdid=None):
             'title_short':ep['title'],
             'title':ep['long_title'],
             'time_publish':ep['pub_time'],
-            'url':ep['link']
+            'url':ep['link'],
+            'media_title':data['title'],
+            'section_title':'正片'
             })
     sections = []
     if 'section' in data:
@@ -88,7 +90,9 @@ def get_detail(ssid=None,epid=None,mdid=None):
                     'epid':sec_['id'],
                     'cover':sec_['cover'],
                     'title':sec_['title'],
-                    'url':sec_['share_url']
+                    'url':sec_['share_url'],
+                    'media_title':data['title'],
+                    'section_title':sec['title']
                     })
             sections.append({
                 'title':sec['title'],

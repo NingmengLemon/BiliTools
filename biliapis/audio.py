@@ -18,6 +18,7 @@ def get_stream(auid,quality=3,platform='web',uid=0):
         'quality_id':data['type'],
         'size':data['size'],#(Byte)
         'url':data['cdns'][0],
+        'urls_backup':data['cdns'][1:],
         'title':data['title'],
         'cover':data['cover']
         }
