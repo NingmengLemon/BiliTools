@@ -3,7 +3,9 @@ from . import requester
 from . import bilicodes
 import json
 
-__all__ = ['get_comment']
+__all__ = ['get_comment','use_proxy']
+
+use_proxy = True
 
 def _single_comment_handler(data):
     res = {

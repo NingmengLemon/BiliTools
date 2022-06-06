@@ -5,7 +5,10 @@ from http import cookiejar
 import copy
 import time
 
-__all__ = ['dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
+__all__ = ['dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login',
+           'use_proxy']
+
+use_proxy = True           
 
 def dict_from_cookiejar(cj):
     cookie_dict = {}
@@ -17,7 +20,7 @@ def dict_from_cookiejar(cj):
 
 def get_login_url():
     api = 'https://passport.bilibili.com/qrcode/getLoginUrl'
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'])
     data = data['data']
@@ -29,7 +32,7 @@ def check_scan(oauthkey):
     headers = copy.deepcopy(requester.fake_headers_post)
     headers['Host'] = 'passport.bilibili.com'
     headers['Referer'] = "https://passport.bilibili.com/login"
-    data = json.loads(requester.post_data_str('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey},headers))
+    data = json.loads(requester.post_data_str('https://passport.bilibili.com/qrcode/getLoginInfo',{'oauthKey':oauthkey},headers,use_proxy=use_proxy))
     #-1：密钥错误 -2：密钥超时 -4：未扫描 -5：未确认
     #error_raiser(data['code'],data['message'])
     status = data['status']
@@ -57,6 +60,24 @@ def make_cookiejar(url):#URL来自 check_scan() 成功后的传参
                 ))
     return tmpjar
 
+def copy_cookies(cj,from_domain,to_domain):
+    cookie_dict = {}
+    for cookie in cj:
+        if cookie.domain == from_domain:
+            cookie_dict[cookie.name] = cookie.value
+    for name,value in cookie_dict.items():
+        cj.set_cookie(cookiejar.Cookie(
+            0,i[0],i[1],
+            None,False,
+            to_domain,True,to_domain.startswith('.'),
+            '/',False,
+            False,int(time.time())+(6*30*24*60*60),
+            False,
+            None,
+            None,
+            {}
+            ))
+
 def check_login():
     try:
         get_login_info()
@@ -70,7 +91,7 @@ def exit_login():
         raise RuntimeError('CookiesJar not Loaded.')
     cookiesdict = dict_from_cookiejar(requester.cookies)
     if 'bili_jct' in cookiesdict:
-        data = requester.post_data_str('https://passport.bilibili.com/login/exit/v2',{'biliCSRF':cookiesdict['bili_jct']})
+        data = requester.post_data_str('https://passport.bilibili.com/login/exit/v2',{'biliCSRF':cookiesdict['bili_jct']},use_proxy=use_proxy)
         if '请先登录' in data:
             raise BiliError('NaN','Haven\'t Logined Yet.')
         else:
@@ -84,7 +105,7 @@ def get_login_info(): #Cookies is Required.
     获取当前登录的用户的信息, 注意与user.get_info()的区分
     '''
     api = 'https://api.bilibili.com/x/web-interface/nav'
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']

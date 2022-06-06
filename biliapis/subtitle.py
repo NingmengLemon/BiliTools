@@ -4,7 +4,9 @@ from . import bilicodes
 import json
 import math
 
-__all__ = ['get_bcc','bcc_to_srt']
+__all__ = ['get_bcc','bcc_to_srt','use_proxy']
+
+use_proxy = True
 
 def get_bcc(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
@@ -14,7 +16,7 @@ def get_bcc(cid,avid=None,bvid=None):
         api = 'https://api.bilibili.com/x/player/v2?cid=%s&bvid=%s'%(cid,bvid)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']['subtitle']['subtitles']

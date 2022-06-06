@@ -4,15 +4,12 @@ from . import bilicodes
 import json
 from urllib import parse
 
-__all__ = ['search_bangumi','get_detail']
+__all__ = ['root','search_bangumi','search_ft','get_detail','use_proxy']
 
-def search_bangumi(*keywords,page=1):
-    api = 'https://api.bilibili.com/x/web-interface/search/type'\
-          '?search_type=media_bangumi&keyword={}&page={}'.format(
-              '+'.join([parse.quote(keyword) for keyword in keywords]),page)
-    data = json.loads(requester.get_content_str(api))
-    error_raiser(data['code'],data['message'])
-    data = data['data']
+use_proxy = True
+root = 'api.bilibili.com'
+
+def _search_result_handler(data):
     tmp = []
     if 'result' in data:
         for res in data['result']:
@@ -24,39 +21,58 @@ def search_bangumi(*keywords,page=1):
                 'cover':'https:'+res['cover'],
                 'media_type':bilicodes.media_type[res['media_type']],
                 'season_type':bilicodes.media_type[res['season_type']],
-                'is_follow':bool(res['is_follow']),#Login
+                'is_followed':bool(res['is_follow']),#Login required
                 'area':res['areas'],
                 'style':res['styles'],
                 'cv':res['cv'],
                 'staff':res['staff'],
                 'url':res['goto_url'],
                 'time_publish':res['pubtime'],
-                'hit_type':res['hit_columns']
+                'hit_type':res['hit_columns'],
+                'score':res['media_score'] #包含user_count, score 两个键
                 })
     result = {
         'seid':data['seid'],
         'page':data['page'],
         'pagesize':data['pagesize'],
-        'num_result':data['numResults'],#max=1000
-        'num_pages':data['numPages'],#max=50
+        'result_count':data['numResults'],#max=1000
+        'total_pages':data['numPages'],#max=50
         'time_cost':data['cost_time']['total'],
         'result':tmp
         }
     return result
 
+def search_bangumi(*keywords,page=1):
+    api = 'https://{}/x/web-interface/search/type'\
+          '?search_type=media_bangumi&keyword={}&page={}'.format(root,
+              '+'.join([parse.quote(keyword) for keyword in keywords]),page)
+    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    return _search_result_handler(data)
+
+def search_ft(*keywords,page):
+    api = 'https://{}/x/web-interface/search/type'\
+          '?search_type=media_ft&keyword={}&page={}'.format(root,
+              '+'.join([parse.quote(keyword) for keyword in keywords]),page)
+    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    return _search_result_handler(data)
+
 def get_detail(ssid=None,epid=None,mdid=None):
     '''Choose one parameter from ssid, epid and mdid'''
     if ssid != None:
-        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%ssid
+        api = 'https://%s/pgc/view/web/season?season_id=%s'%(root,ssid)
     elif epid != None:
-        api = 'https://api.bilibili.com/pgc/view/web/season?ep_id=%s'%epid
+        api = 'https://%s/pgc/view/web/season?ep_id=%s'%(root,epid)
     elif mdid != None:
-        api = 'https://api.bilibili.com/pgc/review/user?media_id=%s'%mdid
-        data = requester.get_content_str(api)
+        api = 'https://%s/pgc/review/user?media_id=%s'%(root,mdid)
+        data = requester.get_content_str(api,use_proxy=use_proxy)
         data = json.loads(data)
         error_raiser(data['code'],data['message'])
         data = data['result']['media']
-        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%data['season_id']
+        api = 'https://%s/pgc/view/web/season?season_id=%s'%(root,data['season_id'])
     else:
         raise RuntimeError('You must choose one parameter from ssid, epid and mdid.')
     data = requester.get_content_str(api)
@@ -129,3 +145,5 @@ def get_detail(ssid=None,epid=None,mdid=None):
         'uploader':upinfo#可能没有
     }
     return result
+
+
