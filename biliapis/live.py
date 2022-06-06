@@ -3,34 +3,15 @@ from . import requester
 from . import bilicodes
 import json
 
-__all__ = ['get_stream','get_init_info']
+__all__ = ['get_init_info','use_proxy']
+
+use_proxy = True
 
 #直播间号有长号和短号之分, 长号才是真实的房间号
 
-def get_stream(room_id,quality=4,method=1):
-    '''
-    quality参见bilicodes
-    method: 1(http-flv)/2(hls)
-    '''
-    method = {1:'web',2:'h5'}[int(method)]
-    api = 'https://api.live.bilibili.com/room/v1/Room/playUrl?'\
-          'cid={}&platform={}&quality={}'.format(room_id,method,quality)
-    data = requester.get_content_str(api)
-    data = json.loads(data)
-    error_raiser(data['code'],data['message'])
-    data = data['data']
-    res = {
-        'qn':data['current_qn'],
-        'quality':data['current_quality'],
-        'usable_quality':data['accept_quality'],
-        'url':data['durl'][0]['url'],
-        'urls_backup':[i['url'] for i in data['durl'][1:]],
-        }
-    return res
-
 def get_init_info(short_id):
     api = 'https://api.live.bilibili.com/room/v1/Room/room_init?id='+str(short_id)
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']

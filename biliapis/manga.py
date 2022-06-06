@@ -3,12 +3,15 @@ from . import requester
 from . import bilicodes
 import json
 
-__all__ = ['get_detail','get_episode_info','get_episode_image_index','get_episode_image_token']
+__all__ = ['get_detail','get_episode_info','get_episode_image_index','get_episode_image_token',
+           'use_proxy']
+
+use_proxy = True
 
 def get_detail(mcid):
     data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ComicDetail?device=pc&platform=web',data={
         'comic_id':int(mcid)
-        })
+        },use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -51,7 +54,7 @@ def get_detail(mcid):
 def get_episode_info(epid):
     data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetEpisode?device=pc&platform=web',data={
         'id':int(epid)
-        })
+        },use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -67,7 +70,7 @@ def get_episode_info(epid):
 def get_episode_image_index(epid):
     data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/GetImageIndex?device=pc&platform=web',data={
         'ep_id':int(epid)
-        })
+        },use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -87,7 +90,7 @@ def get_episode_image_index(epid):
 def get_episode_image_token(*paths): #参数来自get_manga_episode_image_index的path
     data = requester.post_data_str('https://manga.bilibili.com/twirp/comic.v1.Comic/ImageToken?device=pc&platform=web',data={
         'urls':json.dumps(list(paths))
-        })
+        },use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data'] #是列表套字典的操作, 每项里有url和token两个键

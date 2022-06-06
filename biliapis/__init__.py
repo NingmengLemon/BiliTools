@@ -1,15 +1,29 @@
-from . import audio,comment,manga,media,subtitle,user,video,danmaku,live
+from . import audio,comment,manga,media,subtitle,user,video,danmaku,live,dynamic
 from . import bilicodes 
-from . import login,other
+from . import stream,login,other
 from . import requester
 from .error import BiliError
 
 import winreg
 import re
 
-__all__ = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
-           'bilicodes','other','requester','BiliError',
-           'get_desktop','second_to_time','format_img','parse_url','convert_number']
+child_modules = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
+                 'stream','bilicodes','other','dynamic']
+__all__ = child_modules + ['requester','BiliError',
+           'get_desktop','second_to_time','format_img','parse_url','convert_number',
+           'set_proxy_rule']
+
+def set_proxy_rule(modulename:str,value=None):
+    '''
+    value填None时是查询当前状态
+    要修改应赋True或False
+    '''
+    assert modulename in child_modules,'No child module named '+modulename
+    if value == None:
+        return globals()[modulename].use_proxy
+    else:
+        globals()[modulename].use_proxy = value
+        return value
 
 def get_desktop():
     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
@@ -54,8 +68,11 @@ def format_img(url,w=None,h=None,f='jpg'):
         return url
 
 def parse_url(url):
-    if 'b23.tv' in url:#短链接重定向
-        url = requester.get_redirect_url(url)
+    if 'b23.tv/' in url:#短链接重定向
+        try:
+            url = requester.get_redirect_url('https://b23.tv/'+re.findall(r'b23\.tv/([a-zA-Z0-9]+)',url,re.I)[0])
+        except:
+            pass
     #音频id
     res = re.findall(r'au([0-9]+)',url,re.I)
     if res:

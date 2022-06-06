@@ -9,14 +9,17 @@ import logging
 import re
 import math
 
-__all__ = ['get_recommend','get_stream_dash',
+__all__ = ['get_recommend',
            'get_tags','get_detail','search','bvid_to_avid_online',
            'bvid_to_avid_offline','avid_to_bvid_offline',
            'bvid_to_cid_online','avid_to_cid_online',
            'get_online_nop',
            'get_shortlink','get_pbp','get_archive_list','get_series_list',
-           'get_stream_flv'
+           'root','use_proxy'
            ]
+
+use_proxy = True
+root = 'api.bilibili.com'
 
 def get_recommend(avid=None,bvid=None):
     '''
@@ -24,12 +27,12 @@ def get_recommend(avid=None,bvid=None):
     普通视频下的相关视频
     '''
     if avid != None:
-        api = 'https://api.bilibili.com/x/web-interface/archive/related?aid=%s'%avid
+        api = f'https://{root}/x/web-interface/archive/related?aid={avid}'
     elif bvid != None:
-        api = 'https://api.bilibili.com/x/web-interface/archive/related?bvid='+bvid
+        api = f'https://{root}/x/web-interface/archive/related?bvid='+bvid
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -38,113 +41,15 @@ def get_recommend(avid=None,bvid=None):
         res.append(_video_detail_handler(data_,False))
     return res
 
-def get_stream_flv(cid,avid=None,bvid=None,quality_id=64):
-    fnval = 0
-    fourk = 0
-    if int(quality_id) == 120:
-        fnval = fnval|128
-        fourk = 1
-    if avid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(avid,cid,fnval,fourk,quality_id)
-    elif bvid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(bvid,cid,fnval,fourk,quality_id)
-    else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api)
-    data = json.loads(data)
-    if data['code'] == -404:
-        api = api.replace('api.bilibili.com/x/player/playurl','api.bilibili.com/pgc/player/web/playurl')
-        data = requester.get_content_str(api)
-        data = json.loads(data)
-        error_raiser(data['code'],data['message'])
-        data = data['result']
-    else:
-        error_raiser(data['code'],data['message'])
-        data = data['data']
-    parts = []
-    for p in data['durl']:
-        parts.append({
-            'order':p['order'],#分段序号
-            'length':p['length']/1000,#sec,
-            'size':p['size'],
-            'url':p['url'],
-            'urls_backup':p['backup_url']
-            })
-    res = {
-        'parts':parts,
-        'quality':data['quality'],
-        'length':data['timelength']/1000
-        }
-    return res
-
-def get_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
-                    _4k=False,_8k=False):
-    '''Choose one parameter between avid and bvid'''
-    fnval = 16
-    fourk = 0
-    if hdr:
-        fnval = fnval|64
-    if _4k:
-        fourk = 1
-        fnval = fnval|128
-    #if dolby_audio:
-    #    fnval = fnval|256
-    if dolby_vision:
-        fnval = fnval|512
-    if _8k:
-        fnval = fnval|1024
-        
-    if avid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s'%(avid,cid,fnval,fourk)
-    elif bvid != None:
-        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s'%(bvid,cid,fnval,fourk)
-    else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api)
-    data = json.loads(data)
-    if data['code'] == -404:
-        api = api.replace('api.bilibili.com/x/player/playurl','api.bilibili.com/pgc/player/web/playurl')
-        data = requester.get_content_str(api)
-        data = json.loads(data)
-        error_raiser(data['code'],data['message'])
-        data = data['result']
-    else:
-        error_raiser(data['code'],data['message'])
-        data = data['data']
-    audio = []
-    for au in data['dash']['audio']:
-        audio.append({
-            'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
-            'url':au['baseUrl'],
-            'encoding':au['codecs'],
-            })
-    video = []
-    for vi in data['dash']['video']:
-        video.append({
-            'quality':vi['id'],#对照表 .bilicodes.stream_dash_video_quality
-            'url':vi['baseUrl'],
-            'encoding':vi['codecs'],
-            'width':vi['width'],
-            'height':vi['height'],
-            'frame_rate':vi['frameRate'],#帧率
-            
-            })
-    stream = {
-        'audio':audio,
-        'video':video,
-        'length':data['timelength']/1000 #sec
-        }
-    return stream
-
 def get_tags(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'https://api.bilibili.com/x/tag/archive/tags?aid=%s'%avid
+        api = f'https://{root}/x/tag/archive/tags?aid={avid}'
     elif bvid != None:
-        api = 'https://api.bilibili.com/x/tag/archive/tags?bvid='+bvid
+        api = f'https://{root}/x/tag/archive/tags?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -156,12 +61,12 @@ def get_tags(avid=None,bvid=None):
 def get_detail(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'https://api.bilibili.com/x/web-interface/view?aid=%s'%avid
+        api = f'https://{root}/x/web-interface/view?aid={avid}'
     elif bvid != None:
-        api = 'https://api.bilibili.com/x/web-interface/view?bvid='+bvid
+        api = f'https://{root}/x/web-interface/view?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -213,10 +118,10 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     zone = 0/tid
     duration = 0(All)/1(0-10)/2(10-30)/3(30-60)/4(60+)
     '''
-    api = 'https://api.bilibili.com/x/web-interface/search/type?'\
-        'search_type=video&keyword={}&tids={}&duration={}&page={}&order={}'.format(
+    api = 'https://{}/x/web-interface/search/type?'\
+        'search_type=video&keyword={}&tids={}&duration={}&page={}&order={}'.format(root,
             '+'.join([parse.quote(keyword) for keyword in keywords]),zone,duration,page,order)
-    data = json.loads(requester.get_content_str(api))
+    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
     error_raiser(data['code'],data['message'])
     data = data['data']
     tmp = []
@@ -261,7 +166,7 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     return result
 
 def bvid_to_avid_online(bvid):
-    data = requester.get_content_str('https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
+    data = requester.get_content_str(f'https://{root}/x/web-interface/archive/stat?bvid='+bvid,use_proxy=use_proxy)
     data = json.loads(data)['data']
     return data['aid']
 
@@ -292,7 +197,7 @@ def avid_to_bvid_offline(avid):
     return ''.join(r)
 
 def bvid_to_cid_online(bvid):
-    data = requester.get_content_str(f'https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp')
+    data = requester.get_content_str(f'https://{root}/x/player/pagelist?bvid={bvid}&jsonp=jsonp',use_proxy=use_proxy)
     data = json.loads(data)['data']
     res = []
     for i in data:
@@ -300,7 +205,7 @@ def bvid_to_cid_online(bvid):
     return res
 
 def avid_to_cid_online(avid):
-    data = requester.get_content_str(f'https://api.bilibili.com/x/player/pagelist?aid={avid}&jsonp=jsonp')
+    data = requester.get_content_str(f'https://{root}/x/player/pagelist?aid={avid}&jsonp=jsonp',use_proxy=use_proxy)
     data = json.loads(data)['data']
     res = []
     for i in data:
@@ -310,12 +215,12 @@ def avid_to_cid_online(avid):
 def get_online_nop(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&aid=%s'%(cid,avid)
+        api = 'http://%s/x/player/online/total?cid=%s&aid=%s'%(root,cid,avid)
     elif bvid != None:
-        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&bvid=%s'%(cid,bvid)
+        api = 'http://%s/x/player/online/total?cid=%s&bvid=%s'%(root,cid,bvid)
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -323,7 +228,7 @@ def get_online_nop(cid,avid=None,bvid=None):
             'web':data['count']}
 
 def get_shortlink(avid):
-    data = requester.post_data_str('https://api.bilibili.com/x/share/click',data={
+    data = requester.post_data_str(f'https://{root}/x/share/click',data={
 	'build':9300,
 	'buvid':hashlib.md5(bytes(random.randint(1000,9999))).hexdigest(),
 	'oid':int(avid),
@@ -331,7 +236,7 @@ def get_shortlink(avid):
 	'share_channel':'COPY',
 	'share_id':"main.ugc-video-detail.0.0.pv",
 	'share_mode':1
-        })
+        },use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -340,7 +245,7 @@ def get_shortlink(avid):
 
 def get_pbp(cid):
     api = 'https://bvc.bilivideo.com/pbp/data?cid='+str(cid)
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     if not data['events']:
         error_raiser('NaN','PBP获取失败')
@@ -354,9 +259,9 @@ def get_pbp(cid):
 def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
     #获取合集
     #uid是用户id; sid不知道是什么id, 应该是合集id
-    api = 'https://api.bilibili.com/x/polymer/space/seasons_archives_list?'\
-          'mid={}&season_id={}&sort_reverse={}&page_num={}&page_size={}'.format(uid,sid,str(reverse).lower(),page,page_size)
-    data = requester.get_content_str(api)
+    api = 'https://{}/x/polymer/space/seasons_archives_list?'\
+          'mid={}&season_id={}&sort_reverse={}&page_num={}&page_size={}'.format(root,uid,sid,str(reverse).lower(),page,page_size)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -386,11 +291,11 @@ def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
 def get_series_list(uid,sid,reverse=False,page=1,page_size=30):
     #获取系列
     #sid是系列id
-    api = 'https://api.bilibili.com/x/series/archives?'\
-          'mid={}&series_id={}&only_normal=true&sort={}&pn={}&ps={}'.format(uid,sid,
+    api = 'https://{}/x/series/archives?'\
+          'mid={}&series_id={}&only_normal=true&sort={}&pn={}&ps={}'.format(root,uid,sid,
                                                                             {False:'desc',True:'asc'}[reverse],
                                                                             page,page_size)
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']

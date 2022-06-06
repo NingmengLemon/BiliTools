@@ -4,36 +4,14 @@ from . import bilicodes
 from urllib import parse
 import json
 
-__all__ = ['search','get_info','get_favlist','get_danmaku_filter']
+__all__ = ['search','get_info','get_favlist','use_proxy']
 
-def get_danmaku_filter():
-    api = 'https://api.bilibili.com/x/dm/filter/user?jsonp=jsonp'
-    data = json.loads(requester.get_content_str(api))
-    error_raiser(data['code'],data['message'])
-    data = data['data']
-    #type: 0关键字, 1正则, 2用户
-    keyword = []
-    regex = []
-    user = []
-    for r in data['rule']:
-        f = r['filter']
-        if r['type'] == 0:
-            keyword += [f]
-        elif r['type'] == 1:
-            regex += [f]
-        elif r['type'] == 2:
-            user += [f]
-    res = {
-        'keyword':keyword,
-        'regex':regex,
-        'user':user
-        }
-    return res
+use_proxy = True
 
 def get_liveroom(uid):
     api = 'http://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?'\
           'mid='+str(uid)
-    data = json.loads(requester.get_content_str(api))
+    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
     error_raiser(data['code'],data['message'])
     data = data['data']
     res = {
@@ -55,7 +33,7 @@ def search(*keywords,page=1,order='0',order_sort=0,user_type=0):
     api = 'https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&' \
         'keyword={}&page={}&order={}&order_sort={}'.format(
             '+'.join([parse.quote(keyword) for keyword in keywords]),page,order,order_sort)
-    data = json.loads(requester.get_content_str(api))
+    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
     error_raiser(data['code'],data['message'])
     data = data['data']
     tmp = []
@@ -91,7 +69,7 @@ def search(*keywords,page=1,order='0',order_sort=0,user_type=0):
 
 def get_info(uid):
     api = 'https://api.bilibili.com/x/space/acc/info?mid=%s'%uid
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -112,7 +90,7 @@ def get_info(uid):
 def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
     api = 'https://api.bilibili.com/x/v3/fav/resource/list?'\
           'media_id={}&tid={}&order={}&ps={}&pn={}&platform=pc'.format(mlid,tid,order,page_size,page)
-    data = requester.get_content_str(api)
+    data = requester.get_content_str(api,use_proxy=use_proxy)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
