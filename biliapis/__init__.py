@@ -10,20 +10,7 @@ import re
 child_modules = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
                  'stream','bilicodes','other','dynamic']
 __all__ = child_modules + ['requester','BiliError',
-           'get_desktop','second_to_time','format_img','parse_url','convert_number',
-           'set_proxy_rule']
-
-def set_proxy_rule(modulename:str,value=None):
-    '''
-    value填None时是查询当前状态
-    要修改应赋True或False
-    '''
-    assert modulename in child_modules,'No child module named '+modulename
-    if value == None:
-        return globals()[modulename].use_proxy
-    else:
-        globals()[modulename].use_proxy = value
-        return value
+           'get_desktop','second_to_time','format_img','parse_url','convert_number']
 
 def get_desktop():
     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')

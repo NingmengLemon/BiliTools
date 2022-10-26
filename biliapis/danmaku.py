@@ -6,9 +6,7 @@ import logging
 import re
 from bs4 import BeautifulSoup
 
-__all__ = ['filter','get_xmlstr','use_proxy','get_filter_rule']
-
-use_proxy = True
+__all__ = ['filter','get_xmlstr','get_filter_rule']
 
 def _parse_d(dp):
     appeartime,mode,size,color,timestamp,pool,user,dmid,level = dp.split(',')
@@ -64,12 +62,12 @@ def filter(xmlstr,keyword=[],regex=[],user=[],filter_level=0):
     return str(bs).replace('<html><body>','').replace('</body></html>','')
 
 def get_xmlstr(cid):
-    data = requester.get_content_str(f'https://api.bilibili.com/x/v1/dm/list.so?oid={cid}',use_proxy=use_proxy)
+    data = requester.get_content_str(f'https://api.bilibili.com/x/v1/dm/list.so?oid={cid}')
     return data
 
 def get_filter_rule():
     api = 'https://api.bilibili.com/x/dm/filter/user?jsonp=jsonp'
-    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
     #type: 0关键字, 1正则, 2用户
