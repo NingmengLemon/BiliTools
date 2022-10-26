@@ -3,13 +3,11 @@ from . import requester
 from . import bilicodes
 import json
 
-__all__ = ['get_lyrics','get_tags','get_info','get_list','use_proxy']
-
-use_proxy = True
+__all__ = ['get_lyrics','get_tags','get_info','get_list']
 
 def get_info(auid):
     api = 'https://www.bilibili.com/audio/music-service-c/web/song/info?sid=%s'%auid
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -42,7 +40,7 @@ def get_info(auid):
 
 def get_tags(auid):
     api = 'https://www.bilibili.com/audio/music-service-c/web/tag/song?sid=%s'%auid
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -53,7 +51,7 @@ def get_tags(auid):
 
 def get_lyrics(auid):
     api = 'https://www.bilibili.com/audio/music-service-c/web/song/lyric?sid=%s'%auid
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -62,7 +60,7 @@ def get_lyrics(auid):
 def get_list(amid,page=1,page_size=100):
     api = 'https://www.bilibili.com/audio/music-service-c/web/song/of-menu?'\
           'sid={}&pn={}&ps={}'.format(amid,page,page_size)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']

@@ -29,14 +29,14 @@ from biliapis import bilicodes
 import custom_widgets as cusw
 from basic_window import Window
 import imglib
-from textlib import tips
+from textlib import tips,about_info
 import ffdriver
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev11'
+version = '2.0.0_Dev12'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -79,7 +79,7 @@ config = {
         'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
         },
     'play':{
-        'video_quality':64,#720P
+        'video_quality':64, #720P
         'audio_quality':2,  #320K
         'repeat':0,
         'fullscreen':False,
@@ -88,23 +88,7 @@ config = {
     'proxy':{
         'enabled':False,
         'host':'127.0.0.1',
-        'port':7890,
-        'rule':{
-            'audio':True,
-            'comment':True,
-            'danmaku':True,
-            'dynamic':True,
-            'live':True,
-            'login':True,
-            'manga':True,
-            'media':True,
-            'other':True,
-            'stream':True,
-            'subtitle':True,
-            'user':True,
-            'video':True,
-            'download':False,
-            }
+        'port':7890
         }
     }
 biliapis.requester.filter_emoji = config['filter_emoji']
@@ -114,16 +98,7 @@ logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
                     level={True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
                     )
 
-about_info = '\n'.join([
-    'BiliTools v.%s'%version,
-    '一些功能需要 FFmpeg 和 FFplay 的支持.',
-    'Made by: @NingmengLemon（GitHub）',
-    '引用开源程序: danmaku2ass',
-    '---------------------------',
-    '此程序严禁用于任何商业用途.',
-    '此程序的作者不会为任何因使用此程序所造成的后果负责.',
-    '感谢您的使用.'
-    ])
+about_info = about_info.format(version=version)
 
 biliapis.requester.load_local_cookies()
 
@@ -131,12 +106,12 @@ rgb2hex = lambda r,g,b:'#{:0>6s}'.format(str(hex((r<<16)+(g<<8)+b))[2:])
 
 def apply_proxy_config():
     if config['proxy']['enabled']:
-        biliapis.requester.proxy = '%s:%s'%(config['proxy']['host'],config['proxy']['port'])
+        if config['proxy']['port'] == None:
+            biliapis.requester.proxy = config['proxy']['host']
+        else:
+            biliapis.requester.proxy = '%s:%s'%(config['proxy']['host'],config['proxy']['port'])
     else:
         biliapis.requester.proxy = None
-    for mdn,var in config['proxy']['rule'].items():
-        if mdn != 'download':
-            biliapis.set_proxy_rule(mdn,var)
 
 def dump_config(fp=config_path):
     json.dump(config,open(fp,'w+',encoding='utf-8',errors='ignore'))
@@ -323,12 +298,12 @@ class DownloadManager(object):
         self.table_display_list[index][list(self.table_columns.keys()).index(colname)] = var
 
     def _common_download_thread(self,index,url,filename,path,**trash):
-        #跟下面辣两个函数差不多, 流程最简单
+        #跟下面辣两个函数差不多, 流程最简单, 然而这个函数并不能被用户使用...
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
             self._edit_display_list(index,'status','准备下载')
-            session = biliapis.requester.download_yield(url,filename,path,use_proxy=config['proxy']['rule']['download'])
+            session = biliapis.requester.download_yield(url,filename,path)
             for donesize,totalsize,percent in session:
                 self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
             self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
@@ -432,7 +407,7 @@ class DownloadManager(object):
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
                 self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
             else:
-                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path,use_proxy=config['proxy']['rule']['download'])
+                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path)
                 for donesize,totalsize,percent in session:
                     self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
                 self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
@@ -517,7 +492,7 @@ class DownloadManager(object):
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
             else:
                 #Audio Stream
-                a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path,use_proxy=config['proxy']['rule']['download'])
+                a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
                 for donesize,totalsize,percent in a_session:
                     self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
                 size = totalsize
@@ -536,7 +511,7 @@ class DownloadManager(object):
                     else:
                         os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
                 else:
-                    v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path,use_proxy=config['proxy']['rule']['download'])
+                    v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
                     for donesize,totalsize,percent in v_session:
                         self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
                     size += totalsize
@@ -1471,7 +1446,7 @@ class ConfigWindow(Window):
 
         #Proxy
         self.frame_proxy = tk.LabelFrame(self.window,text='代理')
-        self.frame_proxy.grid(column=0,row=1)
+        self.frame_proxy.grid(column=0,row=1,sticky='n')
         self.boolvar_use_pxy = tk.BooleanVar(self.window,config['proxy']['enabled'])
         self.checkbutton_use_pxy = ttk.Checkbutton(self.frame_proxy,text='使用代理',onvalue=True,offvalue=False,variable=self.boolvar_use_pxy)
         self.checkbutton_use_pxy.grid(column=0,row=0,columnspan=2,sticky='w')
@@ -1482,43 +1457,12 @@ class ConfigWindow(Window):
         tk.Label(self.frame_proxy,text='端口：').grid(column=0,row=2,sticky='e')
         self.entry_pxyport = ttk.Entry(self.frame_proxy,width=6)
         self.entry_pxyport.grid(column=1,row=2,sticky='w')
-        self.entry_pxyport.insert('end',str(config['proxy']['port']))
-        self.module_map = {
-            'audio':['音频区'],#列表第一项中文释义，第二项boolvar组件，第三项checkbutton组件
-            'video':['视频区'],
-            'danmaku':['弹幕'],
-            'comment':['评论'],
-            'dynamic':['动态'],
-            'live':['直播'],
-            'login':['登录'],
-            'manga':['漫画'],
-            'media':['番剧/影视'],
-            'other':['其他'],
-            'stream':['取流'],
-            'subtitle':['字幕'],
-            'user':['用户'],
-            'download':['下载']
-            }
-        self.frame_pxymodule = tk.LabelFrame(self.frame_proxy,text='将代理应用于：')
-        self.frame_pxymodule.grid(column=0,row=3,columnspan=2)
-        col = 0
-        ln = 0
-        for modulename in self.module_map.keys():
-            bv = tk.BooleanVar(self.window,config['proxy']['rule'][modulename])
-            self.module_map[modulename] += [bv]
-            cb = ttk.Checkbutton(self.frame_pxymodule,text=self.module_map[modulename][0],onvalue=True,offvalue=False,variable=bv)
-            self.module_map[modulename] += [cb]
-            cb.grid(column=col,row=ln,sticky='w')
-            col += 1
-            if col >= 3:
-                col = 0
-                ln += 1
+        if config['proxy']['port'] != None:
+            self.entry_pxyport.insert('end',str(config['proxy']['port']))
         def update_proxy_widgets_state():
             var = {True:'normal',False:'disabled'}[self.boolvar_use_pxy.get()]
             self.entry_pxyhost['state'] = var
             self.entry_pxyport['state'] = var
-            for modulename,boolvar,widget in self.module_map.values():
-                widget['state'] = var
         self.checkbutton_use_pxy['command'] = update_proxy_widgets_state
         update_proxy_widgets_state()
         
@@ -1587,12 +1531,23 @@ class ConfigWindow(Window):
         global config
         #检查用户的设定
         pxyport = self.entry_pxyport.get().strip().split('.')[0]
-        if not pxyport.isdigit():
-            msgbox.showwarning('','端口必须为一个整数.')
-            return
-        pxyport = int(pxyport)
-        if not 0<=pxyport<=65535:
-            msgbox.showwarning('','端口不合法.')
+        pxyhost = self.entry_pxyhost.get().strip()
+        if self.boolvar_use_pxy.get():
+            if not pxyhost:
+                msgbox.showwarning('','代理主机名不能为空.',parent=self.window)
+                return 1
+            if pxyport == '':
+                pxyport = None
+            else:
+                if not pxyport.isdigit():
+                    msgbox.showwarning('','端口必须为一个整数.',parent=self.window)
+                    return 1
+                pxyport = int(pxyport)
+                if not 0<=pxyport<=65535:
+                    msgbox.showwarning('','端口不合法.',parent=self.window)
+                    return 1
+            config['proxy']['host'] = pxyhost
+            config['proxy']['port'] = pxyport
         
         #应用用户的设定
         config['topmost'] = self.boolvar_topmost.get()
@@ -1617,16 +1572,13 @@ class ConfigWindow(Window):
         config['play']['auto_exit'] = self.boolvar_play_ae.get()
 
         config['proxy']['enabled'] = self.boolvar_use_pxy.get()
-        config['proxy']['host'] = self.entry_pxyhost.get()
-        config['proxy']['port'] = pxyport
-        for modulename,item in self.module_map.items():
-            config['proxy']['rule'][modulename] = item[1].get()
+        #代理主机和端口的应用移到了上面
         apply_proxy_config()
 
     def save_config(self):
-        self.apply_config()
-        dump_config()
-        self.close()
+        if self.apply_config() != 1:
+            dump_config()
+            self.close()
 
 class AudioWindow(Window):
     def __init__(self,auid):
@@ -1717,7 +1669,7 @@ class AudioWindow(Window):
                     f.write(biliapis.requester.get_content_bytes(url))
                 msgbox.showinfo('','完成',parent=self.window)
         else:
-            msgbox.showwarning('','加载未完成')
+            msgbox.showwarning('','加载未完成',parent=self.window)
         if self.is_alive():
             self.button_download_lyrics['state'] = 'normal'
         return
@@ -1736,7 +1688,7 @@ class AudioWindow(Window):
                         f.write(data)
                     msgbox.showinfo('','完成',parent=self.window)
         else:
-            msgbox.showwarning('','加载未完成')
+            msgbox.showwarning('','加载未完成',parent=self.window)
         if self.is_alive():
             self.button_download_lyrics['state'] = 'normal'
         return
@@ -1793,6 +1745,7 @@ class CommonVideoWindow(Window):
         super().__init__('BiliTools - CommonVideo',True,config['topmost'],config['alpha'])
 
         self.video_data = None
+        self.link = None
         #左起第1列
         self.frame_left_1 = tk.Frame(self.window)
         self.frame_left_1.grid(column=0,row=0)
@@ -1847,12 +1800,14 @@ class CommonVideoWindow(Window):
         self.button_play.grid(column=0,row=0)
         self.button_play_audio = ttk.Button(self.frame_operation,text='播放音轨',command=lambda:self.play_video(True))
         self.button_play_audio.grid(column=0,row=1)
-        self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开')
+        self.button_open_in_ex = ttk.Button(self.frame_operation,text='在浏览器中打开') # command在加载数据时加上
         self.button_open_in_ex.grid(column=1,row=0)
         self.button_download_audio = ttk.Button(self.frame_operation,text='下载音轨',command=self.download_audio)
         self.button_download_audio.grid(column=2,row=0)
         self.button_download_video = ttk.Button(self.frame_operation,text='下载视频',command=self.download_video)
         self.button_download_video.grid(column=2,row=1)
+        self.button_copy_link = ttk.Button(self.frame_operation,text='复制链接',command=self.copy_link)
+        self.button_copy_link.grid(column=1,row=1)
         #左起第2列
         self.frame_left_2 = tk.Frame(self.window)
         self.frame_left_2.grid(column=1,row=0)
@@ -1872,7 +1827,7 @@ class CommonVideoWindow(Window):
         self.frame_extraopt.grid(column=0,row=0,sticky='se')
         self.button_show_comments = ttk.Button(self.frame_extraopt,text='查看评论',command=lambda:msgbox.showinfo('','建设中',parent=self.window))#
         self.button_show_comments.grid(column=0,row=0,sticky='se')
-        self.button_show_pbp = ttk.Button(self.frame_extraopt,text='查看PBP',command=self.show_pbp)
+        self.button_show_pbp = ttk.Button(self.frame_extraopt,text='弹幕增量趋势',command=self.show_pbp)
         self.button_show_pbp.grid(column=0,row=1)
         #desc
         tk.Label(self.frame_left_2,text='简介↑').grid(column=0,row=2,sticky='nw')
@@ -2027,7 +1982,7 @@ class CommonVideoWindow(Window):
             indexes = [0]
         if indexes:
             if len(indexes) > 1:
-                msgbox.showwarning('','你选择了多个分P，但一次只能播放一个啊awa')
+                msgbox.showwarning('','你选择了多个分P，但一次只能播放一个啊awa',parent=self.window)
             index = indexes[0]
             part = parts[index]
             self._call_ffplay(part,index,audio_only)
@@ -2086,22 +2041,38 @@ class CommonVideoWindow(Window):
                     c += 1
                 self.obj_rec[i][o][0].grid_remove()
 
+    def copy_link(self):
+        if not self.link:
+            msgbox.showwarning('','加载尚未完成',parent=self.window)
+            return
+        self.button_copy_link.clipboard_clear()
+        self.button_copy_link.clipboard_append(self.link)
+        self.button_copy_link.configure(text='复制成功',state='disabled')
+        self.window.after(800,lambda:self.button_copy_link.configure(state='normal',text='复制链接'))
+
     def refresh_data(self):
         def tmp():
-            if not self.check_usable():
-                self.task_queue.put_nowait(lambda:msgbox.showerror('','视频不存在',parent=self.window))
-                self.task_queue.put_nowait(self.close)
-                return
-            if self.abtype == 'av':
-                data = biliapis.video.get_detail(avid=self.abvid)
-                tags = biliapis.video.get_tags(avid=self.abvid)
-                self.recommend = biliapis.video.get_recommend(avid=self.abvid)
-                opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/av%s'%self.abvid)
-            else:
-                data = biliapis.video.get_detail(bvid=self.abvid)
-                tags = biliapis.video.get_tags(bvid=self.abvid)
-                self.recommend = biliapis.video.get_recommend(bvid=self.abvid)
-                opener_lambda = lambda:webbrowser.open(f'https://www.bilibili.com/video/'+self.abvid)
+            try:
+                if self.abtype == 'av':
+                    data = biliapis.video.get_detail(avid=self.abvid)
+                    tags = biliapis.video.get_tags(avid=self.abvid)
+                    self.recommend = biliapis.video.get_recommend(avid=self.abvid)
+                    self.link = 'https://www.bilibili.com/video/av%s'%self.abvid
+                    
+                else:
+                    data = biliapis.video.get_detail(bvid=self.abvid)
+                    tags = biliapis.video.get_tags(bvid=self.abvid)
+                    self.recommend = biliapis.video.get_recommend(bvid=self.abvid)
+                    self.link = 'https://www.bilibili.com/video/'+self.abvid
+            except biliapis.BiliError as e:
+                if e.code in [-404,62002]:
+                    self.task_queue.put_nowait(lambda:msgbox.showerror('','视频不存在',parent=self.window))
+                    self.task_queue.put_nowait(self.close)
+                    return
+                else:
+                    raise e
+            opener_lambda = lambda:webbrowser.open(self.link)
+            #copy_lambda = lambda:self.e
             self.video_data = data
             self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的存放空间
             #explorer_opener
@@ -2217,27 +2188,10 @@ class CommonVideoWindow(Window):
         self.button_rec_next['state'] = 'normal'
         self.button_rec_back['state'] = 'normal'
 
-    def check_usable(self):
-        try:
-            if self.abtype == 'av':
-                biliapis.video.get_detail(avid=self.abvid)
-            else:
-                biliapis.video.get_detail(bvid=self.abvid)
-        except biliapis.BiliError as e:
-            if e.code == -404:
-                return False
-            else:
-                raise e
-        else:
-            return True
-
-class LoginWindow(object):
+class LoginWindow(Window):
+    # 会直接对requester里的cookies做修改
     def __init__(self):
-        self.window = tk.Toplevel()
-        self.window.title('BiliTools - Login')
-        self.window.resizable(height=False,width=False)
-        self.window.protocol('WM_DELETE_WINDOW',self.close)
-        self.window.wm_attributes('-topmost',config['topmost'])
+        super().__init__('BiliTools - Login',True,True)
         #窗口居中
         ww,wh = (310,390)
         sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
@@ -2618,7 +2572,7 @@ class BangumiWindow(Window):
         self.section_tabs[-1][6].grid(column=0,row=1)
         self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='下载全部',command=lambda tbi=tab_index,sei=section_index:self._download_func(tbi,sei,True))]
         self.section_tabs[-1][7].grid(column=1,row=1)
-        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的PBP',command=lambda tbi=tab_index,sei=section_index:self._see_pbp(tbi,sei))] #
+        self.section_tabs[-1] += [ttk.Button(self.section_tabs[-1][5],text='查看选中项的弹幕增量趋势',command=lambda tbi=tab_index,sei=section_index:self._see_pbp(tbi,sei))] #
         self.section_tabs[-1][8].grid(column=2,row=1)
         self.section_tabs[-1] += [tk.BooleanVar(self.section_tabs[-1][5],False)]
         self.section_tabs[-1] += [ttk.Checkbutton(self.section_tabs[-1][5],text='仅音轨',onvalue=True,offvalue=False,variable=self.section_tabs[-1][9])]
@@ -2665,7 +2619,7 @@ class BangumiWindow(Window):
                 ffdriver.call_ffplay(*urls,title=title,is_audio=audio_only,repeat=config['play']['repeat'],
                                      fullscreen=config['play']['fullscreen'],auto_exit=config['play']['auto_exit'])
             except Exception as e:
-                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','Error:\n'+str(e)))
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','Error:\n'+str(e),parent=self.window))
         cusw.run_with_gui(process,no_window=True)
 
     def _see_pbp(self,tab_index,section_index=-1):
@@ -3279,7 +3233,7 @@ class SearchWindow(Window):
         try:
             self.turn_page(page=int(self.entry_page.get().strip()))
         except ValueError:
-            msgbox.showwarning('','输入的不是数字.')
+            msgbox.showwarning('','输入的不是数字.',parent=self.window)
 
     def search(self,*kws):
         self.button_start['state'] = 'disabled'
@@ -3313,12 +3267,22 @@ class SearchWindow(Window):
         for i in range(len(nb.tabs())):
             nb.tab(i,state=state)
 
-
-if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
+def main():
     load_config()
     apply_proxy_config()
     logging.info('Program Running.')
-    w = MainWindow()    
+    w = MainWindow()   
+
+if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
+    try:
+        main()
+    except Exception as e:
+        traceback_info = traceback.format_exc()
+        with open('./crash_report.txt','w+',encoding='utf-8') as f:
+            f.write(traceback_info)
+        raise e
+    else:
+        exit(0)
 else:
     #dump_config()
     pass

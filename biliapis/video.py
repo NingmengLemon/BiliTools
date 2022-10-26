@@ -14,12 +14,7 @@ __all__ = ['get_recommend',
            'bvid_to_avid_offline','avid_to_bvid_offline',
            'bvid_to_cid_online','avid_to_cid_online',
            'get_online_nop',
-           'get_shortlink','get_pbp','get_archive_list','get_series_list',
-           'root','use_proxy'
-           ]
-
-use_proxy = True
-root = 'api.bilibili.com'
+           'get_shortlink','get_pbp','get_archive_list','get_series_list']
 
 def get_recommend(avid=None,bvid=None):
     '''
@@ -27,12 +22,12 @@ def get_recommend(avid=None,bvid=None):
     普通视频下的相关视频
     '''
     if avid != None:
-        api = f'https://{root}/x/web-interface/archive/related?aid={avid}'
+        api = f'https://api.bilibili.com/x/web-interface/archive/related?aid={avid}'
     elif bvid != None:
-        api = f'https://{root}/x/web-interface/archive/related?bvid='+bvid
+        api = f'https://api.bilibili.com/x/web-interface/archive/related?bvid='+bvid
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -44,12 +39,12 @@ def get_recommend(avid=None,bvid=None):
 def get_tags(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = f'https://{root}/x/tag/archive/tags?aid={avid}'
+        api = f'https://api.bilibili.com/x/tag/archive/tags?aid={avid}'
     elif bvid != None:
-        api = f'https://{root}/x/tag/archive/tags?bvid='+bvid
+        api = f'https://api.bilibili.com/x/tag/archive/tags?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -61,12 +56,12 @@ def get_tags(avid=None,bvid=None):
 def get_detail(avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = f'https://{root}/x/web-interface/view?aid={avid}'
+        api = f'https://api.bilibili.com/x/web-interface/view?aid={avid}'
     elif bvid != None:
-        api = f'https://{root}/x/web-interface/view?bvid='+bvid
+        api = f'https://api.bilibili.com/x/web-interface/view?bvid='+bvid
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -118,10 +113,10 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     zone = 0/tid
     duration = 0(All)/1(0-10)/2(10-30)/3(30-60)/4(60+)
     '''
-    api = 'https://{}/x/web-interface/search/type?'\
-        'search_type=video&keyword={}&tids={}&duration={}&page={}&order={}'.format(root,
+    api = 'https://api.bilibili.com/x/web-interface/search/type?'\
+        'search_type=video&keyword={}&tids={}&duration={}&page={}&order={}'.format(
             '+'.join([parse.quote(keyword) for keyword in keywords]),zone,duration,page,order)
-    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
     tmp = []
@@ -166,7 +161,7 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     return result
 
 def bvid_to_avid_online(bvid):
-    data = requester.get_content_str(f'https://{root}/x/web-interface/archive/stat?bvid='+bvid,use_proxy=use_proxy)
+    data = requester.get_content_str(f'https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
     data = json.loads(data)['data']
     return data['aid']
 
@@ -197,7 +192,7 @@ def avid_to_bvid_offline(avid):
     return ''.join(r)
 
 def bvid_to_cid_online(bvid):
-    data = requester.get_content_str(f'https://{root}/x/player/pagelist?bvid={bvid}&jsonp=jsonp',use_proxy=use_proxy)
+    data = requester.get_content_str(f'https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp')
     data = json.loads(data)['data']
     res = []
     for i in data:
@@ -205,7 +200,7 @@ def bvid_to_cid_online(bvid):
     return res
 
 def avid_to_cid_online(avid):
-    data = requester.get_content_str(f'https://{root}/x/player/pagelist?aid={avid}&jsonp=jsonp',use_proxy=use_proxy)
+    data = requester.get_content_str(f'https://api.bilibili.com/x/player/pagelist?aid={avid}&jsonp=jsonp')
     data = json.loads(data)['data']
     res = []
     for i in data:
@@ -215,12 +210,12 @@ def avid_to_cid_online(avid):
 def get_online_nop(cid,avid=None,bvid=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
-        api = 'http://%s/x/player/online/total?cid=%s&aid=%s'%(root,cid,avid)
+        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&aid=%s'%(cid,avid)
     elif bvid != None:
-        api = 'http://%s/x/player/online/total?cid=%s&bvid=%s'%(root,cid,bvid)
+        api = 'http://api.bilibili.com/x/player/online/total?cid=%s&bvid=%s'%(cid,bvid)
     else:
         raise RuntimeError('You must choose one between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -228,7 +223,7 @@ def get_online_nop(cid,avid=None,bvid=None):
             'web':data['count']}
 
 def get_shortlink(avid):
-    data = requester.post_data_str(f'https://{root}/x/share/click',data={
+    data = requester.post_data_str(f'https://api.bilibili.com/x/share/click',data={
 	'build':9300,
 	'buvid':hashlib.md5(bytes(random.randint(1000,9999))).hexdigest(),
 	'oid':int(avid),
@@ -236,7 +231,7 @@ def get_shortlink(avid):
 	'share_channel':'COPY',
 	'share_id':"main.ugc-video-detail.0.0.pv",
 	'share_mode':1
-        },use_proxy=use_proxy)
+        })
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -245,7 +240,7 @@ def get_shortlink(avid):
 
 def get_pbp(cid):
     api = 'https://bvc.bilivideo.com/pbp/data?cid='+str(cid)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     if not data['events']:
         error_raiser('NaN','PBP获取失败')
@@ -259,9 +254,9 @@ def get_pbp(cid):
 def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
     #获取合集
     #uid是用户id; sid不知道是什么id, 应该是合集id
-    api = 'https://{}/x/polymer/space/seasons_archives_list?'\
-          'mid={}&season_id={}&sort_reverse={}&page_num={}&page_size={}'.format(root,uid,sid,str(reverse).lower(),page,page_size)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    api = 'https://api.bilibili.com/x/polymer/space/seasons_archives_list?'\
+          'mid={}&season_id={}&sort_reverse={}&page_num={}&page_size={}'.format(uid,sid,str(reverse).lower(),page,page_size)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -291,11 +286,11 @@ def get_archive_list(uid,sid,reverse=False,page=1,page_size=30):
 def get_series_list(uid,sid,reverse=False,page=1,page_size=30):
     #获取系列
     #sid是系列id
-    api = 'https://{}/x/series/archives?'\
-          'mid={}&series_id={}&only_normal=true&sort={}&pn={}&ps={}'.format(root,uid,sid,
+    api = 'https://api.bilibili.com/x/series/archives?'\
+          'mid={}&series_id={}&only_normal=true&sort={}&pn={}&ps={}'.format(uid,sid,
                                                                             {False:'desc',True:'asc'}[reverse],
                                                                             page,page_size)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']

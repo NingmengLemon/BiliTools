@@ -108,24 +108,24 @@ def make_opener(use_cookie=True,use_proxy=True):
         if cookies and proxy:
             opener = request.build_opener(request.HTTPCookieProcessor(cookies),request.ProxyHandler({'http':proxy,'https':proxy}))
         elif cookies and not proxy:
-            opener = request.build_opener(request.HTTPCookieProcessor(cookies))
+            opener = request.build_opener(request.HTTPCookieProcessor(cookies),request.ProxyHandler({}))
         elif not cookies and proxy:
             opener = request.build_opener(request.ProxyHandler({'http':proxy,'https':proxy}))
         else:
-            opener = request.build_opener()
+            opener = request.build_opener(request.ProxyHandler({}))
         return opener
     elif use_cookie and not use_proxy:
         if cookies:
             opener = request.build_opener(request.HTTPCookieProcessor(cookies))
         else:
-            opener = request.build_opener()
+            opener = request.build_opener(request.ProxyHandler({}))
     elif not use_cookie and use_proxy:
         if proxy:
             opener = request.build_opener(request.ProxyHandler({'http':proxy,'https':proxy}))
         else:
-            opener = request.build_opener()
+            opener = request.build_opener(request.ProxyHandler({}))
     else:
-        opener = request.build_opener()
+        opener = request.build_opener(request.ProxyHandler({}))
     return opener
 
 @auto_retry(retry_time)

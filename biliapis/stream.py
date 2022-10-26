@@ -4,11 +4,7 @@ from . import bilicodes
 import json
 
 __all__ = ['get_audio_stream','get_live_stream',
-           'get_video_stream_dash','get_video_stream_flv',
-           'use_proxy','root']
-
-use_proxy = True
-root = 'api.bilibili.com'
+           'get_video_stream_dash','get_video_stream_flv']
 
 def get_video_stream_flv(cid,avid=None,bvid=None,quality_id=64):
     fnval = 0
@@ -17,16 +13,16 @@ def get_video_stream_flv(cid,avid=None,bvid=None,quality_id=64):
         fnval = fnval|128
         fourk = 1
     if avid != None:
-        api = 'https://%s/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(root,avid,cid,fnval,fourk,quality_id)
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(avid,cid,fnval,fourk,quality_id)
     elif bvid != None:
-        api = 'https://%s/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(root,bvid,cid,fnval,fourk,quality_id)
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(bvid,cid,fnval,fourk,quality_id)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     if data['code'] == -404:
         api = api.replace('/x/player/playurl','/pgc/player/web/playurl')
-        data = requester.get_content_str(api,use_proxy=use_proxy)
+        data = requester.get_content_str(api)
         data = json.loads(data)
         error_raiser(data['code'],data['message'])
         data = data['result']
@@ -67,16 +63,16 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
         fnval = fnval|1024
         
     if avid != None:
-        api = 'https://%s/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s'%(root,avid,cid,fnval,fourk)
+        api = 'https://api.bilibili.com/x/player/playurl?avid=%s&cid=%s&fnval=%s&fourk=%s'%(avid,cid,fnval,fourk)
     elif bvid != None:
-        api = 'https://%s/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s'%(root,bvid,cid,fnval,fourk)
+        api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s'%(bvid,cid,fnval,fourk)
     else:
         raise RuntimeError('You must choose one parameter between avid and bvid.')
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     if data['code'] == -404:
         api = api.replace('/x/player/playurl','/pgc/player/web/playurl')
-        data = requester.get_content_str(api,use_proxy=use_proxy)
+        data = requester.get_content_str(api)
         data = json.loads(data)
         error_raiser(data['code'],data['message'])
         data = data['result']
@@ -110,8 +106,8 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
 
 def get_audio_stream(auid,quality=3,platform='web',uid=0):
     '''quality = 0(128K)/1(192K)/2(320K)/3(FLAC)'''
-    api = 'https://%s/audio/music-service-c/url?songid=%s&quality=%s&privilege=2&mid=%s&platform=%s'%(root,auid,quality,uid,platform)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    api = 'https://api.bilibili.com/audio/music-service-c/url?songid=%s&quality=%s&privilege=2&mid=%s&platform=%s'%(auid,quality,uid,platform)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['msg'])
     data = data['data']
@@ -135,7 +131,7 @@ def get_live_stream(room_id,quality=4,method=1):
     method = {1:'web',2:'h5'}[int(method)]
     api = 'https://api.live.bilibili.com/room/v1/Room/playUrl?'\
           'cid={}&platform={}&quality={}'.format(room_id,method,quality)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']

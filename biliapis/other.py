@@ -6,9 +6,7 @@ import os
 import time
 from bs4 import BeautifulSoup
 
-__all__ = ['get_blackroom','get_emotions','download_emotions_demo','use_proxy']
-
-use_proxy = True
+__all__ = ['get_blackroom','get_emotions','download_emotions_demo']
 
 def get_blackroom(page=1,source_filter=None,reason_filter=0):
     '''
@@ -18,7 +16,7 @@ def get_blackroom(page=1,source_filter=None,reason_filter=0):
     if source_filter == None:
         source_filter = ''
     api = 'https://api.bilibili.com/x/credit/blocked/list?btype=%s&otype=%s&pn=%s'%(source_filter,reason_filter,page)
-    data = requester.get_content_str(api,use_proxy=use_proxy)
+    data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['data']
@@ -56,7 +54,7 @@ def get_emotions(business='reply'):
     '''business = reply / dynamic'''
     data = requester.get_content_str(f'https://api.bilibili.com/x/emote/user/panel/web?business={business}')
     data = json.loads(data)
-    error_raiser(data['code'],data['message'],use_proxy=use_proxy)
+    error_raiser(data['code'],data['message'])
     data = data['data']['packages']
     res = []
     for package in data:

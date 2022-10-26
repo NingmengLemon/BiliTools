@@ -4,10 +4,7 @@ from . import bilicodes
 import json
 from urllib import parse
 
-__all__ = ['root','search_bangumi','search_ft','get_detail','use_proxy']
-
-use_proxy = True
-root = 'api.bilibili.com'
+__all__ = ['search_bangumi','search_ft','get_detail']
 
 def _search_result_handler(data):
     tmp = []
@@ -43,19 +40,19 @@ def _search_result_handler(data):
     return result
 
 def search_bangumi(*keywords,page=1):
-    api = 'https://{}/x/web-interface/search/type'\
-          '?search_type=media_bangumi&keyword={}&page={}'.format(root,
+    api = 'https://api.bilibili.com/x/web-interface/search/type'\
+          '?search_type=media_bangumi&keyword={}&page={}'.format(
               '+'.join([parse.quote(keyword) for keyword in keywords]),page)
-    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
     return _search_result_handler(data)
 
 def search_ft(*keywords,page):
-    api = 'https://{}/x/web-interface/search/type'\
-          '?search_type=media_ft&keyword={}&page={}'.format(root,
+    api = 'https://api.bilibili.com/x/web-interface/search/type'\
+          '?search_type=media_ft&keyword={}&page={}'.format(
               '+'.join([parse.quote(keyword) for keyword in keywords]),page)
-    data = json.loads(requester.get_content_str(api,use_proxy=use_proxy))
+    data = json.loads(requester.get_content_str(api))
     error_raiser(data['code'],data['message'])
     data = data['data']
     return _search_result_handler(data)
@@ -63,16 +60,16 @@ def search_ft(*keywords,page):
 def get_detail(ssid=None,epid=None,mdid=None):
     '''Choose one parameter from ssid, epid and mdid'''
     if ssid != None:
-        api = 'https://%s/pgc/view/web/season?season_id=%s'%(root,ssid)
+        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%(ssid)
     elif epid != None:
-        api = 'https://%s/pgc/view/web/season?ep_id=%s'%(root,epid)
+        api = 'https://api.bilibili.com/pgc/view/web/season?ep_id=%s'%(epid)
     elif mdid != None:
-        api = 'https://%s/pgc/review/user?media_id=%s'%(root,mdid)
-        data = requester.get_content_str(api,use_proxy=use_proxy)
+        api = 'https://api.bilibili.com/pgc/review/user?media_id=%s'%(mdid)
+        data = requester.get_content_str(api)
         data = json.loads(data)
         error_raiser(data['code'],data['message'])
         data = data['result']['media']
-        api = 'https://%s/pgc/view/web/season?season_id=%s'%(root,data['season_id'])
+        api = 'https://api.bilibili.com/pgc/view/web/season?season_id=%s'%(data['season_id'])
     else:
         raise RuntimeError('You must choose one parameter from ssid, epid and mdid.')
     data = requester.get_content_str(api)
@@ -99,17 +96,20 @@ def get_detail(ssid=None,epid=None,mdid=None):
         for sec in data['section']:
             sections_ = []
             for sec_ in sec['episodes']:
-                sections_.append({
-                    'avid':sec_['aid'],
-                    'bvid':sec_['bvid'],
-                    'cid':sec_['cid'],
-                    'epid':sec_['id'],
-                    'cover':sec_['cover'],
-                    'title':sec_['title'],
-                    'url':sec_['share_url'],
-                    'media_title':data['title'],
-                    'section_title':sec['title']
-                    })
+                try:
+                    sections_.append({
+                        'avid':sec_['aid'],
+                        'bvid':sec_['bvid'],
+                        'cid':sec_['cid'],
+                        'epid':sec_['id'],
+                        'cover':sec_['cover'],
+                        'title':sec_['title'],
+                        'url':sec_['share_url'],
+                        'media_title':data['title'],
+                        'section_title':sec['title']
+                        })
+                except:
+                    continue
             sections.append({
                 'title':sec['title'],
                 'episodes':sections_

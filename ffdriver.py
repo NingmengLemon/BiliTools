@@ -3,6 +3,13 @@ import os,time,random,atexit,subprocess,logging
 __all__ = ['tmpfile_path','merge_media','convert_audio','call_ffplay',
            'clear_tmpfiles','check_ffmpeg']
 
+def subprocess_check_output(*args):
+    p = subprocess.Popen(*args,shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    msg = ''
+    for line in p.stdout.readlines():
+        msg += line.decode()
+    status = p.wait()
+
 tmpfile_path = 'C:\\Users\\{}\\BiliTools\\tmpfiles\\'.format(os.getlogin())
 
 def merge_media(audio_file,video_file,output_file): #传入时要带后缀
