@@ -9,7 +9,6 @@
 功能 | 备注
 ------------ | -------------
 扫二维码登录 | 
-没卵用的tips | 
 查询并下载音频区的音频 | 
 下载普通视频/番剧的音轨 | 
 查看小黑屋 | 
@@ -29,8 +28,6 @@
 媒体播放依赖 ffplay.exe
 
 我真的太逊了（逃
-
-（关于本项目的**上一代**BiliDownloader详见[release](https://github.com/NingmengLemon/BiliTools/releases/tag/v.1.0.3)）
 
 感谢[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)项目的开发者提供的API文档
 
