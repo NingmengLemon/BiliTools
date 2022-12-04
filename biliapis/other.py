@@ -37,6 +37,7 @@ def get_blackroom(page=1,source_filter=None,reason_filter=0):
                 },
             'punish':{
                 'content':BeautifulSoup(item['originContentModify'],"html.parser").get_text('\n'),
+                'content_origin':item['originContentModify'],
                 'title':item['punishTitle'],
                 'time':item['punishTime'],#TimeStamp
                 'type':item['punishTypeName'],
