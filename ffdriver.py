@@ -27,6 +27,9 @@ def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#out
     assert not bool(os.popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile)).close()),\
            '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
 
+def screenshot(inputfile,second=0):
+    pass
+
 def call_ffplay(*urls,referer='https://www.bilibili.com',title=None,is_audio=False,repeat=0,
                 fullscreen=False,auto_exit=False):
     repeat = int(repeat)+1

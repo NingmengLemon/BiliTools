@@ -18,6 +18,7 @@ def _single_comment_handler(data):
             'face':data['member']['avatar'],
             'level':data['member']['level']['current_level'],
             'vip':{0:'非大会员',1:'月度大会员',2:'年度及以上大会员'}[data['member']['vip']['vipType']],
+            'vip_code':data['member']['vip']['vipType'],
             'is_vip':bool(data['member']['vip']['vipStatus']),
             'verify':data['member']['official_verify'],
             'fanslabel_id':data['member']['fans_detail']['medal_id'],
