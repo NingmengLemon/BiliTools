@@ -6,6 +6,8 @@
 
 ↑ 所以到目前为止发的release的类型都是pre-release
 
+此项目使用Python+Tkinter进行开发，旨在满足自己的日常使用需求（所以这就是你不注重美观的原因吗（恼））
+
 ### 现有以下功能：
 
 功能 | 备注
@@ -25,7 +27,7 @@
 解析歌单 | 
 调用ffplay进行播放 | 
 
-值得注意的是，由于GUI未完工，部分功能不应当使用跳转模式，而应使用快速下载模式
+值得注意的是，由于GUI未完工，部分功能（漫画下载/频道&合集&歌单解析）不应当使用跳转模式，而应使用快速下载模式
 
 媒体处理依赖 ffmpeg.exe
 
@@ -35,14 +37,15 @@
 
 感谢[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)项目的开发者提供的API文档
 
-以下是一些界面的截图 ↓
-
-![主窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/main_window.png)
-![视频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/video_window.png)
-![音频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/audio_window.png)
-![番剧&影视窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/media_window.png)
-![下载窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/download_window.png)
-![小黑屋窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/blackroom_window.png)
+<details><summary>一些界面的截图</summary>
+  
+  ![主窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/main_window.png)
+  ![视频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/video_window.png)
+  ![音频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/audio_window.png)
+  ![番剧&影视窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/media_window.png)
+  ![下载窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/download_window.png)
+  ![小黑屋窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/blackroom_window.png)
+</details>
 
 既然都看到这里了，不如点个star叭 (。・∀・)ノ
 
