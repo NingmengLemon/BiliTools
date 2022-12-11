@@ -35,4 +35,15 @@
 
 感谢[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)项目的开发者提供的API文档
 
+以下是一些界面的截图 ↓
+
+![主窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/main_window.png)
+![视频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/video_window.png)
+![音频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/audio_window.png)
+![番剧&影视窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/media_window.png)
+![下载窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/download_window.png)
+![小黑屋窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/blackroom_window.png)
+
 既然都看到这里了，不如点个star叭 (。・∀・)ノ
+
+我会继续努力更新这个项目的~
