@@ -19,9 +19,10 @@
 https://github.com/Smart-Space/tkwebview2
 （一会儿后）👆行不通，算了罢（恼
 按照计划重写窗口的底层逻辑和下载器（！）
-过滤ai字幕（通过字幕url里的关键字）
+过滤ai字幕（通过字幕url里的关键字）（√）
 视频快照
-Tips的开启与关闭
+Tips的开启与关闭（√）
+代理支持选择是遵循系统还是手动设置（opener的传参为空或为空字典）（√）
 
 普通视频的投稿时间显示
 下载模块的优化（任务的暂停（做不到）、移除与终止）
@@ -29,7 +30,7 @@ Tips的开启与关闭
 解决打包为无控制台窗口程序时报句柄无效的问题（改ffdriver的调用底层）
 👆解决途中遇到的麻烦：ffmpeg看不到输出反馈，ffplay播放卡死（或许能用-loglevel quiet解决）
 移除分区代理应用的功能（因为有Bug并且没必要）（√）
-解决opener构建冗余的问题（优化）
+解决opener构建冗余的问题（优化）（√）
 增强容错能力
 持续添加Tips
 
@@ -38,3 +39,6 @@ Tips的开启与关闭
 
 https://www.bilibili.com/video/BV1tB4y1E7oT/
 👆用于测试hi-res音轨和HDR视频流的抓取
+
+发现一个 flv取流api失败 的视频：BV1Hp411d7tY（DASH正常）
+取流信息存放于：/html/head/script[5]

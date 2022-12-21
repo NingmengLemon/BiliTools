@@ -1,14 +1,21 @@
-import os,time,random,atexit,subprocess,logging
+import os
+import time
+import random
+import atexit
+import subprocess
+import logging
+import shlex
 
 __all__ = ['tmpfile_path','merge_media','convert_audio','call_ffplay',
            'clear_tmpfiles','check_ffmpeg']
 
-def subprocess_check_output(*args):
-    p = subprocess.Popen(*args,shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def subprocess_check_output(cmd):
+    p = subprocess.Popen(cmd,shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     msg = ''
     for line in p.stdout.readlines():
         msg += line.decode()
     status = p.wait()
+    return status
 
 tmpfile_path = 'C:\\Users\\{}\\BiliTools\\tmpfiles\\'.format(os.getlogin())
 
@@ -26,9 +33,6 @@ def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#out
     logging.info('Calling FFmpeg...')
     assert not bool(os.popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile)).close()),\
            '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
-
-def screenshot(inputfile,second=0):
-    pass
 
 def call_ffplay(*urls,referer='https://www.bilibili.com',title=None,is_audio=False,repeat=0,
                 fullscreen=False,auto_exit=False):

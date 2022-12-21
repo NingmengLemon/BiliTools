@@ -313,3 +313,36 @@ def get_series_list(uid,sid,reverse=False,page=1,page_size=30):
 
 def get_series_detail(uid,sid):
     pass
+
+def like(avid=None,bvid=None,opt=1):
+    '''
+    opt为1时点赞，为2时取消点赞
+    需要登录
+    '''
+    pass
+
+def is_liked(avid=None,bvid=None):
+    '''
+    需要登录
+    '''
+    pass
+
+def coin(avid=None,bvid=None,num=1,like=False):
+    '''
+    num为投币个数，上限为2
+    like为是否附加点赞
+    需要登录
+    '''
+    pass
+
+def is_coined(avid=None,bvid=None):
+    '''
+    需要登录
+    '''
+    pass
+
+def triple(avid=None,bvid=None):
+    '''
+    需要登录
+    '''
+    pass

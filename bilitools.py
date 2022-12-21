@@ -36,7 +36,7 @@ import ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev12'
+version = '2.0.0_Dev13'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -52,11 +52,13 @@ config = {
     'topmost':False,
     'alpha':1.0,# 0.0 - 1.0
     'filter_emoji':False,
+    'show_tips':False,
     'download':{
         'video':{
             'quality':None,
             'audio_convert':'mp3',
             'subtitle':True,
+            'allow_ai_subtitle':False,
             'subtitle_lang_regulation':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
             'danmaku':False,
             'convert_danmaku':True,
@@ -87,8 +89,9 @@ config = {
         },
     'proxy':{
         'enabled':False,
+        'use_system_proxy':False,
         'host':'127.0.0.1',
-        'port':7890
+        'port':7890 #clash的默认端口
         }
     }
 biliapis.requester.filter_emoji = config['filter_emoji']
@@ -110,8 +113,13 @@ def apply_proxy_config():
             biliapis.requester.proxy = config['proxy']['host']
         else:
             biliapis.requester.proxy = '%s:%s'%(config['proxy']['host'],config['proxy']['port'])
+        if config['proxy']['use_system_proxy']:
+            biliapis.requester.global_config(use_proxy=None)
+        else:
+            biliapis.requester.global_config(use_proxy=True)
     else:
         biliapis.requester.proxy = None
+        biliapis.requester.global_config(use_proxy=False)
 
 def dump_config(fp=config_path):
     json.dump(config,open(fp,'w+',encoding='utf-8',errors='ignore'))
@@ -185,7 +193,7 @@ class DownloadManager(object):
         self.table_columns_widths = [40,200,180,100,70,80,60,60,100,150]
         
         self.table_display_list = [] #多维列表注意, 对应Treview的内容, 每项格式见table_columns
-        self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common),选项(字典,包含从task_receiver传入的除源以外的**args)]
+        self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
         self.thread_counter = 0 #线程计数器
         self.failed_indexes = [] #存放失败任务在data_objs中的索引
         self.running_indexes = [] #存放运行中的任务在data_objs中的索引
@@ -465,7 +473,7 @@ class DownloadManager(object):
             subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
             if subtitle and not audiostream_only:
                 self._edit_display_list(index,'status','获取字幕')
-                bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid),subtitle_regulation)
+                bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid,allow_ai=config['download']['video']['allow_ai_subtitle']),subtitle_regulation)
                 if bccdata:
                     bccdata = json.loads(biliapis.requester.get_content_str(bccdata['url']))
                     srtdata = biliapis.subtitle.bcc_to_srt(bccdata)
@@ -964,6 +972,8 @@ class MainWindow(Window):
         self.label_tips = tk.Label(self.window,text='Tips: -')
         self.label_tips.grid(column=0,row=4,sticky='w',columnspan=3)
         self.label_tips.bind('<Button-1>',lambda x=0:self.changeTips())
+        if not config['show_tips']:
+            self.label_tips.grid_remove()
 
         self.changeTips()
         self.login(True)
@@ -1337,6 +1347,11 @@ class ConfigWindow(Window):
         self.boolvar_filteremoji = tk.BooleanVar(self.window,config['filter_emoji'])
         self.checkbutton_filteremoji = ttk.Checkbutton(self.frame_filteremoji,text='过滤Emoji',onvalue=True,offvalue=False,variable=self.boolvar_filteremoji)
         self.checkbutton_filteremoji.grid(column=0,row=0)
+        #Tips
+        self.boolvar_show_tips = tk.BooleanVar(self.window,config['show_tips'])
+        self.checkbutton_show_tips = ttk.Checkbutton(self.frame_basic,text='显示Tips',onvalue=True,offvalue=False,variable=self.boolvar_show_tips)
+        self.checkbutton_show_tips.grid(column=0,row=3,sticky='w')
+        self.tooltip_show_tips = cusw.ToolTip(self.checkbutton_show_tips,text='警告：开启之后你将会看到一些不正经的语录......以及作者的碎碎念。\n重启程序生效')
 
         #Download
         self.frame_download = tk.LabelFrame(self.window,text='下载')
@@ -1364,7 +1379,10 @@ class ConfigWindow(Window):
             }
         self.boolvar_subtitle = tk.BooleanVar(self.window,config['download']['video']['subtitle'])
         self.checkbutton_subtitle = ttk.Checkbutton(self.frame_subtitle,text='下载字幕',onvalue=True,offvalue=False,variable=self.boolvar_subtitle)
-        self.checkbutton_subtitle.grid(column=0,row=0,columnspan=2,sticky='w')
+        self.checkbutton_subtitle.grid(column=0,row=0,sticky='w')
+        self.boolvar_allow_ai_sub = tk.BooleanVar(self.window,config['download']['video']['allow_ai_subtitle'])
+        self.checkbutton_allow_ai_sub = ttk.Checkbutton(self.frame_subtitle,text='允许AI生成字幕',onvalue=True,offvalue=False,variable=self.boolvar_allow_ai_sub)
+        self.checkbutton_allow_ai_sub.grid(column=1,row=0,sticky='w')
         init_subtitle_om_text = self._get_subtitle_preset_text()
         self.strvar_subtitle_preset = tk.StringVar(self.window,init_subtitle_om_text)
         tk.Label(self.frame_subtitle,text='多字幕视频的字幕方案:').grid(column=0,row=1,sticky='e')
@@ -1450,20 +1468,29 @@ class ConfigWindow(Window):
         self.boolvar_use_pxy = tk.BooleanVar(self.window,config['proxy']['enabled'])
         self.checkbutton_use_pxy = ttk.Checkbutton(self.frame_proxy,text='使用代理',onvalue=True,offvalue=False,variable=self.boolvar_use_pxy)
         self.checkbutton_use_pxy.grid(column=0,row=0,columnspan=2,sticky='w')
-        tk.Label(self.frame_proxy,text='服务器：').grid(column=0,row=1,sticky='e')
-        self.entry_pxyhost = ttk.Entry(self.frame_proxy,width=20)
-        self.entry_pxyhost.grid(column=1,row=1,sticky='w')
+
+        self.boolvar_use_syspxy = tk.BooleanVar(self.window,config['proxy']['use_system_proxy'])
+        self.radiobutton_system_proxy = ttk.Radiobutton(self.frame_proxy,value=True,variable=self.boolvar_use_syspxy,text='使用系统代理')
+        self.radiobutton_system_proxy.grid(column=0,row=1,columnspan=2,sticky='w')
+        self.radiobutton_manual_proxy = ttk.Radiobutton(self.frame_proxy,value=False,variable=self.boolvar_use_syspxy,text='手动设置代理')
+        self.radiobutton_manual_proxy.grid(column=0,row=2,columnspan=2,sticky='w')
+        
+        tk.Label(self.frame_proxy,text='服务器：').grid(column=0,row=3,sticky='e')
+        self.entry_pxyhost = ttk.Entry(self.frame_proxy,width=18)
+        self.entry_pxyhost.grid(column=1,row=3,sticky='w')
         self.entry_pxyhost.insert('end',config['proxy']['host'])
-        tk.Label(self.frame_proxy,text='端口：').grid(column=0,row=2,sticky='e')
+        tk.Label(self.frame_proxy,text='端口：').grid(column=0,row=4,sticky='e')
         self.entry_pxyport = ttk.Entry(self.frame_proxy,width=6)
-        self.entry_pxyport.grid(column=1,row=2,sticky='w')
+        self.entry_pxyport.grid(column=1,row=4,sticky='w')
         if config['proxy']['port'] != None:
             self.entry_pxyport.insert('end',str(config['proxy']['port']))
         def update_proxy_widgets_state():
-            var = {True:'normal',False:'disabled'}[self.boolvar_use_pxy.get()]
-            self.entry_pxyhost['state'] = var
-            self.entry_pxyport['state'] = var
-        self.checkbutton_use_pxy['command'] = update_proxy_widgets_state
+            var1 = self.boolvar_use_pxy.get()
+            var2 = self.boolvar_use_syspxy.get()
+            self.radiobutton_system_proxy['state'] = self.radiobutton_manual_proxy['state'] = {True:'normal',False:'disabled'}[var1]
+            self.entry_pxyhost['state'] = self.entry_pxyport['state'] = {True:'normal',False:'disabled'}[var1 and not var2]
+            
+        self.checkbutton_use_pxy['command'] = self.radiobutton_system_proxy['command'] = self.radiobutton_manual_proxy['command'] = update_proxy_widgets_state
         update_proxy_widgets_state()
         
         # Save or Cancel
@@ -1553,12 +1580,14 @@ class ConfigWindow(Window):
         config['topmost'] = self.boolvar_topmost.get()
         config['alpha'] = round(self.doublevar_winalpha.get(),2)
         config['filter_emoji'] = self.boolvar_filteremoji.get()
+        config['show_tips'] = self.boolvar_show_tips.get()
         
         config['download']['max_thread_num'] = self.intvar_threadnum.get()
         config['download']['video']['quality'] = bilicodes.stream_dash_video_quality_[self.strvar_video_quality.get()]
         biliapis.requester.filter_emoji = config['filter_emoji']
         config['download']['video']['subtitle_lang_regulation'] = self.subtitle_regulation
         config['download']['video']['subtitle'] = self.boolvar_subtitle.get()
+        config['download']['video']['allow_ai_subtitle'] = self.boolvar_allow_ai_sub.get()
         config['download']['audio']['lyrics'] = self.boolvar_lyrics.get()
         config['download']['video']['danmaku'] = self.boolvar_danmaku.get()
         config['download']['video']['convert_danmaku'] = self.boolvar_convert_danmaku.get()
@@ -1572,6 +1601,7 @@ class ConfigWindow(Window):
         config['play']['auto_exit'] = self.boolvar_play_ae.get()
 
         config['proxy']['enabled'] = self.boolvar_use_pxy.get()
+        config['proxy']['use_system_proxy'] = self.boolvar_use_syspxy.get()
         #代理主机和端口的应用移到了上面
         apply_proxy_config()
 
@@ -1652,14 +1682,14 @@ class AudioWindow(Window):
             self.button_play['state'] = 'normal'
 
     def download_audio(self):
-        self.button_download_cover['state'] = 'disabled'
+        self.button_download_audio['state'] = 'disabled'
         path = filedialog.askdirectory(title='保存至',parent=self.window)
         if path:
             download_manager.task_receiver('audio',path,auid=self.auid)
-        self.button_download_cover['state'] = 'normal'
+        self.button_download_audio['state'] = 'normal'
 
     def download_cover(self):
-        self.button_download_lyrics['state'] = 'disabled'
+        self.button_download_cover['state'] = 'disabled'
         if self.audio_data:
             filename = replaceChr(self.title)+'.jpg'
             path = filedialog.askdirectory(title='保存至',parent=self.window)
@@ -1671,7 +1701,7 @@ class AudioWindow(Window):
         else:
             msgbox.showwarning('','加载未完成',parent=self.window)
         if self.is_alive():
-            self.button_download_lyrics['state'] = 'normal'
+            self.button_download_cover['state'] = 'normal'
         return
 
     def download_lyrics(self):
@@ -2699,7 +2729,9 @@ class BangumiWindow(Window):
             self.task_queue.put_nowait(lambda ssid=self.media_data['ssid']:self.label_ssid.configure(text='SS{}'.format(ssid)))
             self.task_queue.put_nowait(lambda mdid=self.media_data['mdid']:self.label_mdid.configure(text='MD{}'.format(mdid)))
             #打开浏览器的按钮
-            self.task_queue.put_nowait(lambda mdid=self.media_data['mdid']:self.button_view_on_browser.configure(command=lambda mdid=mdid:webbrowser.open('https://www.bilibili.com/bangumi/media/md{}/'.format(mdid))))
+            self.task_queue.put_nowait(lambda mdid=self.media_data['mdid']:self.button_view_on_browser.configure(
+                command=lambda mdid=mdid:webbrowser.open('https://www.bilibili.com/bangumi/media/md{}/'.format(mdid))
+                ))
         start_new_thread(tmp)
 
 class MangaViewer_Rolling(Window): #技术上遇到问题, 搁置
