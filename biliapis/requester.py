@@ -20,6 +20,7 @@ inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
 
 cookies = None
 proxy = None
+opener = None
 fake_headers_get = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
     'Accept-Charset': 'UTF-8,*;q=0.5',
@@ -103,35 +104,22 @@ def _dict_to_headers(dict_to_conv):
         res.append((keys[i],values[i]))
     return res
 
-def make_opener(use_cookie=True,use_proxy=True):
-    if use_cookie and use_proxy:
-        if cookies and proxy:
-            opener = request.build_opener(request.HTTPCookieProcessor(cookies),request.ProxyHandler({'http':proxy,'https':proxy}))
-        elif cookies and not proxy:
-            opener = request.build_opener(request.HTTPCookieProcessor(cookies),request.ProxyHandler({}))
-        elif not cookies and proxy:
-            opener = request.build_opener(request.ProxyHandler({'http':proxy,'https':proxy}))
-        else:
-            opener = request.build_opener(request.ProxyHandler({}))
-        return opener
-    elif use_cookie and not use_proxy:
-        if cookies:
-            opener = request.build_opener(request.HTTPCookieProcessor(cookies))
-        else:
-            opener = request.build_opener(request.ProxyHandler({}))
-    elif not use_cookie and use_proxy:
-        if proxy:
-            opener = request.build_opener(request.ProxyHandler({'http':proxy,'https':proxy}))
-        else:
-            opener = request.build_opener(request.ProxyHandler({}))
+def global_config(use_cookie=True,use_proxy=None):
+    global opener
+    handler_list = []
+    if use_cookie and cookies:
+        handler_list.append(request.HTTPCookieProcessor(cookies))
+    if use_proxy == None:
+        handler_list.append(request.ProxyHandler())
+    elif use_proxy == True:
+        handler_list.append(request.ProxyHandler({'http':proxy,'https':proxy}))
     else:
-        opener = request.build_opener(request.ProxyHandler({}))
-    return opener
+        handler_list.append(request.ProxyHandler({}))
+    opener = request.build_opener(*handler_list)
 
 @auto_retry(retry_time)
-def _get_response(url, headers=fake_headers_get,use_cookie=True,use_proxy=True):
+def _get_response(url, headers=fake_headers_get):
     # install cookies
-    opener = make_opener(use_cookie,use_proxy)
 
     response = opener.open(
         request.Request(url, headers=headers), None, timeout=timeout
@@ -149,8 +137,8 @@ def _get_response(url, headers=fake_headers_get,use_cookie=True,use_proxy=True):
     return response
 
 @auto_retry(retry_time)
-def _post_request(url,data,headers=fake_headers_post,use_cookie=True,use_proxy=True):
-    opener = make_opener(use_cookie,use_proxy)
+def _post_request(url,data,headers=fake_headers_post):
+    
     params = parse.urlencode(data).encode()
     response = opener.open(request.Request(url,data=params,headers=headers), timeout=timeout)
     data = response.read()
@@ -167,29 +155,29 @@ def _post_request(url,data,headers=fake_headers_post,use_cookie=True,use_proxy=T
         logging.debug('Post Data to {} with a very long params'.format(url))
     return response
 
-def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8',use_cookie=True,use_proxy=True):
+def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
     content = _post_request(url,data,headers).data
     data = content.decode(encoding, 'ignore')
     if filter_emoji:
         data = remove_emoji(data)
     return data
 
-def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8',use_cookie=True,use_proxy=True):
+def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8'):
     response = _post_request(url,data,headers)
     return response.data
 
-def get_content_str(url, encoding='utf-8', headers=fake_headers_get,use_cookie=True,use_proxy=True):
+def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     data = content.decode(encoding, 'ignore')
     if filter_emoji:
         data = remove_emoji(data)
     return data
 
-def get_content_bytes(url, headers=fake_headers_get,use_cookie=True,use_proxy=True):
+def get_content_bytes(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return content
 
-def get_redirect_url(url,headers=fake_headers_get,use_cookie=True,use_proxy=True):
+def get_redirect_url(url,headers=fake_headers_get):
     return _get_response(url=url, headers=headers).geturl()
 
 #Cookie Operation
@@ -223,7 +211,7 @@ def set_proxy(new_proxy):
 
 #Download Operation
 def download_common(url,tofile,headers=fake_headers_get,use_cookie=True,use_proxy=False):
-    opener = make_opener(use_cookie,use_proxy)
+    
     chunk_size = 1024
     with opener.open(request.Request(url,headers=headers),timeout=timeout) as response:
         with open(tofile,'wb+') as f:
@@ -248,15 +236,13 @@ def convert_size(size):#单位:Byte
     size /= 1024
     return '%.2f GB'%size
 
-def download_yield(url,filename,path='./',headers=fake_headers_get,check=True,use_cookie=True,use_proxy=False):
+def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
     if os.path.exists(file):
         size = os.path.getsize(file)
         yield size,size,100.00
     else:
         tmpfile = file+'.download'
-        #安装cookies
-        opener = make_opener(use_cookie,use_proxy)
         #检查上次下载遗留文件
         if os.path.exists(tmpfile):
             size = os.path.getsize(tmpfile)
@@ -318,3 +304,5 @@ def _join_files(main_file,*files,delete=False):
                         break
             if delete:
                 os.remove(file)
+
+global_config()

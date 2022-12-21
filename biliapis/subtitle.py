@@ -6,7 +6,7 @@ import math
 
 __all__ = ['get_bcc','bcc_to_srt']
 
-def get_bcc(cid,avid=None,bvid=None):
+def get_bcc(cid,avid=None,bvid=None,allow_ai=False):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
         api = 'https://api.bilibili.com/x/player/v2?cid=%s&aid=%s'%(cid,avid)
@@ -20,6 +20,8 @@ def get_bcc(cid,avid=None,bvid=None):
     data = data['data']['subtitle']['subtitles']
     res = []
     for item in data:
+        if '/ai_subtitle/' in item['subtitle_url'] and not allow_ai:
+            continue
         res.append({
             'id':item['id'],
             'lang':item['lan_doc'],#语言
