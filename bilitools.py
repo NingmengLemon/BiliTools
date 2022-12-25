@@ -36,7 +36,7 @@ import ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev13'
+version = '2.0.0_Dev14'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -57,6 +57,7 @@ config = {
         'video':{
             'quality':None,
             'audio_convert':'mp3',
+            'allow_flac':False,
             'subtitle':True,
             'allow_ai_subtitle':False,
             'subtitle_lang_regulation':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
@@ -190,7 +191,7 @@ class DownloadManager(object):
             'saveto':'保存至',
             'status':'状态'
             }
-        self.table_columns_widths = [40,200,180,100,70,80,60,60,100,150]
+        self.table_columns_widths = [40,200,180,100,70,70,80,60,100,150]
         
         self.table_display_list = [] #多维列表注意, 对应Treview的内容, 每项格式见table_columns
         self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
@@ -286,7 +287,10 @@ class DownloadManager(object):
         aqs = []
         for astream in audiostreams:
             aqs.append(astream['quality'])
-        audiostream = audiostreams[aqs.index(max(aqs))]
+        if 30251 in aqs and config['download']['video']['allow_flac']: # flac 不是音质代码最高的那个, 所以手动匹配
+            audiostream = audiostreams[aqs.index(30251)]
+        else:
+            audiostream = audiostreams[aqs.index(max(aqs))]
         return videostream,audiostream
 
     def choose_subtitle_lang(self,bccdata,regulation=config['download']['video']['subtitle_lang_regulation']):
@@ -453,6 +457,7 @@ class DownloadManager(object):
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
+            audio_format = audio_format.lower()
             self._edit_display_list(index,'status','正在取流')
             stream_data = biliapis.stream.get_video_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
             self._edit_display_list(index,'length',biliapis.second_to_time(stream_data['length']))
@@ -461,12 +466,17 @@ class DownloadManager(object):
                 self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
                 self._edit_display_list(index,'mode','音轨抽取')
             else:
-                self._edit_display_list(index,'quality',bilicodes.stream_dash_video_quality[vstream['quality']])
+                self._edit_display_list(index,'quality',bilicodes.stream_dash_video_quality[vstream['quality']]+'/'+\
+                                        bilicodes.stream_dash_audio_quality[astream['quality']])
                 self._edit_display_list(index,'mode','视频下载')
             #生成文件名
             tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
             tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
-            final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
+            if astream['quality'] == 30251:
+                final_filename = replaceChr('{}_{}.mkv'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
+                audio_format = bilicodes.stream_dash_audio_quality[astream['quality']].lower()
+            else:
+                final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
             final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
             #字幕
             is_sbt_downloaded = False
@@ -507,7 +517,12 @@ class DownloadManager(object):
                 #Video Stream
                 if audiostream_only:
                     self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
-                    if audio_format and audio_format not in ['aac','copy']:
+                    if audio_format == 'copy' or astream['quality'] == 30251:
+                        if astream['quality'] == 30251:
+                            os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.flac')
+                        else:
+                            os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
+                    else:
                         self._edit_display_list(index,'status','混流/转码')
                         ffdriver.convert_audio(os.path.join(path,tmpname_audio),
                                                os.path.join(path,final_filename_audio_only),audio_format,
@@ -516,8 +531,6 @@ class DownloadManager(object):
                             os.remove(os.path.join(path,tmpname_audio))
                         except:
                             pass
-                    else:
-                        os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
                 else:
                     v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
                     for donesize,totalsize,percent in v_session:
@@ -1368,12 +1381,18 @@ class ConfigWindow(Window):
         self.strvar_video_quality = tk.StringVar(self.window,default_vq)
         tk.Label(self.frame_download,text='优先画质: ').grid(column=0,row=1,sticky='e')
         ttk.OptionMenu(self.frame_download,self.strvar_video_quality,default_vq,*list(bilicodes.stream_dash_video_quality.values())).grid(column=1,row=1,sticky='w')
+        #Flac
+        self.boolvar_allow_flac = tk.BooleanVar(self.window,config['download']['video']['allow_flac'])
+        self.checkbutton_allow_flac = ttk.Checkbutton(self.frame_download,text='允许Flac音轨',onvalue=True,offvalue=False,variable=self.boolvar_allow_flac)
+        self.checkbutton_allow_flac.grid(column=0,row=2,sticky='w',columnspan=2)
+        self.tooltip_allow_flac = cusw.ToolTip(self.checkbutton_allow_flac,'由于mp4容器的限制，包含flac音轨的视频将被封装为mkv格式。')
 
         #Subtitle
         self.frame_subtitle = tk.LabelFrame(self.window,text='字幕与歌词')
         self.frame_subtitle.grid(column=0,row=2,sticky='we',columnspan=2)
         self.subtitle_preset = {
-            '中文优先':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
+            '简体中文优先':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
+            '繁体中文优先':['zh-Hant','zh-HK','zh-TW','zh-CN','zh-Hans','en-US','en-GB','ja','ja-JP'],
             '英文优先':['en-US','en-GB','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','ja','ja-JP'],
             '日文优先':['ja','ja-JP','zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB']
             }
@@ -1593,6 +1612,7 @@ class ConfigWindow(Window):
         config['download']['video']['convert_danmaku'] = self.boolvar_convert_danmaku.get()
         config['download']['video']['danmaku_filter'] = self.dmfrule
         config['download']['video']['danmaku_filter']['filter_level'] = int(self.strvar_dmflevel.get())
+        config['download']['video']['allow_flac'] = self.boolvar_allow_flac.get()
 
         config['play']['video_quality'] = bilicodes.stream_flv_video_quality_[self.strvar_play_vq.get()]
         config['play']['audio_quality'] = bilicodes.stream_audio_quality_[self.strvar_play_aq.get()]

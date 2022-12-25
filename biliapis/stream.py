@@ -84,14 +84,23 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
         audio.append({
             'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
             'url':au['baseUrl'],
-            'encoding':au['codecs'],
+            'url_backup':au['backupUrl'],
+            'codec':au['codecs'],
+            })
+    flac = data['dash']['flac']
+    if flac:
+        audio.append({
+            'quality':flac['audio']['id'],
+            'url':flac['audio']['base_url'],
+            'url_backup':flac['audio']['backup_url'], #list
+            'codec':flac['audio']['codecs']
             })
     video = []
     for vi in data['dash']['video']:
         video.append({
             'quality':vi['id'],#对照表 .bilicodes.stream_dash_video_quality
             'url':vi['baseUrl'],
-            'encoding':vi['codecs'],
+            'codec':vi['codecs'],
             'width':vi['width'],
             'height':vi['height'],
             'frame_rate':vi['frameRate'],#帧率
