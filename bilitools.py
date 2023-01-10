@@ -191,7 +191,7 @@ class DownloadManager(object):
             'saveto':'保存至',
             'status':'状态'
             }
-        self.table_columns_widths = [40,200,180,100,70,70,80,60,100,150]
+        self.table_columns_widths = [40,200,180,100,70,70,100,60,100,150]
         
         self.table_display_list = [] #多维列表注意, 对应Treview的内容, 每项格式见table_columns
         self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
@@ -3334,7 +3334,7 @@ if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
             f.write(traceback_info)
         raise e
     else:
-        exit(0)
+        sys.exit(0)
 else:
     #dump_config()
     pass

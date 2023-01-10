@@ -7,8 +7,11 @@ import ctypes
 
 __all__ = ['Window']
 
-ctypes.windll.shcore.SetProcessDpiAwareness(2)
-#ScaleFactor = ctypes.windll.shcore.GetScaleFactorForDevice(0)
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    #ScaleFactor = ctypes.windll.shcore.GetScaleFactorForDevice(0)
+except:
+    pass
 
 class Window(object):#程序中所有常规窗口的父类
     def __init__(self,title='BiliTools',toplevel=False,topmost=False,alpha=1.0,master=None):
