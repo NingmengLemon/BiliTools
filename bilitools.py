@@ -36,7 +36,7 @@ import ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev14'
+version = '2.0.0_Dev15'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -45,6 +45,7 @@ if not os.path.exists(inner_data_path):
 biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
+logging_path = os.path.join(inner_data_path,'last_run.log')
 development_mode = True
 
 config = {
@@ -97,13 +98,21 @@ config = {
     }
 biliapis.requester.filter_emoji = config['filter_emoji']
 #日志模块设置
-logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level={True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
-                    )
-
+lg_cfg = {
+    'format':'[%(asctime)s][%(levelname)s]%(message)s',
+    'datefmt':'%Y-%m-%d %H:%M:%S',
+    'level':{True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
+    }
+#如果不是开发者模式就把日志输出到文件
+if development_mode:
+    pass
+else:
+    lg_cfg['filename'] = logging_path
+    lg_cfg['filemode'] = 'w+'
+logging.basicConfig(**lg_cfg)
+#加载关于信息
 about_info = about_info.format(version=version)
-
+#加载Cookies
 biliapis.requester.load_local_cookies()
 
 rgb2hex = lambda r,g,b:'#{:0>6s}'.format(str(hex((r<<16)+(g<<8)+b))[2:])
@@ -1135,144 +1144,150 @@ class MainWindow(Window):
                 kws = source.split()
                 w = SearchWindow(*kws)
         elif mode == 2:#快速下载模式
-            source,flag = biliapis.parse_url(source)
-            if flag == 'unknown':
-                msgbox.showinfo('','无法解析......',parent=self.window)
-            elif flag == 'avid' or flag == 'bvid':#普通视频
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if not path:
+            try:
+                self._fast_download(*biliapis.parse_url(source))
+            except Exception:
+                msgbox.showerror('在尝试快速下载时出现了错误：\n'+traceback.format_exc(),parent=self.window)
+                raise
+
+    def _fast_download(self,source,flag):
+        if flag == 'unknown':
+            msgbox.showinfo('','无法解析......',parent=self.window)
+        elif flag == 'avid' or flag == 'bvid':#普通视频
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if not path:
+                return
+            video_data = biliapis.video.get_detail(**{flag:source})
+            parts = video_data['parts']
+            bvid = video_data['bvid']
+            title = video_data['title']
+            if len(parts) > 1:
+                tmp = []
+                for part in parts:
+                    tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+                indexes = PartsChooser(tmp).return_values
+                if not indexes:
                     return
-                video_data = biliapis.video.get_detail(**{flag:source})
-                parts = video_data['parts']
-                bvid = video_data['bvid']
-                title = video_data['title']
-                if len(parts) > 1:
-                    tmp = []
-                    for part in parts:
-                        tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
-                    indexes = PartsChooser(tmp).return_values
-                    if not indexes:
-                        return
-                else:
-                    indexes = [0]
-                download_manager.task_receiver('video',path,bvid=video_data['bvid'],data=video_data,pids=indexes)
-            elif flag == 'auid':#音频
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if not path:
-                    return
-                download_manager.task_receiver('audio',path,auid=source)
-            elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':#番
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if not path:
-                    return
-                bangumi_data = biliapis.media.get_detail(**{flag:source})
-                episodes = bangumi_data['episodes']
-                title = bangumi_data['title']
-                if len(episodes) > 0:
-                    tmp = []
-                    for episode in episodes:
-                        tmp += [[episode['title'],'-','-']]
-                    indexes = PartsChooser(tmp).return_values
-                    if not indexes:
-                        return
-                else:
-                    msgbox.showinfo('','没有正片',parent=self.window)
-                    return
-                download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
-            elif flag == 'mcid':#漫画
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if not path:
-                    return
-                manga_data = biliapis.manga.get_detail(mcid=source)
-                if len(manga_data['ep_list']) > 0:
-                    indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
-                                           title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
-                    if not indexes:
-                        return
-                else:
-                    msgbox.showinfo('','没有章节',parent=self.window)
-                    return
-                download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
-            elif flag == 'collection':#合集
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if path:
-                    collection = biliapis.video.get_archive_list(*source,page_size=100)
-                    archives = collection['archives']
-                    tp = collection['total_page']
-                    if archives:
-                        if tp > 1:
-                            if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
-                                def get_archives(source,tp):
-                                    archives = []
-                                    for p in range(2,tp+1):
-                                        archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
-                                        time.sleep(0.5)
-                                    return archives
-                                archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                               columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                        if indexes:
-                            def putin_tasks(indexes,archives):
-                                for index in indexes:
-                                    download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                            cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-                    else:
-                        msgbox.showinfo('合集没有内容',parent=self.window)
-            elif flag == 'favlist':#收藏夹
-                pass
-            elif flag == 'series':#系列
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if path:
-                    series = biliapis.video.get_series_list(*source,page_size=100)
-                    archives = series['archives']
-                    tp = series['total_page']
-                    if archives:
-                        if tp > 1:
-                            if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
-                                def get_archives(source,tp):
-                                    archives = []
-                                    for p in range(2,tp+1):
-                                        archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
-                                        time.sleep(0.5)
-                                    return archives
-                                archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                               columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                        if indexes:
-                            def putin_tasks(indexes,archives):
-                                for index in indexes:
-                                    download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                            cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-                    else:
-                        msgbox.showinfo('没有内容',parent=self.window)
-            elif flag == 'amid':
-                path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-                if path:
-                    data = biliapis.audio.get_list(source)
-                    if data:
-                        tp = data['total_page']
-                        audio_list = data['data']
-                        if tp > 1:
-                            if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
-                                def get_audio_lists(source,tp):
-                                    audio_list = []
-                                    for p in range(2,tp+1):
-                                        audio_list += biliapis.audio.get_list(source,page=p)['data']
-                                        time.sleep(0.5)
-                                    return audio_list
-                                audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
-                        if audio_list:
-                            indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
-                                                   columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
-                            if indexes:
-                                def putin_tasks(indexes,audio_list):
-                                    for index in indexes:
-                                        download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
-                                cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
-                    else:
-                        msgbox.showinfo('','歌单是空的.',parent=self.window)
             else:
-                msgbox.showinfo('','暂不支持%s的快速下载'%flag,parent=self.window)
+                indexes = [0]
+            download_manager.task_receiver('video',path,bvid=video_data['bvid'],data=video_data,pids=indexes)
+        elif flag == 'auid':#音频
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if not path:
+                return
+            download_manager.task_receiver('audio',path,auid=source)
+        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':#番
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if not path:
+                return
+            bangumi_data = biliapis.media.get_detail(**{flag:source})
+            episodes = bangumi_data['episodes']
+            title = bangumi_data['title']
+            if len(episodes) > 0:
+                tmp = []
+                for episode in episodes:
+                    tmp += [[episode['title'],'-','-']]
+                indexes = PartsChooser(tmp).return_values
+                if not indexes:
+                    return
+            else:
+                msgbox.showinfo('','没有正片',parent=self.window)
+                return
+            download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
+        elif flag == 'mcid':#漫画
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if not path:
+                return
+            manga_data = biliapis.manga.get_detail(mcid=source)
+            if len(manga_data['ep_list']) > 0:
+                indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
+                                       title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
+                if not indexes:
+                    return
+            else:
+                msgbox.showinfo('','没有章节',parent=self.window)
+                return
+            download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
+        elif flag == 'collection':#合集
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if path:
+                collection = biliapis.video.get_archive_list(*source,page_size=100)
+                archives = collection['archives']
+                tp = collection['total_page']
+                if archives:
+                    if tp > 1:
+                        if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
+                            def get_archives(source,tp):
+                                archives = []
+                                for p in range(2,tp+1):
+                                    archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
+                                    time.sleep(0.5)
+                                return archives
+                            archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
+                                           columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                    if indexes:
+                        def putin_tasks(indexes,archives):
+                            for index in indexes:
+                                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                        cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
+                else:
+                    msgbox.showinfo('合集没有内容',parent=self.window)
+        elif flag == 'favlist':#收藏夹
+            pass
+        elif flag == 'series':#系列
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if path:
+                series = biliapis.video.get_series_list(*source,page_size=100)
+                archives = series['archives']
+                tp = series['total_page']
+                if archives:
+                    if tp > 1:
+                        if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
+                            def get_archives(source,tp):
+                                archives = []
+                                for p in range(2,tp+1):
+                                    archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
+                                    time.sleep(0.5)
+                                return archives
+                            archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
+                                           columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                    if indexes:
+                        def putin_tasks(indexes,archives):
+                            for index in indexes:
+                                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                        cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
+                else:
+                    msgbox.showinfo('没有内容',parent=self.window)
+        elif flag == 'amid':
+            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+            if path:
+                data = biliapis.audio.get_list(source)
+                if data:
+                    tp = data['total_page']
+                    audio_list = data['data']
+                    if tp > 1:
+                        if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
+                            def get_audio_lists(source,tp):
+                                audio_list = []
+                                for p in range(2,tp+1):
+                                    audio_list += biliapis.audio.get_list(source,page=p)['data']
+                                    time.sleep(0.5)
+                                return audio_list
+                            audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
+                    if audio_list:
+                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
+                                               columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
+                        if indexes:
+                            def putin_tasks(indexes,audio_list):
+                                for index in indexes:
+                                    download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+                            cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
+                else:
+                    msgbox.showinfo('','歌单是空的.',parent=self.window)
+        else:
+            msgbox.showinfo('','暂不支持%s的快速下载'%flag,parent=self.window)
 
 class BatchWindow(Window):
     def __init__(self):
@@ -1804,48 +1819,74 @@ class CommonVideoWindow(Window):
         self.label_cover.grid(column=0,row=0)
         self.label_cover_text = tk.Label(self.frame_left_1,text='加载中',bg='#ffffff')
         self.label_cover_text.grid(column=0,row=0)
-        #标题
+        #title
         self.text_title = tk.Text(self.frame_left_1,bg='#f0f0f0',bd=0,height=2,width=46,state='disabled',font=('Microsoft YaHei UI',10,'bold'))
         self.text_title.grid(column=0,row=1,sticky='w')
         #warning info
-        self.label_warning = cusw.ImageLabel(self.frame_left_1,width=22,height=18)
+        self.label_warning = cusw.ImageLabel(self.frame_left_1,width=22,height=18,cursor='hand2')
         self.label_warning.set(imglib.warning_sign)
         self.label_warning.grid(column=0,row=2,sticky='e')
         self.label_warning.grid_remove()
         self.label_warning_tooltip = None
+        #第1列第4行的合并框架
+        self.frame_c0r3 = tk.Frame(self.frame_left_1)
+        self.frame_c0r3.grid(column=0,row=3,sticky='we')
         #av
-        self.label_avid = tk.Label(self.frame_left_1,text='AV0')
-        self.label_avid.grid(column=0,row=3,sticky='w')
+        self.label_avid = tk.Label(self.frame_c0r3,text='AV0')
+        self.label_avid.grid(column=0,row=0,sticky='w',padx=4)
         #bv
-        self.label_bvid = tk.Label(self.frame_left_1,text='BV-')
-        self.label_bvid.grid(column=0,row=3,sticky='e')
-        #status
+        self.label_bvid = tk.Label(self.frame_c0r3,text='BV-')
+        self.label_bvid.grid(column=1,row=0,sticky='w',padx=4)
+        #publish time
+        self.label_pubtime = tk.Label(self.frame_c0r3,text='-')
+        self.label_pubtime.grid(column=2,row=0,sticky='w',padx=4)
+        #statistics
         self.frame_status = tk.LabelFrame(self.frame_left_1,text='统计')
         self.frame_status.grid(column=0,row=4)
+        
         tk.Label(self.frame_status,text='播放:').grid(column=0,row=0,sticky='w')
         self.label_view = tk.Label(self.frame_status,text='-')
-        self.label_view.grid(column=1,row=0,sticky='w',columnspan=3)
+        self.label_view.grid(column=1,row=0,sticky='w',columnspan=5)
+        
         tk.Label(self.frame_status,text='点赞:').grid(column=0,row=1,sticky='w')
         self.label_like = tk.Label(self.frame_status,text='-')
         self.label_like.grid(column=1,row=1,sticky='w')
+        
         tk.Label(self.frame_status,text='投币:').grid(column=0,row=2,sticky='w')
         self.label_coin = tk.Label(self.frame_status,text='-')
         self.label_coin.grid(column=1,row=2,sticky='w')
-        tk.Label(self.frame_status,text='收藏:').grid(column=0,row=3,sticky='w')
+        
+        tk.Label(self.frame_status,text='收藏:').grid(column=2,row=1,sticky='w')
         self.label_collect = tk.Label(self.frame_status,text='-')
-        self.label_collect.grid(column=1,row=3,sticky='w')
-        tk.Label(self.frame_status,text='分享:').grid(column=2,row=1,sticky='w')
+        self.label_collect.grid(column=3,row=1,sticky='w')
+        
+        tk.Label(self.frame_status,text='分享:').grid(column=2,row=2,sticky='w')
         self.label_share = tk.Label(self.frame_status,text='-')
-        self.label_share.grid(column=3,row=1,sticky='w')
-        tk.Label(self.frame_status,text='弹幕:').grid(column=2,row=2,sticky='w')
+        self.label_share.grid(column=3,row=2,sticky='w')
+        
+        tk.Label(self.frame_status,text='弹幕:').grid(column=4,row=1,sticky='w')
         self.label_dmkcount = tk.Label(self.frame_status,text='-')
-        self.label_dmkcount.grid(column=3,row=2,sticky='w')
-        tk.Label(self.frame_status,text='评论:').grid(column=2,row=3,sticky='w')
+        self.label_dmkcount.grid(column=5,row=1,sticky='w')
+        
+        tk.Label(self.frame_status,text='评论:').grid(column=4,row=2,sticky='w')
         self.label_cmtcount = tk.Label(self.frame_status,text='-')
-        self.label_cmtcount.grid(column=3,row=3,sticky='w')
-        #operation
+        self.label_cmtcount.grid(column=5,row=2,sticky='w')
+        #operation area 1
+        self.frame_lcfs = tk.Frame(self.frame_left_1) # LCFS = Like, Coin, Fav, SeeLater (草
+        self.frame_lcfs.grid(column=0,row=5)
+        self.button_like = cusw.ImageButton(self.frame_lcfs,30,30,imglib.like_sign_grey,command=self.like,state='disabled')
+        self.button_like.grid(column=0,row=0,padx=10)
+        self.is_liked = False
+        self.button_coin = cusw.ImageButton(self.frame_lcfs,30,30,imglib.coin_sign_grey,command=self.coin,state='disabled')
+        self.button_coin.grid(column=1,row=0,padx=10)
+        self.coined_number = -1
+        self.button_collect = cusw.ImageButton(self.frame_lcfs,30,30,imglib.collect_sign_grey,command=self.collect,state='disabled')
+        self.button_collect.grid(column=2,row=0,padx=10)
+        self.button_toview = cusw.ImageButton(self.frame_lcfs,30,30,imglib.addtoview_sign,command=self.toview,state='disabled')
+        self.button_toview.grid(column=3,row=0,padx=10)
+        #operation area 2
         self.frame_operation = tk.Frame(self.frame_left_1)
-        self.frame_operation.grid(column=0,row=5)
+        self.frame_operation.grid(column=0,row=6)
         self.button_play = ttk.Button(self.frame_operation,text='播放视频',command=lambda:self.play_video(False))
         self.button_play.grid(column=0,row=0)
         self.button_play_audio = ttk.Button(self.frame_operation,text='播放音轨',command=lambda:self.play_video(True))
@@ -1929,23 +1970,174 @@ class CommonVideoWindow(Window):
         self.button_rec_back.grid(column=0,row=0)
         self.button_rec_next = ttk.Button(self.frame_rec_control,text='下一页',state='disabled',command=lambda:self.fill_recommends(self.rec_page+1))
         self.button_rec_next.grid(column=1,row=0)
-        #调试信息
-        self.frame_debug = tk.Frame(self.window)
-        self.frame_debug.grid(column=0,row=1,columnspan=3,sticky='w')
-        tk.Label(self.frame_debug,text='Thread:').grid(column=0,row=0)
-        self.label_thread_count = tk.Label(self.frame_debug,text='0')
-        self.label_thread_count.grid(column=1,row=0)
-        tk.Label(self.frame_debug,text='|').grid(column=2,row=0)
-        tk.Label(self.frame_debug,text='Queue:').grid(column=3,row=0)
-        self.label_queue_count = tk.Label(self.frame_debug,text='0')
-        self.label_queue_count.grid(column=4,row=0)
-        if development_mode:
-            self.update_debug_info()
-        else:
-            self.frame_debug.grid_remove()
+        
         self.refresh_data()
 
         self.mainloop()
+
+    def like(self):
+        def like_process(token,cancel=False):
+            self.task_queue.put_nowait(lambda:self.button_like.configure(state='disabled'))
+            try:
+                if cancel:
+                    biliapis.video.like(token,self.video_data['avid'],opt=2)
+                else:
+                    biliapis.video.like(token,self.video_data['avid'],opt=1)
+            except Exception as e:
+                if cancel:
+                    self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法完成点赞：\n'+str(e_),parent=self.window))
+                else:
+                    self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法取消点赞：\n'+str(e_),parent=self.window))
+            else:
+                if cancel:
+                    self.is_liked = False
+                    self.task_queue.put_nowait(lambda:self.button_like.set(imglib.like_sign_grey))
+                    self.task_queue.put_nowait(lambda:self.window.after(1,lambda:cusw.bubble(
+                        self.button_like,'取消点赞成功'
+                        )))
+                else:
+                    self.is_liked = True
+                    self.task_queue.put_nowait(lambda:self.button_like.set(imglib.like_sign))
+                    self.task_queue.put_nowait(lambda:self.window.after(1,lambda:cusw.bubble(
+                        self.button_like,'点赞成功'
+                        )))
+            finally:
+                self.task_queue.put_nowait(lambda:self.button_like.configure(state='normal'))
+                
+        csrf = biliapis.login.get_csrf(biliapis.requester.cookies)
+        if csrf: # cookies中有csrf是点赞操作的前提之一
+            if self.is_liked:
+                if msgbox.askokcancel('注意','你已经点过赞了，你要取消点赞吗',parent=self.window):
+                    start_new_thread(like_process,(csrf,True))
+                else:
+                    return
+            else:
+                start_new_thread(like_process,(csrf,False))
+        else:
+            msgbox.showerror('','点赞失败.\n未成功获取到 CSRF Token',parent=self.window)
+
+    def coin(self):
+        def coin_process(token,cn): # cn 指 coin_num
+            if cn <= 0:
+                return
+            self.task_queue.put_nowait(lambda:self.button_coin.configure(state='disabled'))
+            try:
+                biliapis.video.coin(token,self.video_data['avid'],num=cn)
+            except Exception as e:
+                self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法完成投币：\n'+str(e_),parent=self.window))
+            else:
+                self.task_queue.put_nowait(lambda:self.button_coin.set(imglib.coin_sign))
+                self.task_queue.put_nowait(lambda:self.window.after(1,lambda n=cn:cusw.bubble(
+                    self.button_coin,f'成功投出了 {n} 个币'
+                    )))
+            finally:
+                self.coined_number = coin = biliapis.video.is_coined(self.video_data['avid'])
+                if coin == 2 or (coin==1 and not self.video_data['is_original']):
+                    pass
+                else:
+                    self.task_queue.put_nowait(lambda:self.button_coin.configure(state='normal'))
+                
+        csrf = biliapis.login.get_csrf(biliapis.requester.cookies)
+        if csrf: # cookies中有csrf是投币操作的前提之一
+            is_orig = self.video_data['is_original']
+            coin_num = self.coined_number
+            if (coin_num == 1 and  not is_orig) or self.coined_number == 2: # 硬币已投满 (转载视频已投1颗, 自制视频已投2颗)
+                msgbox.showwarning('','这个视频的币已经投满了，不能再投了',parent=self.window)
+            elif coin_num == 1 and is_orig: # 自制视频投了且未投满
+                if msgbox.askokcancel('','为这个视频再投 1 个币吗？',parent=self.window):
+                    start_new_thread(coin_process,(csrf,1)) # 投 1 个币
+                else:
+                    return
+            elif coin_num == 0 and is_orig: # 自制视频未投
+                c = cusw.msgbox_askchoice(self.window,'','你要投几个币？',
+                                          {'1 个币':1,'2 个币':2,'还是不投了':None}
+                                          )
+                if c == None:
+                    return
+                else:
+                    start_new_thread(coin_process,(csrf,c)) # 投 c 个币
+            elif coin_num == 0 and not is_orig: # 转载视频未投
+                if msgbox.askokcancel('','为这个视频投 1 个币吗？',parent=self.window):
+                    start_new_thread(coin_process,(csrf,1)) # 投 1 个币
+                else:
+                    return
+        else:
+            msgbox.showerror('','无法投币.\n未成功获取到 CSRF Token',parent=self.window)
+            
+    def collect(self):
+        w = CollectWindow(self.window,self.video_data['avid'])
+        if w.del_mlids or w.add_mlids:
+            msgbox.showinfo('','在本次收藏操作中，\n这个视频在 %s 个收藏夹中被新添加，从 %s 个收藏夹中被删除'%(
+                len(w.add_mlids),len(w.del_mlids)
+                ),parent=self.window)
+        if w.is_collected:
+            self.button_collect.set(imglib.collect_sign)
+        else:
+            self.button_collect.set(imglib.collect_sign_grey)
+
+    def _like_button_right_click(self,event):
+        x = event.x_root
+        y = event.y_root
+        menu = tk.Menu(self.button_like,tearoff=False)
+        menu.add_command(label='三连',command=self.triple)
+        menu.post(x,y)
+
+    def triple(self):
+        def triple_process(token,coin_orig_state):
+            self.task_queue.put_nowait(lambda:(
+                self.button_like.configure(state='disabled'),
+                self.button_coin.configure(state='disabled'),
+                self.button_collect.configure(state='disabled')
+                ))
+            try:
+                biliapis.video.triple(token,avid=self.video_data['avid'])
+            except Exception as e:
+                self.task_queue.put_nowait(lambda cos_=coin_orig_state:self.button_coin.configure(state=cos_))
+                self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','三连失败：\n'+str(e_),parent=self.window))
+            else:
+                self.task_queue.put_nowait(lambda:self.button_coin.configure(state='disabled'))
+                self.task_queue.put_nowait(lambda:(
+                    self.button_like.set(imglib.like_sign),
+                    self.button_coin.set(imglib.coin_sign),
+                    self.button_collect.set(imglib.collect_sign)
+                    ))
+                self.task_queue.put_nowait(lambda:(
+                    self.window.after(1,lambda:cusw.bubble(self.button_like,text='三连成功')),
+                    self.window.after(1,lambda:cusw.bubble(self.button_coin,text='三连成功')),
+                    self.window.after(1,lambda:cusw.bubble(self.button_collect,text='三连成功'))
+                    ))
+            finally:
+                self.task_queue.put_nowait(lambda cos_=coin_orig_state:(
+                    self.button_like.configure(state='normal'),
+                    self.button_collect.configure(state='normal')
+                    ))
+            
+        csrf = biliapis.login.get_csrf(biliapis.requester.cookies)
+        if csrf:
+            if msgbox.askokcancel('','你确定要给这个视频三连吗？\n视频将被收藏至默认收藏夹.',parent=self.window):
+                cos = self.button_coin['state']
+                start_new_thread(triple_process,(csrf,cos))
+        else:
+            msgbox.showerror('','无法三连.\n未成功获取到 CSRF Token',parent=self.window)
+
+    def toview(self):
+        def toview_process(token):
+            self.task_queue.put_nowait(lambda:self.button_toview.configure(state='disabled'))
+            try:
+                biliapis.video.add_to_toview(token,avid=self.video_data['avid'])
+            except Exception as e:
+                self.task_queue.put_nowait(lambda:msgbox.showerror('','无法添加到稍后再看：\n'+str(e),parent=self.window))
+            else:
+                self.task_queue.put_nowait(lambda:self.window.after(1,lambda:cusw.bubble(
+                    self.button_toview,f'已添加到稍后再看'
+                    )))
+            finally:
+                self.task_queue.put_nowait(lambda:self.button_toview.configure(state='normal'))
+        csrf = biliapis.login.get_csrf(biliapis.requester.cookies)
+        if csrf:
+            start_new_thread(toview_process,(csrf,))
+        else:
+            msgbox.showerror('','无法添加到稍后再看.\n未成功获取到 CSRF Token',parent=self.window)
 
     def show_pbp(self):
         if not self.video_data:
@@ -1966,11 +2158,6 @@ class CommonVideoWindow(Window):
             target = [0]
         for index in target:
             PbpShower(parts[index]['cid'])
-
-    def update_debug_info(self):#自动循环
-        self.label_thread_count['text'] = str(threading.active_count())
-        self.label_queue_count['text'] = str(self.task_queue.qsize())
-        self.window.after(10,self.update_debug_info)
 
     def download_audio(self):
         if not self.video_data:
@@ -2101,7 +2288,7 @@ class CommonVideoWindow(Window):
         self.window.after(800,lambda:self.button_copy_link.configure(state='normal',text='复制链接'))
 
     def refresh_data(self):
-        def tmp():
+        def load():
             try:
                 if self.abtype == 'av':
                     data = biliapis.video.get_detail(avid=self.abvid)
@@ -2122,14 +2309,14 @@ class CommonVideoWindow(Window):
                 else:
                     raise e
             opener_lambda = lambda:webbrowser.open(self.link)
-            #copy_lambda = lambda:self.e
             self.video_data = data
-            self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的存放空间
+            self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的组件的存放空间
             #explorer_opener
             self.task_queue.put_nowait(lambda:self.button_open_in_ex.configure(command=opener_lambda))
             #common_info
             self.task_queue.put_nowait(lambda:self.label_avid.configure(text='AV%s'%data['avid']))
             self.task_queue.put_nowait(lambda:self.label_bvid.configure(text=data['bvid']))
+            self.task_queue.put_nowait(lambda:self.label_pubtime.configure(text=time.strftime("%Y-%m-%d %a %H:%M:%S",time.localtime(data['date_publish']))))
             self.task_queue.put_nowait(lambda:self.set_text(self.text_title,lock=True,text=data['title']))
             #warning
             def fill_warning_info(warning_info):
@@ -2176,7 +2363,10 @@ class CommonVideoWindow(Window):
                     counter += 1
                     self.tview_parts.insert("","end",values=(str(counter),line['title'],biliapis.second_to_time(line['length'])))
                 self.label_parts_counter['text'] = '共 %d 个分P'%counter
-            self.task_queue.put_nowait(lambda:fill_partlist(parts))
+            if data['is_interact_video']:
+                self.task_queue.put_nowait(lambda:self.label_parts_counter.configure(text='互动视频 非传统分P'))
+            else:
+                self.task_queue.put_nowait(lambda:fill_partlist(parts))
             #tags
             if tags:
                 tagtext = '#'+'# #'.join(tags)+'#'
@@ -2185,7 +2375,47 @@ class CommonVideoWindow(Window):
             self.task_queue.put_nowait(lambda:self.set_text(self.text_tags,lock=True,text=tagtext))
             #rec_img & rec_controller_unlock
             self.task_queue.put_nowait(lambda:self.fill_recommends(-1))
-        start_new_thread(tmp,())
+            #lcfs buttons
+            def check_like(avid):
+                # 查询点赞状态
+                try:
+                    is_liked = self.is_liked = biliapis.video.is_liked(avid=avid)
+                except biliapis.BiliError as e:
+                    if e.code != -101:
+                        raise
+                self.task_queue.put_nowait(lambda:self.button_like.configure(state='normal'))
+                if is_liked:
+                    self.task_queue.put_nowait(lambda:self.button_like.set(imglib.like_sign))
+            def check_coin(avid,is_orig):
+                # 查询投币状态
+                try:
+                    coin = self.coined_number = biliapis.video.is_coined(avid=avid)
+                except biliapis.BiliError as e:
+                    if e.code != -101:
+                        raise
+                if coin == 0: # 没投硬币
+                    self.task_queue.put_nowait(lambda:self.button_coin.configure(state='normal'))
+                elif coin == 1 and is_orig: # 硬币投了但没投满
+                    self.task_queue.put_nowait(lambda:self.button_coin.configure(state='normal'))
+                    self.task_queue.put_nowait(lambda:self.button_coin.set(imglib.coin_sign))
+                elif coin == 2 or (coin==1 and not is_orig): # 硬币投满
+                    self.task_queue.put_nowait(lambda:self.button_coin.set(imglib.coin_sign))
+            def check_collect(avid):
+                try:
+                    is_collected = self.is_collected = biliapis.video.is_collected(avid=avid)
+                except biliapis.BiliError as e:
+                    if e.code != -101:
+                        raise
+                if is_collected:
+                    self.task_queue.put_nowait(lambda:self.button_collect.set(imglib.collect_sign))
+                self.task_queue.put_nowait(lambda:self.button_collect.configure(state='normal'))
+            start_new_thread(check_like,(data['avid'],))
+            start_new_thread(check_coin,(data['avid'],data['is_original']))
+            start_new_thread(check_collect(data['avid'],))
+            self.task_queue.put_nowait(lambda:self.button_like.bind('<Button-3>',self._like_button_right_click))
+            self.task_queue.put_nowait(lambda:self.button_toview.configure(state='normal'))
+                
+        start_new_thread(load,())
 
     def fill_recommends(self,page=1):#在加载完成后第一次调用时传入-1
         if not self.obj_rec:
@@ -2218,11 +2448,13 @@ class CommonVideoWindow(Window):
                 self.task_queue.put_nowait(lambda w=o_[2],t=self.recommend[c_]['title']:o_.append(cusw.ToolTip(w,text=t)))
                 self.task_queue.put_nowait(lambda w=o_[3],t='%s\nUID%s'%(self.recommend[c_]['uploader']['name'],self.recommend[c_]['uploader']['uid']):
                                            o_.append(cusw.ToolTip(w,text=t)))
-                self.task_queue.put_nowait(lambda w=o_[4],t='%s\nav%s\n播放: %s\n弹幕: %s\n评论: %s'%(self.recommend[c_]['bvid'],
-                                                                                                self.recommend[c_]['avid'],
-                                                                                                self.recommend[c_]['stat']['view'],
-                                                                                                self.recommend[c_]['stat']['danmaku'],
-                                                                                                self.recommend[c_]['stat']['reply']):o_.append(cusw.ToolTip(w,text=t)))
+                self.task_queue.put_nowait(lambda w=o_[4],t='%s\nav%s\n播放: %s\n弹幕: %s\n评论: %s'%(
+                    self.recommend[c_]['bvid'],
+                    self.recommend[c_]['avid'],
+                    self.recommend[c_]['stat']['view'],
+                    self.recommend[c_]['stat']['danmaku'],
+                    self.recommend[c_]['stat']['reply']
+                    ):o_.append(cusw.ToolTip(w,text=t)))
             c = (page-1)*self.rec_spage_objnum
             for o in self.obj_rec[page-1]:
                 if c >= len(self.recommend):
@@ -2237,6 +2469,145 @@ class CommonVideoWindow(Window):
         self.frame_rec['text'] = f'相关视频 {len(self.recommend)}个 {page}/{ttpage}页'
         self.button_rec_next['state'] = 'normal'
         self.button_rec_back['state'] = 'normal'
+
+class CollectWindow(Window):
+    def __init__(self,master,avid,lock_master=True):
+        # 需要使用到的api:
+        # biliapis.video.collect         收藏请求
+        # biliapis.login.get_login_info  获取获取当前用户uid
+        # biliapis.user.get_all_favlists 获取收藏夹列表
+        self.avid = avid
+
+        super().__init__('Collect av%s'%avid,True,True,config['alpha'],master=master)
+        w = self.window
+        w.attributes('-toolwindow',1)
+        self.add_mlids = []
+        self.del_mlids = []
+        self.is_collected = None
+        self.all_favlists = None # 存放获取到的数据
+        # 滚动框架(竖直)
+        self._frame_main = cusw.VerticalScrolledFrame(self.window,height=300)
+        self._frame_main.grid(column=0,row=0)
+        self.frame_main = self._frame_main.inner_frame
+        ttk.Separator(self.frame_main,orient='horizontal').grid(ipadx=200,sticky='we',column=0,row=0)
+        self.widgets_list = [] # 列表套列表套组件, 组件填充由另一个函数完成
+        # overlayer: "加载中"
+        self.label_overlayer = tk.Label(self.window,text='加载中',font=50)
+        self.label_overlayer.grid(column=0,row=0) # 与 main frame 同处一个grid单元中, 目的是覆盖于其上
+        # 确认/取消按钮
+        fc = self.frame_controller = tk.Frame(self.window)
+        fc.grid(column=0,row=1)
+        be = self.button_ensure = ttk.Button(fc,text='确定',command=self.ensure,state='disabled')
+        be.grid(column=0,row=0,padx=20)
+        bc = self.button_cancel = ttk.Button(fc,text='取消',command=self.close)
+        bc.grid(column=1,row=0,padx=20)
+        
+        ww,wh = (400,300)
+        sw,sh = (w.winfo_screenwidth(),w.winfo_screenheight())
+        self.window.geometry('+%d+%d'%((sw-ww)/2,(sh-wh)/2))
+
+        self.check_schedule = None
+        start_new_thread(self.load_data)
+
+        mst_orig_state = master.attributes('-disabled')
+        mst_orig_tpmst = master.attributes('-topmost')
+        if lock_master:
+            master.attributes('-disabled',1)
+        self.mainloop()
+        master.attributes('-disabled',mst_orig_state)
+        master.attributes('-topmost',0)
+        master.attributes('-topmost',1)
+        master.attributes('-topmost',mst_orig_tpmst)
+
+    # 丢子线程里跑
+    def load_data(self):
+        try:
+            if not biliapis.login.get_csrf(biliapis.requester.cookies):
+                raise biliapis.BiliError(-101,'账号未登录')
+            uid = biliapis.login.get_login_info()['uid']
+            afl = self.all_favlists = biliapis.user.get_all_favlists(uid,avid=self.avid)['list']
+        except Exception as e:
+            self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','加载数据失败：\n'+str(e),parent=self.window))
+            self.task_queue.put_nowait(self.close)
+            return
+        else:
+            self.task_queue.put_nowait(lambda data=afl:self.fill_main_frame(data))
+        
+    def ensure(self):
+        orig_states = [i['fav_state'] for i in self.all_favlists]
+        new_states = [i[1].get() for i in self.widgets_list]
+        for i in range(len(orig_states)):
+            mlid = self.all_favlists[i]['mlid']
+            if orig_states[i] and not new_states[i]:
+                self.del_mlids.append(mlid)
+            elif not orig_states[i] and new_states[i]:
+                self.add_mlids.append(mlid)
+        start_new_thread(self.collect_process)
+
+    # 丢子线程里跑
+    def collect_process(self):
+        if not self.add_mlids and not self.del_mlids:
+            self.task_queue.put_nowait(lambda:msgbox.showerror('','没有对收藏夹做任何更改',parent=self.window))
+            return
+        self.task_queue.put_nowait(lambda:(
+            self.button_ensure.configure(state='disabled'),
+            self.button_cancel.configure(state='disabled'),
+            self.label_overlayer.configure(text='正在执行操作'),
+            self.label_overlayer.grid()
+            ))
+        csrf = biliapis.login.get_csrf(biliapis.requester.cookies)
+        try:
+            if not csrf:
+                raise biliapis.BiliError(-101,'账号未登录')
+            biliapis.video.collect(csrf,self.avid,self.add_mlids,self.del_mlids)
+            self.is_collected = biliapis.video.is_collected(avid=self.avid)
+        except Exception as e:
+            self.task_queue.put_nowait(lambda e=e:msgbox.showerror('','无法执行收藏操作：\n'+str(e),parent=self.window))
+        finally:
+            self.task_queue.put_nowait(self.close)
+
+    def check(self):
+        orig_states = [i['fav_state'] for i in self.all_favlists]
+        new_states = [i[1].get() for i in self.widgets_list]
+        if orig_states == new_states:
+            self.button_ensure['state'] = 'disabled'
+        else:
+            self.button_ensure['state'] = 'normal'
+        self.check_schedule = self.window.after(50,self.check)
+        
+    def fill_main_frame(self,favlists):
+        wl = self.widgets_list
+        fm = self.frame_main
+        row = 1 # 分割线占了r0, 于是从1始计
+        for fav in favlists:
+            f = tk.Frame(fm,relief='groove',bd=1)
+            f.grid(column=0,row=row,sticky='we')
+            self._frame_main._bind_scroll_event(f)
+            # index 索引说明
+            # 0 每行的框架
+            # 1 每行的 checkbutton 的 boolvar
+            # 2 每行的 checkbutton
+            # 3 每行的标题 label
+            # 4 每行的内容数指示 label
+            # 5 每行的 mlid 指示 label
+            wl.append([f])
+            wl[-1].append(tk.BooleanVar(self.window,value=fav['fav_state']))
+            wl[-1].append(ttk.Checkbutton(f,onvalue=True,offvalue=False,text='',variable=wl[-1][1],state=(
+                                          {False:'normal',True:'disabled'}[fav['count']>=1000 and not fav['fav_state']]
+                                          )))
+            wl[-1][-1].grid(column=0,row=0,rowspan=2,padx=10,pady=10)
+            wl[-1].append(tk.Label(f,text=fav['title'],justify='left',font=20))
+            wl[-1][-1].grid(column=1,row=0,columnspan=2,sticky='w')
+            wl[-1].append(tk.Label(f,text='%s 个内容'%fav['count'],justify='left'))
+            wl[-1][-1].grid(column=1,row=1,sticky='w')
+            #wl[-1].append(tk.Label(f,text='mlid%s'%fav['mlid'],justify='right'))
+            #wl[-1][-1].grid(column=2,row=1,sticky='e')
+            for w in wl[-1][2:]:
+                self._frame_main._bind_scroll_event(w)
+            row += 1
+
+        self.label_overlayer.grid_remove()
+        self.check_schedule = self.window.after(10,self.check)
 
 class LoginWindow(Window):
     # 会直接对requester里的cookies做修改
@@ -2935,7 +3306,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
                 l += [tk.Frame(self.frame_result)]
                 l[0].grid(column=x,row=y,padx=5,pady=5)
                 l[0].grid_remove()
-                l += [cusw.ImageLabel(l[0],width=200,height=122)]
+                l += [cusw.ImageLabel(l[0],width=200,height=122,cursor='hand2')]
                 l[1].grid(column=0,row=0)
                 l += [tk.Label(l[0],text='--:--',bg='#000000',fg='#ffffff')]
                 l[2].grid(column=0,row=0,sticky='se')
@@ -3091,6 +3462,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
         return self.page,self.total_page
     
 #yeeeeee 套用模板的屑
+#没写完
 class _MediaSearchShower(cusw.VerticalScrolledFrame):
     def __init__(self,master,task_queue,media_type=0,height=400): #media_type: 0:番剧; 1:影视
         #需要传入父组件的task_queue以执行多线程任务
@@ -3279,7 +3651,7 @@ class SearchWindow(Window):
         if init_kws:
             self.search(*init_kws)
             self.entry.insert('end',' '.join(init_kws))
-        self.mainloop()
+        #self.mainloop()
 
     def _jump_page(self,event=None):
         try:

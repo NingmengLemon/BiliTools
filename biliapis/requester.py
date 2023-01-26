@@ -11,6 +11,11 @@ import logging
 import copy
 import time
 import functools
+import threading
+import traceback
+import contextlib
+import queue
+import math
 
 import brotli
 
@@ -31,7 +36,8 @@ fake_headers_get = {
 }
 
 fake_headers_post = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43',
+    'Referer':'https://www.bilibili.com/'
     }
 
 
@@ -119,41 +125,35 @@ def global_config(use_cookie=True,use_proxy=None):
 
 @auto_retry(retry_time)
 def _get_response(url, headers=fake_headers_get):
-    # install cookies
-
-    response = opener.open(
-        request.Request(url, headers=headers), None, timeout=timeout
-    )
-
-    data = response.read()
-    if response.info().get('Content-Encoding') == 'gzip':
-        data = _ungzip(data)
-    elif response.info().get('Content-Encoding') == 'deflate':
-        data = _undeflate(data)
-    elif response.info().get('Content-Encoding') == 'br':
-        data = _unbrotli(data)
-    response.data = data
-    logging.debug('Get Response from: '+url)
-    return response
+    with opener.open(request.Request(url, headers=headers), None, timeout=timeout) as response:
+        data = response.read()
+        if response.info().get('Content-Encoding') == 'gzip':
+            data = _ungzip(data)
+        elif response.info().get('Content-Encoding') == 'deflate':
+            data = _undeflate(data)
+        elif response.info().get('Content-Encoding') == 'br':
+            data = _unbrotli(data)
+        response.data = data
+        logging.debug('Get Response from: '+url)
+        return response
 
 @auto_retry(retry_time)
 def _post_request(url,data,headers=fake_headers_post):
-    
     params = parse.urlencode(data).encode()
-    response = opener.open(request.Request(url,data=params,headers=headers), timeout=timeout)
-    data = response.read()
-    if response.info().get('Content-Encoding') == 'gzip':
-        data = _ungzip(data)
-    elif response.info().get('Content-Encoding') == 'deflate':
-        data = _undeflate(data)
-    elif response.info().get('Content-Encoding') == 'br':
-        data = _unbrotli(data)
-    response.data = data
-    if len(str(params)) <= 50:
-        logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
-    else:
-        logging.debug('Post Data to {} with a very long params'.format(url))
-    return response
+    with opener.open(request.Request(url,data=params,headers=headers), timeout=timeout) as response:
+        data = response.read()
+        if response.info().get('Content-Encoding') == 'gzip':
+            data = _ungzip(data)
+        elif response.info().get('Content-Encoding') == 'deflate':
+            data = _undeflate(data)
+        elif response.info().get('Content-Encoding') == 'br':
+            data = _unbrotli(data)
+        response.data = data
+        if len(params) <= 100:
+            logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
+        else:
+            logging.debug('Post Data to {} with a very long params'.format(url))
+        return response
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
     content = _post_request(url,data,headers).data
@@ -178,7 +178,8 @@ def get_content_bytes(url, headers=fake_headers_get):
     return content
 
 def get_redirect_url(url,headers=fake_headers_get):
-    return _get_response(url=url, headers=headers).geturl()
+    with opener.open(request.Request(url, headers=headers), None, timeout=timeout) as rsp:
+        return rsp.geturl()
 
 #Cookie Operation
 def clear_cookies():
@@ -236,6 +237,174 @@ def convert_size(size):#单位:Byte
     size /= 1024
     return '%.2f GB'%size
 
+class _DownloadThread(threading.Thread):
+    def __init__(self,url,file,datarange=None,headers=fake_headers_get,buffer_size=1024*8):
+        self.url = url
+        self.file = file
+        self.range = datarange
+        self.buffer_size = buffer_size
+        self.headers = headers.copy()
+        self.downloaded_size = 0
+        self.exception = None
+        self.traceback_info = None
+        self.expected_size = -1
+        super().__init__()
+        self.setDaemon(True)
+
+    def run(self):
+        try:
+            self._download()
+        except Exception as e:
+            self.exception = e
+            self.traceback_info = traceback.format_exc()
+            raise e
+        else:
+            pass
+
+    def _download(self):
+        if self.range:
+            s,e = self.range
+            self.headers['Range'] = f'bytes={s}-{e}'
+            self.expected_size = e-s+1
+        else:
+            self.expected_size = -1
+        with contextlib.closing(opener.open(request.Request(self.url,headers=self.headers),timeout=timeout)) as fp_web: #网络文件
+            host = fp_web.geturl().split('/')[2]
+            web_headers = fp_web.info()
+            if self.expected_size == -1 and 'content-length' in web_headers:
+                self.expected_size = int(fp_web.getheader('content-length'))
+                self.range = (0,self.expected_size-1)
+            logging.debug('[{}]Start fetching data, host={}, range={}, code={}'.format(self.name,
+                                                                                       host,
+                                                                                       str(self.range),
+                                                                                       fp_web.getcode()
+                                                                                       ))
+            write_mode = 'wb+'
+            with open(self.file,write_mode) as fp_local: #本地文件
+                while True:
+                    data = fp_web.read(self.buffer_size)
+                    if not data:
+                        break
+                    fp_local.write(data)
+                    self.downloaded_size += len(data)
+        if self.expected_size >= 0 and self.downloaded_size < self.expected_size:
+            raise request.ContentTooShortError("retrieval incomplete: got only %i out of %i bytes"%(
+                self.downloaded_size,self.expected_size),(self.file,web_headers))
+
+# 测试用url：https://dldir1.qq.com/qqfile/qq/PCQQ9.7.1/QQ9.7.1.28934.exe
+# 首先预请求，得到headers里的content-length,accept-ranges等参数
+# 然后创建临时任务文件夹，位于目标目录下
+# 临时文件夹里存在一个downloaded_data_info.json，里面存放已下载数据文件的索引信息
+# 分配任务区间，默认每个线程50MB，同时进行线程数5
+# 创建多个任务对象存待做列表里
+class MultithreadDownloader(object):
+    def __init__(url,file,headers=fake_headers_get,block_size=50*1024*1024,max_thread_num=5):
+        self.url = url
+        self.file = file
+        self.headers = headers.copy()
+        self.strategy = 0 # 0:未定, 1:单线程, 2:多线程
+        self.expected_size = -1
+        self.block_size = block_size
+        self.max_thread_num = max_thread_num
+
+        self.block_files = []
+        self.not_started = queue.Queue()
+        self.running = []
+        self.done = []
+
+        self.progress = {
+            'done':-1,
+            'total':-1,
+            'bps':0, # bytes per second
+            'status':0, # 0:未开始,1:进行中,2:成功,3:失败
+            'msg':''
+            }
+        self._last_report = (0,time.time()) # bytes, second
+
+    def distribute_ranges(self,total_size,block_size):
+        block_num = math.ceil(total_size/block_size)
+        ranges = []
+        i = 0
+        for i in range(0,block_num):
+            ranges += [(i*block_size,(i+1)*block_size-1)]
+        ranges[i] = (i*block_size,total_size-1)
+        return ranges
+
+    def pre_request(self,strategy=None):
+        with contextlib.closing(opener.open(request.Request(self.url,headers=self.headers),timeout=timeout)) as fp:
+            if fp.getheader('accept-ranges') == 'bytes':
+                if strategy in [None,2]:
+                    self.strategy = 2
+                else:
+                    self.strategy = 1
+            else:
+                self.strategy = 1
+                logging.debug('Range operation is not supported, using single thread')
+            cl = fp.getheader('content-length')
+            if cl:
+                self.expected_size = int(cl)
+            if self.expected_size <= 1.2*self.block_size and self.strategy == 2 and self.expected_size >= 0:
+                self.strategy = 1
+                logging.debug('File size is close to block size, using single thread')
+            if self.expected_size == -1 and self.strategy == 2:
+                self.strategy = 1
+                logging.debug('Unknown file size, using single thread')
+
+    def start(self,strategy=None):
+        self.pre_request(strategy)
+        self._last_report = (0,time.perf_counter())
+        if self.strategy == 2:
+            self.main_multi()
+        elif self.strategy in [0,1]:
+            self.main_single()
+
+    def main_single(self): # 丢子线程里跑
+        thread = _DownloadThread(self.url,self.file)
+        thread.start()
+        is_alive = True
+        while is_alive:
+            self.report_progress()
+            time.sleep(0.1)
+            is_alive = thread.is_alive()
+
+    def main_multi(self): #丢子线程里跑
+        pass
+
+    def merge_files(self,main_file,*files,delete=True):
+        chunk_size = 1*1024*1024
+        with open(main_file,'wb+') as f:
+            for file in files:
+                with open(file,'rb') as tf:
+                    while True:
+                        data = tf.read(chunk_size)
+                        if data:
+                            f.write(data)
+                        else:
+                            break
+                if delete:
+                    os.remove(file)
+
+    def report_progress(self,done,total,status,msg=None):
+        self.progress['done'] = done
+        self.progress['total'] = total
+        self.progress['status'] = status
+        if msg:
+            self.progress['msg'] = msg
+        try:
+            s1,t1 = self._last_report
+            s2,t2 = done,time.perf_counter()
+            self.progress['bps'] = round((t2-t1)/(s2-s1))
+            self._last_report = (s2,t2)
+        except:
+            pass
+
+def download_yield_experiment(url,filename=None,path='./',headers=fake_headers_get):
+    if filename:
+        pass
+    else:
+        filename = url.split('/')[-1]
+    file = os.path.join(os.path.abspath(path),_replaceChr(filename))
+
 def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
     if os.path.exists(file):
@@ -278,7 +447,7 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
                             if not data:
                                 break
                             fp_local.write(data)
-                            done_size += chunk_size
+                            done_size += len(data)
                             yield done_size,total_size,round(done_size/total_size*100,2)
             except Exception as e:
                 raise e
@@ -291,18 +460,6 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
         os.rename(tmpfile,file)
         yield total_size,total_size,100.00
 
-def _join_files(main_file,*files,delete=False):
-    chunk_size = 1*1024*1024
-    with open(main_file,'wb+') as f:
-        for file in files:
-            with open(file,'rb') as tf:
-                while True:
-                    data = tf.read(chunk_size)
-                    if data:
-                        f.write(data)
-                    else:
-                        break
-            if delete:
-                os.remove(file)
+
 
 global_config()

@@ -35,7 +35,7 @@ class Window(object):#程序中所有常规窗口的父类
                 func()
             except Exception as e:
                 logging.error('Task Listener Caught an Error: '+str(e))
-                raise e
+                #raise e
         if self.task_queue.empty():
             self.window.after(10,self.listen_task)
         else:

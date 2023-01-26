@@ -5,7 +5,7 @@ from http import cookiejar
 import copy
 import time
 
-__all__ = ['dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
+__all__ = ['get_csrf','dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
 
 def dict_from_cookiejar(cj):
     cookie_dict = {}
@@ -14,6 +14,13 @@ def dict_from_cookiejar(cj):
         cookie_dict[cookie.name] = cookie.value
 
     return cookie_dict
+
+def get_csrf(cj): # 因为csrf比较常用, 所以单独抠出来做一个函数
+    if cj:
+        cjdict = dict_from_cookiejar(cj)
+        if 'bili_jct' in cjdict:
+            return cjdict['bili_jct']
+    return None
 
 def get_login_url():
     api = 'https://passport.bilibili.com/qrcode/getLoginUrl'
@@ -86,9 +93,9 @@ def check_login():
 def exit_login():
     if not requester.cookies:
         raise RuntimeError('CookiesJar not Loaded.')
-    cookiesdict = dict_from_cookiejar(requester.cookies)
-    if 'bili_jct' in cookiesdict:
-        data = requester.post_data_str('https://passport.bilibili.com/login/exit/v2',{'biliCSRF':cookiesdict['bili_jct']})
+    csrf = get_csrf(requester.cookies)
+    if csrf:
+        data = requester.post_data_str('https://passport.bilibili.com/login/exit/v2',{'biliCSRF':csrf})
         if '请先登录' in data:
             raise BiliError('NaN','Haven\'t Logined Yet.')
         else:

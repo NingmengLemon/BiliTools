@@ -9,7 +9,7 @@ from tkinter import messagebox as msgbox
 import logging
 
 __all__ = ['tkImg','ImageButton','ImageLabel','ToolTip','VerticalScrolledFrame',
-           'run_with_gui']
+           'run_with_gui','bubble','msgbox_askchoice']
 
 def tkImg(file=None,scale=1,size=()):
     if file:
@@ -348,4 +348,91 @@ def run_with_gui(func,args=(),kwargs={},master=None,is_progress_hook_available=F
     thread = Thread_with_gui(func,args,kwargs,master,is_progress_hook_available,is_task_queue_available,no_window)
     thread.mainloop()
     return thread.return_value
+
+def bubble(widget,text,start_alpha=1.0,pause_time=1000,fade_out_time=100,execute_time=20,offset=(0,-20)): # ms
+    w = tk.Toplevel(widget)
+    w.overrideredirect(1)
+    w.configure(takefocus=0)
+    w.resizable(False,False)
+    w.attributes('-topmost',1,'-alpha',start_alpha)
+    x,y = widget.winfo_rootx()+offset[0],widget.winfo_rooty()+offset[1]
+    w.geometry(f'+{x}+{y}')
+    l = tk.Label(w,text=text,background='#ffffff',
+                 justify='left',relief='solid',
+                 borderwidth=1)
+    l.grid()
+    def update(ext,wtt,x,y): # 执行次数, 等待时间
+        alpha = w.attributes('-alpha')
+        alpha -= start_alpha/ext
+        if ext < 0 or w.attributes('-alpha') <= 0:
+            w.destroy()
+            return
+        else:
+            w.attributes('-alpha',alpha)
+            y = y - 1
+            w.geometry(f'+{x}+{y}')
+            w.after(wtt,lambda t=ext-1,x=x,y=y:update(t,wtt,x,y))
+    w.after(pause_time,lambda:update(execute_time,int(fade_out_time/execute_time),x,y))
+    w.wait_window(w)
+
+def coor_in_root_window(widget):
+    '''
+    返回组件在根窗口中的位置
+    如果需要组件在屏幕中的位置只需使用 widget.winfo_rootx(或y)()
+    虽然项目中没有实际使用, 但万一哪天用上了呢(
+    '''
+    def gc(wid,coor=(0,0)):
+        try:
+            wi = wid.grid_info()
+        except AttributeError:
+            return coor
+        else:
+            x,y = coor
+            x += wi['in'].winfo_x()
+            y += wi['in'].winfo_y()
+            coor = (x,y)
+            return gc(wi['in'],coor)
+    x,y = gc(widget)
+    return x,y
+
+class _CustomMsgbox(object):
+    def __init__(self,master,title,text,buttons={'是':True,'否':False},lock_master=True):
+        self.return_value = None
+        self.window = w = tk.Toplevel(master)
+        w.title(title)
+        w.resizable(False,False)
+        w.attributes('-toolwindow',1,'-topmost',1)
+        w.protocol('WM_DELETE_WINDOW',w.destroy)
+        
+        self.label = l = tk.Label(w,text=text,justify='left')
+        l.grid(column=0,row=0,pady=10,padx=10,columnspan=len(buttons))
+        col,row = 0,1
+        self.buttons = []
+        for bt,rv in buttons.items():
+            self.buttons.append(ttk.Button(w,text=bt,command=lambda rev=rv:self.make_choice(rev)))
+            self.buttons[-1].grid(column=col,row=row,padx=5,pady=5)
+            col += 1
+
+        ww,wh = (w.winfo_reqwidth(),w.winfo_reqheight())
+        sw,sh = (w.winfo_screenwidth(),w.winfo_screenheight())
+        self.window.geometry('+%d+%d'%((sw-ww)/2,(sh-wh)/2))
+
+        orgstate = master.attributes('-disabled')
+        if lock_master:
+            master.attributes('-disabled',1)
+        w.wait_window(w)
+        master.attributes('-disabled',orgstate)
+        org_topm = master.attributes('-topmost')
+        master.attributes('-topmost',1)
+        master.attributes('-topmost',0)
+        master.attributes('-topmost',org_topm)
+
+    def make_choice(self,return_value):
+        self.return_value = return_value
+        self.window.destroy()
+
+def msgbox_askchoice(master,title,text,buttons={'是':True,'否':False}):
+    w = _CustomMsgbox(master,title,text,buttons)
+    return w.return_value
+
 run_with_gui.__doc__ = Thread_with_gui.__init__.__doc__
