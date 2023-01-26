@@ -3,8 +3,10 @@ from . import requester
 from . import bilicodes
 from urllib import parse
 import json
+from .video import _video_detail_handler
 
-__all__ = ['search','get_info','get_favlist']
+__all__ = ['search','get_info','get_favlist','get_all_favlists',
+           'get_liveroom','get_toview']
 
 def get_liveroom(uid):
     api = 'http://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?'\
@@ -130,3 +132,79 @@ def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
         return res
     else:
         error_raiser('NaN','收藏夹无效')
+
+def get_all_favlists(uid,avid=None):
+    '''
+    获取指定用户的所有收藏夹的id,
+    同时可指示指定视频是否存在于某个收藏夹中
+    '''
+    api = 'https://api.bilibili.com/x/v3/fav/folder/created/list-all'
+    api += f'?up_mid={uid}'
+    if avid:
+        api += f'&rid={avid}'
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    if not data:
+        error_raiser('NaN','收藏夹无效')
+    res = {
+        'count':data['count'], # 收藏夹计数
+        'list':[]
+        }
+    for fav in data['list']:
+        res['list'].append({
+            'mlid':fav['id'], # 完整id, =fid+uid后两位
+            'fid':fav['fid'], # 原始id
+            'uid':fav['mid'], # 创建者uid
+            'title':fav['title'],
+            'fav_state':bool(fav['fav_state']), # 指定的avid是否在收藏夹里
+            'count':fav['media_count'] # 内容计数
+            })
+    return res
+
+def get_toview():
+    api = 'https://api.bilibili.com/x/v2/history/toview'
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    res = {
+        'count':data['count'], # 计数
+        'list':[]
+        }
+    for v in data['list']:
+        res['list'].append({
+            'bvid':v['bvid'],
+            'avid':v['aid'],
+            'cid':v['cid'],
+            'zone':v['tname'],
+            'zone_id':int(v['tid']),
+            'part_number':v['videos'],
+            'picture':v['pic'],
+            'title':v['title'],
+            'date_publish':v['pubdate'], # timestamp, s
+            'date_upload':v['ctime'], # timestamp, s
+            'description':v['desc'],
+            'state':v['state'], # see .bilicodes.video_states
+            'length':v['duration'], # 总时长, second
+            'uploader':{
+                'uid':v['owner']['mid'],
+                'name':v['owner']['name'],
+                'face':v['owner']['face']
+                },
+            'stat':{
+                'view':v['stat']['view'],
+                'danmaku':v['stat']['danmaku'],
+                'reply':v['stat']['reply'],
+                'collect':v['stat']['favorite'],
+                'coin':v['stat']['coin'],
+                'share':v['stat']['share'],
+                'like':v['stat']['like'],
+                'rank_now':v['stat']['now_rank'],
+                'rank_his':v['stat']['his_rank']
+                },
+            'add_time':v['add_at'], # timestamp, s
+            'watch_prg':v['progress'] # 观看进度, s
+            })
+    return res
