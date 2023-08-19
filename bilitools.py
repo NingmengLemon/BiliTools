@@ -117,6 +117,13 @@ biliapis.requester.load_local_cookies()
 
 rgb2hex = lambda r,g,b:'#{:0>6s}'.format(str(hex((r<<16)+(g<<8)+b))[2:])
 
+def remove_repeat(l):
+    l_ = []
+    for i in l:
+        if i not in l_:
+            l_.append(i)
+    return l_
+
 def apply_proxy_config():
     if config['proxy']['enabled']:
         if config['proxy']['port'] == None:
@@ -1147,7 +1154,7 @@ class MainWindow(Window):
             try:
                 self._fast_download(*biliapis.parse_url(source))
             except Exception:
-                msgbox.showerror('在尝试快速下载时出现了错误：\n'+traceback.format_exc(),parent=self.window)
+                msgbox.showerror('','在尝试快速下载时出现了错误：\n'+traceback.format_exc(),parent=self.window)
                 raise
 
     def _fast_download(self,source,flag):
@@ -1985,9 +1992,9 @@ class CommonVideoWindow(Window):
                     biliapis.video.like(token,self.video_data['avid'],opt=1)
             except Exception as e:
                 if cancel:
-                    self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法完成点赞：\n'+str(e_),parent=self.window))
-                else:
                     self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法取消点赞：\n'+str(e_),parent=self.window))
+                else:
+                    self.task_queue.put_nowait(lambda e_=e:msgbox.showerror('','无法完成点赞：\n'+str(e_),parent=self.window))
             else:
                 if cancel:
                     self.is_liked = False
@@ -3690,6 +3697,17 @@ class SearchWindow(Window):
     def set_nb_state(self,nb,state='normal'):
         for i in range(len(nb.tabs())):
             nb.tab(i,state=state)
+
+# 互动视频剧情图展示器, 虽然写得依托答辩但还是放上来吧
+# 还在plot_drawer.py里做完善
+# 原本还打算做另一个生成模式, 但越写越乱所以还是算了罢
+# 正在做交互
+# 测试用↓
+# (957032264,'BV1zY411177B')
+# (245682070,'BV1UE411y7Wy')
+# (512487448,'BV1Du411Q7jf')
+class PlotShower(Window):
+    pass
 
 def main():
     load_config()
