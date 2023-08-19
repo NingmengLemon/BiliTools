@@ -8,8 +8,9 @@ import ctypes
 __all__ = ['Window']
 
 try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    #ctypes.windll.shcore.SetProcessDpiAwareness(2)
     #ScaleFactor = ctypes.windll.shcore.GetScaleFactorForDevice(0)
+    pass
 except:
     pass
 
