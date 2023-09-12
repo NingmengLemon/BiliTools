@@ -173,6 +173,9 @@ def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
         data = remove_emoji(data)
     return data
 
+def get_content_json(**options):
+    return json.loads(get_content_str(**options))
+
 def get_content_bytes(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return content

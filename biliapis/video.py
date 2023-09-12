@@ -495,15 +495,16 @@ def get_interact_edge_info(graph_id,avid=None,bvid=None,edge_id=0):
             'avid':p['aid'],
             'cid':p['cid']
             })
-    for v in d['hidden_vars']:
-        res['vars'].append({
-            'value':v['value'],
-            'id_v1':v['id'],
-            'id_v2':v['id_v2'], # 运算语句中更常用
-            'is_random':(v['type']==2), # 是否是随机数
-            'display':bool(v['is_show']), # 是否展示
-            'name':v['name'],
-            })
+    if 'hidden_vars' in d:
+        for v in d['hidden_vars']:
+            res['vars'].append({
+                'value':v['value'],
+                'id_v1':v['id'],
+                'id_v2':v['id_v2'], # 运算语句中更常用
+                'is_random':(v['type']==2), # 是否是随机数
+                'display':bool(v['is_show']), # 是否展示
+                'name':v['name'],
+                })
     for s in d['story_list']:
         res['story_list'].append({
             'edge_id':s['edge_id'],

@@ -87,14 +87,15 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,
             'url_backup':au['backupUrl'],
             'codec':au['codecs'],
             })
-    flac = data['dash']['flac']
-    if flac:
-        audio.append({
-            'quality':flac['audio']['id'],
-            'url':flac['audio']['base_url'],
-            'url_backup':flac['audio']['backup_url'], #list
-            'codec':flac['audio']['codecs']
-            })
+    if 'flac' in data['dash']:
+        flac = data['dash']['flac']
+        if flac:
+            audio.append({
+                'quality':flac['audio']['id'],
+                'url':flac['audio']['base_url'],
+                'url_backup':flac['audio']['backup_url'], #list
+                'codec':flac['audio']['codecs']
+                })
     video = []
     for vi in data['dash']['video']:
         video.append({
