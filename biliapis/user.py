@@ -1,6 +1,7 @@
 from .error import error_raiser,BiliError
 from . import requester
 from . import bilicodes
+from . import wbi
 from urllib import parse
 import json
 from .video import _video_detail_handler
@@ -68,7 +69,11 @@ def search(*keywords,page=1,order='0',order_sort=0,user_type=0):
     return result
 
 def get_info(uid):
-    api = 'https://api.bilibili.com/x/space/acc/info?mid=%s'%uid
+    api = 'https://api.bilibili.com/x/space/wbi/acc/info'
+    params = {
+        'mid':uid
+        }
+    api += '?'+urllib.parse.urlencode(wbi.sign(params))
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
