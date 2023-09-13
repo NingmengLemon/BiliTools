@@ -36,7 +36,7 @@ import ffdriver
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev15'
+version = '2.0.0_Dev16'
 work_dir = os.getcwd()
 user_name = os.getlogin()
 inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
@@ -582,10 +582,13 @@ class DownloadManager(object):
     def task_receiver(self,mode,path,data=None,**options):
         '''mode: 下载模式, 必须从video/audio/common里选一个.
 path: 输出位置
-若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid],
--附加参数: audiostream_only,audio_format,quality(如不指定后两者则从config中读取),subtitle,danmaku,subtitle_regulation
+若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid]
+↑若指定了avid/bvid并且此视频为互动视频, 则需[提交为真值的is_interact参数] 并 [手动传入cid 并且 [同时传入graph_id和edge_id或传入data]]
+↑此时data传入的是由biliapis.video.get_interact_edge_info()获取的数据, 并可以再传入一个视频数据的video_data来避免大批量下载时的重复请求
+#实在想不到能够怎样一次性处理多个互动视频剧情节点了
+-附加参数: audiostream_only,(如不指定往后的参数则会从config中读取),audio_format,quality,subtitle,danmaku,subtitle_regulation
 #弹幕过滤列表因为太长所以直接由线程从config中读取
--avid/bvid专用附加参数:pids(分P索引列表,可为空)
+-avid/bvid专用附加参数:pids(分P索引列表,可为空) 或 cids(cid列表,给互动视频用的,优先级>前面那个)
 -mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
 -可选参数: data, 传入预请求的数据包(dict), 避免再次请求
 --section_index不指定时, epindexes指正片内的索引; 超出索引范围操作无效
@@ -602,58 +605,116 @@ path: 输出位置
             if mode == 'video':
                 #普通视频
                 if 'avid' in options or 'bvid' in options:
-                    video_data = None
-                    try:
-                        if data:
-                            #提取预处理数据包
-                            if 'avid' in options:
-                                assert options['avid']==data['avid'],'预请求数据包内容不匹配'
-                            else:
-                                assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
-                            video_data = data
-                        else:
-                            #提取avid/bvid
-                            if 'avid' in options:
-                                video_data = biliapis.video.get_detail(avid=options['avid'])
-                            else:
-                                video_data = biliapis.video.get_detail(bvid=options['bvid'])
-                    except Exception as e:
-                        if is_mainthread:
-                            msgbox.showerror('',str(e),parent=self.window)
-                            return
-                        else:
-                            raise e
-                    #提取分P索引列表
-                    if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
-                        pids = options['pids']
+                    abvid = {'avid':None,'bvid':None}
+                    if 'avid' in options:
+                        abvid['avid'] = options['avid']
                     else:
-                        pids = []
-                    if not pids:
-                        pids = list(range(0,len(video_data['parts'])))
-                    #选项预处理
-                    pre_opts = {}
-                    pre_opts['audio_format'] = config['download']['video']['audio_convert']
-                    pre_opts['quality'] = config['download']['video']['quality']
-                    pre_opts['subtitle'] = config['download']['video']['subtitle']
-                    pre_opts['danmaku'] = config['download']['video']['danmaku']
-                    pre_opts['subtitle_regulation'] = config['download']['video']['subtitle_lang_regulation']
-                    pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
-                    for key in ['audiostream_only','quality','subtitle','danmaku','subtitle_regulation','convert_danmaku']:#过滤download_thread不需要的, 防止出错
-                        if key in options:
-                            pre_opts[key] = options[key]
-                    pre_opts['bvid'] = video_data['bvid']
-                    pre_opts['path'] = path
-                    #分发任务
-                    for pid in pids:
-                        if pid < len(video_data['parts']) and pid >= 0:
-                            part = video_data['parts'][pid]
-                            tmpdict = copy.deepcopy(pre_opts)
-                            tmpdict['cid'] = part['cid']
-                            tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
-                            tmpdict['index'] = len(self.data_objs)
-                            self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                            self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
-                            self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
+                        abvid['bvid'] = options['bvid']
+                    # 互动视频判定
+                    is_interact = False
+                    if 'is_interact' in options:
+                        if options['is_interact']:
+                            is_interact = True
+                    if is_interact:
+                        edge_data = None
+                        # 特殊处理互动视频
+                        assert 'cid' in options,'提交的资源不够, 互动视频分P的解析需要cid'
+                        cid = options['cid']
+                        if 'graph_id' in options and 'edge_id' in options:
+                            edge_data = biliapis.video.get_interact_edge_info(
+                                graph_id=options['graph_id'],
+                                edge_id=options['edge_id'],
+                                **abvid
+                                )
+                        elif data:
+                            # 没有办法做验证
+                            edge_data = data
+                        else:
+                            raise AssertionError('提交的资源不够, 互动视频分P的解析需要 [graph_id和edge_id] 或 来自biliapis.video.get_interact_edge_info()的数据')
+                        if 'video_data' in options:
+                            if 'avid' in options:
+                                assert options['avid']==options['video_data']['avid'],'预请求数据包内容不匹配'
+                            else:
+                                assert options['bvid']==options['video_data']['bvid'],'预请求数据包内容不匹配'
+                            video_data = options['video_data']
+                        else:
+                            video_data = biliapis.video.get_detail(**abvid)
+
+                        pre_opts = {}
+                        pre_opts['audio_format'] = config['download']['video']['audio_convert']
+                        pre_opts['quality'] = config['download']['video']['quality']
+                        pre_opts['subtitle'] = config['download']['video']['subtitle']
+                        pre_opts['danmaku'] = config['download']['video']['danmaku']
+                        pre_opts['subtitle_regulation'] = config['download']['video']['subtitle_lang_regulation']
+                        pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
+                        for key in ['audiostream_only','quality','subtitle','danmaku','subtitle_regulation','convert_danmaku']:#过滤download_thread不需要的, 防止出错
+                            if key in options:
+                                pre_opts[key] = options[key]
+                        pre_opts['bvid'] = video_data['bvid']
+                        pre_opts['path'] = path
+                        pre_opts['cid'] = cid
+                        pre_opts['title'] = '{}_E{}_{}'.format(video_data['title'],edge_data['edge_id'],edge_data['title'])#文件名格式编辑在这里
+                        pre_opts['index'] = len(self.data_objs)
+                        self.data_objs.append([len(self.data_objs)+1,'video',pre_opts])
+                        self.table_display_list.append([
+                            str(len(self.data_objs)),video_data['title'],'E{} {}'.format(edge_data['edge_id'],edge_data['title']),'Cid'+str(cid),'','','','-',path,'待处理'
+                            ])
+                        self.task_queue.put_nowait(lambda args=pre_opts:self._video_download_thread(**args))
+                    else:
+                        # 正常处理普通视频
+                        video_data = None
+                        try:
+                            if data:
+                                #提取预处理数据包
+                                if 'avid' in options:
+                                    assert options['avid']==data['avid'],'预请求数据包内容不匹配'
+                                else:
+                                    assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
+                                video_data = data
+                            else:
+                                #提取avid/bvid
+                                video_data = biliapis.video.get_detail(**abvid)
+                                # if 'avid' in options:
+                                #     video_data = biliapis.video.get_detail(avid=options['avid'])
+                                # else:
+                                #     video_data = biliapis.video.get_detail(bvid=options['bvid'])
+                        except Exception as e:
+                            if is_mainthread:
+                                msgbox.showerror('',str(e),parent=self.window)
+                                return
+                            else:
+                                raise e
+                        #提取分P索引列表
+                        if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
+                            pids = options['pids']
+                        else:
+                            pids = []
+                        if not pids:
+                            pids = list(range(0,len(video_data['parts'])))
+                        #选项预处理
+                        pre_opts = {}
+                        pre_opts['audio_format'] = config['download']['video']['audio_convert']
+                        pre_opts['quality'] = config['download']['video']['quality']
+                        pre_opts['subtitle'] = config['download']['video']['subtitle']
+                        pre_opts['danmaku'] = config['download']['video']['danmaku']
+                        pre_opts['subtitle_regulation'] = config['download']['video']['subtitle_lang_regulation']
+                        pre_opts['convert_danmaku'] = config['download']['video']['convert_danmaku']
+                        for key in ['audiostream_only','quality','subtitle','danmaku','subtitle_regulation','convert_danmaku']:#过滤download_thread不需要的, 防止出错
+                            if key in options:
+                                pre_opts[key] = options[key]
+                        pre_opts['bvid'] = video_data['bvid']
+                        pre_opts['path'] = path
+                        #分发任务
+                        for pid in pids:
+                            if pid < len(video_data['parts']) and pid >= 0:
+                                part = video_data['parts'][pid]
+                                tmpdict = copy.deepcopy(pre_opts)
+                                tmpdict['cid'] = part['cid']
+                                tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
+                                tmpdict['index'] = len(self.data_objs)
+                                self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
+                                self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
+                                self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
                 elif 'ssid' in options or 'mdid' in options or 'epid' in options:
                     try:
                         if data:
@@ -721,6 +782,8 @@ path: 输出位置
                             self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
                             self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
                             self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
+                else:
+                    raise AssertionError('提交的资源不足, 解析视频需要avid/bvid/mdid/ssid/epid中的任意一个')
             elif mode == 'audio':
                 tmpdict = {
                     'index':len(self.data_objs),
@@ -2328,6 +2391,8 @@ class CommonVideoWindow(Window):
                     self.task_queue.put_nowait(self.close)
                     return
                 else:
+                    self.task_queue.put_nowait(lambda e=e:msgbox.showerror('意料之外的错误',str(e),parent=self.window))
+                    self.task_queue.put_nowait(self.close)
                     raise e
             opener_lambda = lambda:webbrowser.open(self.link)
             self.video_data = data
@@ -3731,8 +3796,8 @@ class PlotShower(Window):
             'plot_h':75, #plot块的高
             'empty_w':150, #横向间距
             'min_empty_h':100, #最小的纵向间距
-            'top_reserve':50, #顶部保留区域
-            'bot_reserve':50, #底部保留区域
+            'top_reserve':75, #顶部保留区域
+            'bot_reserve':75, #底部保留区域
             'toptrace_y':5, #顶部plot跳转线的起始y坐标
             'bottrace_y':-5, #底部plot跳转线的相对画布底部的起始y坐标
             'bezcurve_kp_offset':25, 
@@ -3761,7 +3826,7 @@ class PlotShower(Window):
         self.explore_callback_dict = {}
 
         self.cid_map = {} # pid: cid
-        #self.avid_map = {} # cid: avid
+        self.avid_map = {} # cid: avid
 
         super().__init__('BiliTools - PlotShower of %s'%bvid,True,config['topmost'],config['alpha'],master=master)
         w = self.window
@@ -3791,7 +3856,7 @@ class PlotShower(Window):
         self.drag_start_y = 0
         self.drag_speed_reduce = -50
         
-        # 详情区域
+        # 侧边栏区域
         self.detail_text_width = 39
         #fd = self.frame_detail = tk.Frame(w)
             # 进行一个偷梁换柱
@@ -3821,9 +3886,9 @@ class PlotShower(Window):
 ##        tqt = self.label_quescontent = tk.Text(fd)
 ##        tqt.grid()
         tl = self.label_timelimit = tk.Label(fq, text='限时 -s')
-        tl.grid(column=0,row=0)
+        tl.grid(column=0,row=0,sticky='w')
         ps = self.label_pause_or_not = tk.Label(fq, text='回答时视频会暂停')
-        ps.grid(column=0,row=1)
+        ps.grid(column=0,row=1,sticky='w')
                 # 4个选项的参数(最多4个选项)
         fos = self.frames_option = [
             [tk.LabelFrame(fq, text='选项1')],
@@ -3831,27 +3896,39 @@ class PlotShower(Window):
             [tk.LabelFrame(fq, text='选项3')],
             [tk.LabelFrame(fq, text='选项4')]
             ]
+        bdpv = self.button_downpv = ttk.Button(fd, text='下载视频')
+        bdpv.grid(column=0,row=5,sticky='w')
+        sprt = self.bar_separator = ttk.Separator(fd)
+        sprt.grid(column=0,row=6,ipadx=142)
         for i in range(len(fos)):
             fos[i][0].grid(column=0,row=2+i)
-            # 固定的提示性文本
-            tk.Label(fos[i][0], text='跳转至:').grid(column=0,row=1,sticky='w')
-            tk.Label(fos[i][0], text='进行以下变量运算:').grid(column=0,row=2,columnspan=2,sticky='w')
-            tk.Label(fos[i][0], text='满足以下条件时出现:').grid(column=0,row=4,columnspan=2,sticky='w')
             # 可变文本 存入列表 后续会根据选中的块进行修改
             fos[i] += [
-                tk.Text(fos[i][0],width=self.detail_text_width,
+                tk.Text(fos[i][0],width=self.detail_text_width, # 1
                         bg='#f0f0f0',bd=0,height=2,state='disabled'), # 选项内容
-                tk.Label(fos[i][0], text='EdgeID -'), # 点击后跳转到的edgeID
-                tk.Text(fos[i][0],width=self.detail_text_width,
+                tk.Label(fos[i][0], text='EdgeID -'), # 点击后跳转到的edgeID # 2
+                tk.Frame(fos[i][0]) # 3 !
+                ]
+            fos[i] += [
+                tk.Text(fos[i][3],width=self.detail_text_width, # 4
                         bg='#f0f0f0',bd=0,height=5,state='disabled'), # 点击后执行的运算语句们 用\n分割
-                tk.Text(fos[i][0],width=self.detail_text_width,
+                tk.Frame(fos[i][0]) # 5 !
+                ]
+            fos[i] += [
+                tk.Text(fos[i][5],width=self.detail_text_width, # 6
                         bg='#f0f0f0',bd=0,height=2,state='disabled'), # 选项出现的条件
                 ]
             # index 0 是容纳以上组件的框架
-            fos[i][1].grid(column=0,row=0,columnspan=2,sticky='w')
+            fos[i][1].grid(column=0,row=0,sticky='w',columnspan=2)
             fos[i][2].grid(column=1,row=1,sticky='w')
-            fos[i][3].grid(column=0,row=3,columnspan=2,sticky='w')
-            fos[i][4].grid(column=0,row=5,columnspan=2,sticky='w')
+            fos[i][3].grid(column=0,row=3,sticky='w',columnspan=2)
+            fos[i][4].grid(column=0,row=1)
+            fos[i][5].grid(column=0,row=5,sticky='w',columnspan=2)
+            fos[i][6].grid(column=0,row=1)
+            # 固定的提示性文本
+            tk.Label(fos[i][0], text='跳转至:').grid(column=0,row=1,sticky='w')
+            tk.Label(fos[i][3], text='进行以下变量运算:').grid(column=0,row=0,sticky='w')
+            tk.Label(fos[i][5], text='满足以下条件时出现:').grid(column=0,row=0,sticky='w')
         
         # Overlayer区域
         fo = self.frame_overlayer = tk.Frame(w)
@@ -3909,6 +3986,7 @@ class PlotShower(Window):
         self.label_title['text'] = data['title']
         if pid in self.cid_map:
             self.label_cid['text'] = 'cID %s'%self.cid_map[pid]
+        self.button_downpv['command'] = lambda pid_=pid:self.download_plot(pid=pid_,audio_only=False)
         q = data['question']
         if q:
             self.frame_question.grid()
@@ -3937,8 +4015,16 @@ class PlotShower(Window):
                 fos[i][0]['text'] = l
                 self.set_text(fos[i][1],lock=True,text=c['text'])
                 fos[i][2]['text'] = 'EdgeID %d'%c['jump_edge_id']
-                self.set_text(fos[i][3],lock=True,text='\n'.join(c['var_operations']))
-                self.set_text(fos[i][4],lock=True,text=c['appear_condition'])
+                if c['var_operations']:
+                    self.set_text(fos[i][4],lock=True,text='\n'.join(c['var_operations']))
+                    fos[i][3].grid()
+                else:
+                    fos[i][3].grid_remove()
+                if c['appear_condition']:
+                    self.set_text(fos[i][6],lock=True,text=c['appear_condition'])
+                    fos[i][5].grid()
+                else:
+                    fos[i][5].grid_remove()
                 
             else:
                 fos[i][0].grid_remove()
@@ -3947,9 +4033,17 @@ class PlotShower(Window):
         i1,i2 = self.explored_plot_ids[pid]
         data = self.plots[i1][i2]
 
-    def download_plot(self,pid,audio_only=False):
+    def download_plot(self,pid,audio_only=False,button_to_lock=None):
         i1,i2 = self.explored_plot_ids[pid]
         data = self.plots[i1][i2]
+        cid = self.cid_map[pid]
+        if button_to_lock:
+            button_to_lock['state'] = 'disabled'
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            download_manager.task_receiver('video',path,bvid=self.bvid,is_interact=True,data=data.copy(),audiostream_only=audio_only,cid=cid)
+        if self.is_alive() and button_to_lock:
+            button_to_lock['state'] = 'normal'
 
     def _config_event(self,event=None):
         if self.sidebar_state == 'show':
@@ -4030,9 +4124,9 @@ class PlotShower(Window):
                 # 试图录入cid信息
                 for story in plot['story_list']:
                     self.cid_map[story['edge_id']] = story['cid']
-                #for part in plot['preload_parts']:
+                for part in plot['preload_parts']:
                     #self.cid_map[]
-                    #self.avid_map[part['cid']] = part['avid']
+                    self.avid_map[part['cid']] = part['avid']
                     
                 self.explored_plot_ids[plot['edge_id']] = (layer_num,i)
                 i += 1
@@ -4147,7 +4241,7 @@ class PlotShower(Window):
                             bottrace_y -= jump_y_offset
                         x_offset += jump_x_offset
         # 完成
-        self.canvas.config(scrollregion=(0,0,ttw+25,tth+top_reserve+bot_reserve))
+        self.canvas.config(scrollregion=(0,0,ttw+50,tth+top_reserve+bot_reserve))
         self._bind_scroll_event(self.canvas)
         self.canvas.bind('<Button-1>',self.click,add='+')
         self.is_drawn = True
@@ -4186,6 +4280,7 @@ class PlotShower(Window):
             self.selected_plot = (None,None)
         
     def _draw_bezcurve(self,*coors,kpnum=20,**kwargs):
+        import bezier_curve as bc
         p = []
         for i in bc.all_points(*coors,kpnum=kpnum):
             p += [*i]

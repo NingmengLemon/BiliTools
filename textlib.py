@@ -79,7 +79,7 @@ tips = [
 about_info = '\n'.join([
     'BiliTools v.{version}',
     '一些功能需要 FFmpeg 和 FFplay 的支持.',
-    'Made by: @NingmengLemon（GitHub）',
+    'Made by: @NingmengLemon (GitHub)',
     '引用开源程序: danmaku2ass',
     '更多信息可以去GitHub页面查看.',
     '---------------------------',
