@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 import logging
 import re
 import math
+import random
 
 __all__ = ['get_recommend',
            'get_tags','get_detail','search','bvid_to_avid_online',
@@ -141,7 +142,7 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
                     },
                 'title':BeautifulSoup(res['title'],"html.parser").get_text(),
                 'description':res['description'],
-                'zone_id':int(res['typeid']),
+                #'zone_id':int(res['typeid']),
                 'zone':res['typename'],
                 'url':res['arcurl'],
                 'cover':'https:'+res['pic'],
@@ -157,6 +158,10 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
                 'is_union_video':bool(res['is_union_video']), #联合投稿
                 'hit_type':res['hit_columns'] #匹配类型
                 })
+            if res['typeid']:
+                tmp[-1]['zone_id'] = int(res['typeid'])
+            else:
+                tmp[-1]['zone_id'] = -1
     else:
         pass
     result = {
@@ -171,9 +176,12 @@ def search(*keywords,page=1,order='totalrank',zone=0,duration=0):
     return result
 
 def bvid_to_avid_online(bvid):
-    data = requester.get_content_str(f'https://api.bilibili.com/x/web-interface/archive/stat?bvid='+bvid)
-    data = json.loads(data)['data']
-    return data['aid']
+    data = get_detail(bvid=bvid)
+    return data['avid']
+
+def avid_to_bvid_online(avid):
+    data = get_detail(avid=avid)
+    return data['bvid']
 
 def bvid_to_avid_offline(bvid):
     _table = 'fZodR9XQDSUm21yCkr6zBqiveYah8bt4xsWpHnJE7jL5VG3guMTKNPAwcF'

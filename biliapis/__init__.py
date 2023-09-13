@@ -40,7 +40,7 @@ def second_to_time(sec):
 
 def format_img(url,w=None,h=None,f='jpg'):
     '''For *.hdslb.com/bfs* only.'''
-    if '.hdslb.com/bfs' not in url:
+    if ('.hdslb.com/bfs' not in url) and ('archive.biliimg.com/bfs' not in url):
         raise RuntimeError('Not-supported URL Type:%s'%url)
     tmp = []
     if w:
