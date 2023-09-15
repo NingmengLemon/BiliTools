@@ -14,6 +14,7 @@ import math
 import logging
 import threading
 import queue
+from typing import Any
 import webbrowser
 import json
 import base64
@@ -29,8 +30,9 @@ from biliapis import bilicodes
 import custom_widgets as cusw
 from basic_window import Window
 import imglib
-from textlib import tips,about_info
+import textlib
 import ffdriver
+from videoshot_handler import VideoShotHandler
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
@@ -111,7 +113,7 @@ else:
     lg_cfg['filemode'] = 'w+'
 logging.basicConfig(**lg_cfg)
 #加载关于信息
-about_info = about_info.format(version=version)
+about_info = textlib.about_info.format(version=version)
 #加载Cookies
 biliapis.requester.load_local_cookies()
 
@@ -584,7 +586,8 @@ class DownloadManager(object):
 path: 输出位置
 若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid]
 ↑若指定了avid/bvid并且此视频为互动视频, 则需[提交为真值的is_interact参数] 并 [手动传入cid 并且 [同时传入graph_id和edge_id或传入data]]
-↑此时data传入的是由biliapis.video.get_interact_edge_info()获取的数据, 并可以再传入一个视频数据的video_data来避免大批量下载时的重复请求
+↑此时data传入的是由biliapis.video.get_interact_edge_info()获取的数据, 并可以再传入一个包含主视频数据的video_data来避免大批量下载时的重复请求
+↑若视频不是互动视频但传入了video_data, 在没传入data的情况下将其当作data参数处理
 #实在想不到能够怎样一次性处理多个互动视频剧情节点了
 -附加参数: audiostream_only,(如不指定往后的参数则会从config中读取),audio_format,quality,subtitle,danmaku,subtitle_regulation
 #弹幕过滤列表因为太长所以直接由线程从config中读取
@@ -664,6 +667,8 @@ path: 输出位置
                         # 正常处理普通视频
                         video_data = None
                         try:
+                            if not data and 'video_data' in options:
+                                data = options['video_data']
                             if data:
                                 #提取预处理数据包
                                 if 'avid' in options:
@@ -710,7 +715,10 @@ path: 输出位置
                                 part = video_data['parts'][pid]
                                 tmpdict = copy.deepcopy(pre_opts)
                                 tmpdict['cid'] = part['cid']
-                                tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
+                                if part['title'] == video_data['title']:
+                                    tmpdict['title'] = '{}_P{}'.format(video_data['title'],pid+1)#文件名格式编辑在这里
+                                else:
+                                    tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
                                 tmpdict['index'] = len(self.data_objs)
                                 self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
                                 self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
@@ -1063,11 +1071,11 @@ class MainWindow(Window):
         #Tips
         self.label_tips = tk.Label(self.window,text='Tips: -')
         self.label_tips.grid(column=0,row=4,sticky='w',columnspan=3)
-        self.label_tips.bind('<Button-1>',lambda x=0:self.changeTips())
+        self.label_tips.bind('<Button-1>',lambda x=0:self.change_tip(by_human=True))
         if not config['show_tips']:
             self.label_tips.grid_remove()
 
-        self.changeTips()
+        self.change_tip(by_human=False)
         self.login(True)
         self.entry_source.focus()
         self.entry_source.bind('<Tab>',lambda x=0:(self.intvar_entrymode.set((self.intvar_entrymode.get()+1)%3),
@@ -1176,11 +1184,9 @@ class MainWindow(Window):
             self.window.wm_attributes('-topmost',config['topmost'])
             self.window.wm_attributes('-alpha',config['alpha'])
 
-    def changeTips(self,index=None):
-        if index == None:
-            self.label_tips['text'] = 'Tips: '+random.choice(tips)
-        else:
-            self.label_tips['text'] = 'Tips: '+tips[index]
+    def change_tip(self, by_human=False):
+        tip = textlib.get_tip(by_human=by_human)
+        self.label_tips['text'] = 'Tip: '+tip
 
     def _jump_by_source(self,source):
         source,flag = biliapis.parse_url(source)
@@ -2166,6 +2172,48 @@ class CommonVideoWindow(Window):
         menu.add_command(label='三连',command=self.triple)
         menu.post(x,y)
 
+    def _cover_right_click(self,event):
+        x = event.x_root
+        y = event.y_root
+        menu = tk.Menu(self.label_cover,tearoff=False)
+        menu.add_command(label='保存封面',command=self.save_cover)
+        menu.add_command(label='查看视频快照',command=self.view_videoshot)
+        menu.post(x,y)
+
+    def view_videoshot(self):
+        if len(self.video_data['parts'])==1:
+            w = VideoShotViewer(self.window,bvid=self.video_data['bvid'])   
+            w.load()
+            w.mainloop()
+        else:
+            ws = []
+            tmp = []
+            for part in self.video_data['parts']:
+                tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+            indexes = PartsChooser(tmp).return_values
+            cids = [self.video_data['parts'][i]['cid'] for i in indexes]
+            for c in cids:
+                ws += [VideoShotViewer(self.window,bvid=self.video_data['bvid'],cid=c)]
+                ws[-1].load()
+            ws[-1].mainloop()
+
+    def save_cover(self):
+        cover_url = self.video_data['picture']
+        filename = cover_url.split('/')[-1]
+        ext = os.path.splitext(filename)[-1]
+        file = filedialog.asksaveasfilename(
+            parent=self.window,
+            initialfile=filename,
+            filetypes=[("图像文件",ext)]
+            )
+        if file:
+            try:
+                biliapis.requester.download_common(cover_url,file)
+            except Exception:
+                msgbox.showerror('','尝试下载封面时出现错误:\n'+str(e),parent=self.window)
+            else:
+                msgbox.showinfo('','已成功下载封面',parent=self.window)
+
     def triple(self):
         def triple_process(token,coin_orig_state):
             self.task_queue.put_nowait(lambda:(
@@ -2500,6 +2548,7 @@ class CommonVideoWindow(Window):
             start_new_thread(check_coin,(data['avid'],data['is_original']))
             start_new_thread(check_collect(data['avid'],))
             self.task_queue.put_nowait(lambda:self.button_like.bind('<Button-3>',self._like_button_right_click))
+            self.task_queue.put_nowait(lambda:self.label_cover.bind('<Button-3>',self._cover_right_click))
             self.task_queue.put_nowait(lambda:self.button_toview.configure(state='normal'))
                 
         start_new_thread(load,())
@@ -3846,9 +3895,13 @@ class PlotShower(Window):
         
         # 底部功能按键区域
         fc = self.frame_console = tk.Frame(w)
-        fc.grid(column=0,row=2,columnspan=2)
-        #bdl = self.button_download_bottom = ttk.Button(fc,text='下载剧情')
-        #bdl.grid(column=0,row=0)
+        fc.grid(column=0,row=2,columnspan=2,sticky='we')
+        bdl = self.button_download_bottom = ttk.Button(
+            fc,text='下载全部剧情',
+            command=lambda:self.download_all_plots(audio_only=False,button_to_lock=self.button_download_bottom),
+            state='disabled'
+            )
+        bdl.grid(column=0,row=0)
         #bsv = self.button_save_plots = ttk.Button(fc,text='保存剧情图数据')
         
         # 拖动相关参数和变量
@@ -3898,8 +3951,12 @@ class PlotShower(Window):
             ]
         bdpv = self.button_downpv = ttk.Button(fd, text='下载视频')
         bdpv.grid(column=0,row=5,sticky='w')
+        bdpa = self.button_downpa = ttk.Button(fd, text='抽取音频')
+        bdpa.grid(column=0,row=6,sticky='w')
+        bvv = self.button_view_vars = ttk.Button(fd, text='查看变量')
+        bvv.grid(column=0,row=7,sticky='w')
         sprt = self.bar_separator = ttk.Separator(fd)
-        sprt.grid(column=0,row=6,ipadx=142)
+        sprt.grid(column=0,row=10,ipadx=142,sticky='s')
         for i in range(len(fos)):
             fos[i][0].grid(column=0,row=2+i)
             # 可变文本 存入列表 后续会根据选中的块进行修改
@@ -3958,14 +4015,13 @@ class PlotShower(Window):
             self.draw()
             self.label_explore_status['text'] = '完成'
             self.window.after(800,lambda:self.frame_overlayer.grid_remove())
-            
+            self.button_download_bottom['state'] = 'normal'
         else:
             self.label_explore_progress['text'] = '第 {layer} 层\nEdgeID {edge_id}\n{title}'.format(
                 **self.explore_callback_dict
                 )
             self.window.after(50,self._init_check)
         
-
     def _drag_start(self,event):
         #print('啊？')
         self.drag_start_x = event.x
@@ -3986,7 +4042,9 @@ class PlotShower(Window):
         self.label_title['text'] = data['title']
         if pid in self.cid_map:
             self.label_cid['text'] = 'cID %s'%self.cid_map[pid]
-        self.button_downpv['command'] = lambda pid_=pid:self.download_plot(pid=pid_,audio_only=False)
+        self.button_downpv['command'] = lambda pid_=pid:self.download_single_plot(pid=pid_,audio_only=False,button_to_lock=self.button_downpv)
+        self.button_downpa['command'] = lambda pid_=pid:self.download_single_plot(pid=pid_,audio_only=True,button_to_lock=self.button_downpa)
+        self.button_view_vars['command'] = lambda pid_=pid:self.show_vars(pid=pid_)
         q = data['question']
         if q:
             self.frame_question.grid()
@@ -4029,11 +4087,45 @@ class PlotShower(Window):
             else:
                 fos[i][0].grid_remove()
 
+    def show_vars(self,pid):
+        i1,i2 = self.explored_plot_ids[pid]
+        plot = self.plots[i1][i2]
+        if plot['vars']:
+            head = ['变量名称','ID_v1','ID_v2','是否随机','是否展示']
+            tables = [[d['name'],d['id_v1'],d['id_v2'],str(d['is_random']),str(d['display'])] for d in plot['vars']]
+            # msgbox.showinfo(
+            #     'Vars of Edge ID %s'%plot['edge_id'],
+            #     head+'\n'+tables,
+            #     parent=self.window
+            #     )
+            w = tk.Toplevel(self.window)
+            w.resizable(False,False)
+            w.title('Vars of EdgeID %s'%plot['edge_id'])
+            f = tk.Frame(w)
+            f.grid(column=0,row=0,padx=10,pady=10)
+            for i in range(len(head)):
+                tk.Label(f,text=head[i]).grid(sticky='w',column=i,row=0,padx=5)
+            for i in range(len(tables)):
+                for o in range(len(tables[i])):
+                    tk.Label(f,text=tables[i][o]).grid(sticky='w',column=o,row=i+1,padx=5)
+            w.wait_window(w)
+        else:
+            msgbox.showinfo('','此节点没有变量',parent=self.window)
+
     def play_plot(self,pid):
         i1,i2 = self.explored_plot_ids[pid]
         data = self.plots[i1][i2]
 
-    def download_plot(self,pid,audio_only=False,button_to_lock=None):
+    def download_specific_plot(self, button_to_lock=None):
+        if button_to_lock:
+            button_to_lock['state'] = 'disabled'
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            bvid = self.bvid
+            main_video_data = biliapis.video.get_detail(bvid=bvid)
+            plot_table = []
+
+    def download_single_plot(self,pid,audio_only=False,button_to_lock=None):
         i1,i2 = self.explored_plot_ids[pid]
         data = self.plots[i1][i2]
         cid = self.cid_map[pid]
@@ -4042,6 +4134,30 @@ class PlotShower(Window):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
         if path:
             download_manager.task_receiver('video',path,bvid=self.bvid,is_interact=True,data=data.copy(),audiostream_only=audio_only,cid=cid)
+        if self.is_alive() and button_to_lock:
+            button_to_lock['state'] = 'normal'
+
+    def download_all_plots(self, audio_only=False, button_to_lock=None):
+        if button_to_lock:
+            button_to_lock['state'] = 'disabled'
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            bvid = self.bvid
+            main_video_data = biliapis.video.get_detail(bvid=bvid)
+            for layer in self.plots:
+                for plot in layer:
+                    pid = plot['edge_id']
+                    cid = self.cid_map[pid]
+                    download_manager.task_receiver(
+                        'video',
+                        path,
+                        bvid=bvid,
+                        is_interact=True,
+                        data=plot.copy(),
+                        audiostream_only=audio_only,
+                        cid=cid,
+                        video_data=main_video_data.copy()
+                        )
         if self.is_alive() and button_to_lock:
             button_to_lock['state'] = 'normal'
 
@@ -4295,6 +4411,65 @@ class PlotShower(Window):
         widget.bind('<Button-5>',self._scroll_event)
         widget.bind('<Up>',lambda event:self.canvas.yview_scroll(-1,"units"))
         widget.bind('<Down>',lambda event:self.canvas.yview_scroll(1,"units"))
+    
+class VideoShotViewer(Window):
+    def __init__(self, master, bvid, cid=None):
+        self.bvid = bvid
+        self.cid = cid
+        super().__init__('VideoshotViewer of %s -> cID%s'%(bvid,cid), master=master)#,True,config['topmost'],config['alpha'],master=master)
+        self.vshandler = None
+        self._init_thread = None
+        self._last_index = 1
+        self.window.wm_attributes('-toolwindow',1)
+        
+        fm = self.frame_main = tk.Frame(self.window)
+        fm.grid(column=0,row=0,padx=10,pady=10)
+        self.intvar = tk.IntVar(self.window,0)
+        self.scale = ttk.Scale(fm,orient=tk.HORIZONTAL,from_=0,to=1,length=150,variable=self.intvar)#,resolution=1)
+        self.scale.grid(column=0,row=0)
+        self.imglabel = cusw.ImageLabel(fm, width=160,height=90)
+        self.imglabel.grid(column=0,row=1)
+        self.label_time = tk.Label(fm,text='--:--:--')
+        self.label_time.grid(column=0,row=2,sticky='e')
+        self.label_size = tk.Label(fm,text='-x-')
+        self.label_size.grid(column=0,row=2,sticky='w')
+        ln = self.label_notice = tk.Label(self.window,text='加载中')
+        ln.grid(column=0,row=0)
+
+    def load(self):
+        self._init_thread = t = threading.Thread(target=self._load_thread,name='VideoShotHandler_Initialization',daemon=True)
+        t.start()
+        self.window.after(10,self._load_check)
+
+    def _load_thread(self):
+        self.data = biliapis.video.get_videoshot(bvid=self.bvid,cid=self.cid)
+        self.vshandler = VideoShotHandler(self.data)
+        self.vshandler.init()
+
+    def _load_check(self):
+        if self._init_thread.is_alive():
+            self.window.after(50, self._load_check)
+        else:
+            if self.vshandler:
+                if self.vshandler.is_ready:
+                    self.label_notice.grid_remove()
+                    self.scale['to'] = len(self.data['index'])-1
+                    self.scale['command'] = self._scale_callback
+                    self.scale['length'] = self.data['img_w']
+                    self.imglabel.set(height=self.data['img_h'],width=self.data['img_w'])
+                    self.label_size['text'] = "{img_w}x{img_h}".format(**self.data)
+                    self._scale_callback(None)
+                    return
+            msgbox.showerror('','加载视频快照失败',parent=self.window)
+            self.close()
+
+    def _scale_callback(self, event):
+        index = self.intvar.get()
+        if self._last_index != index:
+            bio,dura = self.vshandler.get_frame(index)
+            self.imglabel.set(bio)
+            self.label_time['text'] = biliapis.second_to_time(dura)
+            self._last_index = index
 
 def main():
     load_config()

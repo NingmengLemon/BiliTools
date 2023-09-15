@@ -17,3 +17,9 @@ def error_raiser(code,message=None):
             raise BiliError(code,message)
         else:
             raise BiliError(code,bilicodes.error_code[code])
+        
+class InvalidParams(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+    def __str__(self):
+        return self.msg
