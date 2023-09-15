@@ -17,9 +17,10 @@ __all__ = ['get_recommend',
            'get_online_nop',
            'get_shortlink','get_pbp','get_archive_list','get_series_list',
            'get_interact_graph_id','get_interact_edge_info',
-           'like','is_liked','coin','is_coined','collect','is_collected']
+           'like','is_liked','coin','is_coined','collect','is_collected',
+           'get_videoshot']
 
-def get_recommend(avid=None,bvid=None):
+def get_recommend(avid:int=None,bvid:str=None):
     '''
     Choose one parameter between avid and bvid.
     普通视频下的相关视频
@@ -39,7 +40,7 @@ def get_recommend(avid=None,bvid=None):
         res.append(_video_detail_handler(data_,False))
     return res
 
-def get_tags(avid=None,bvid=None):
+def get_tags(avid:int=None,bvid:str=None):
     '''Choose one parameter between avid and bvid'''
     if avid != None:
         api = f'https://api.bilibili.com/x/tag/archive/tags?aid={avid}'
@@ -565,3 +566,32 @@ def add_to_toview(csrf,avid=None,bvid=None):
     data = json.loads(requester.post_data_str(api,data=data))
     error_raiser(data['code'],data['message'])
 
+def get_videoshot(avid=None,bvid=None,cid=None):
+    '''
+    获取视频快照
+    avid 和 bvid 任选其一传入
+    不指定 cid 时返回 P1 的内容
+    '''
+    if avid != None:
+        api = f'https://api.bilibili.com/x/player/videoshot?aid={avid}&index=1'
+    elif bvid != None:
+        api = f'https://api.bilibili.com/x/player/videoshot?bvid={bvid}&index=1'
+    else:
+        raise RuntimeError('You must choose one parameter between avid and bvid.')
+    if cid:
+        api += f'&cid={cid}'
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = d = data['data']
+    res = {
+        "bin_ver":'https:'+data["pvdata"],
+        "img_ver":['https:'+i for i in data["image"]],
+        "img_x_length":data["img_x_len"],
+        "img_y_length":data["img_y_len"],
+        "img_w":data["img_x_size"],
+        "img_h":data["img_y_size"],
+        "index":data["index"]
+    }
+    return res
+    
