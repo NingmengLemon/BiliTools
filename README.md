@@ -51,6 +51,7 @@
 
 
 <details><summary>一些界面的截图</summary>
+  
   ![主窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/main_window.png)
   ![视频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/video_window.png)
   ![音频窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/audio_window.png)
