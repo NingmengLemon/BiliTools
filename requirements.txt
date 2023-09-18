@@ -2,3 +2,4 @@ pillow
 qrcode
 beautifulsoup4
 brotli
+lxml

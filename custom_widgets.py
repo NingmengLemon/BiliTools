@@ -17,9 +17,9 @@ def tkImg(file=None,scale=1,size=()):
             width = f.size[0]
             height = f.size[1]
             if size == ():
-                tmp = f.resize((int(width*scale),int(height*scale)),Image.ANTIALIAS)
+                tmp = f.resize((int(width*scale),int(height*scale)),Image.LANCZOS)
             else:
-                tmp = f.resize((int(size[0]),int(size[1])),Image.ANTIALIAS)
+                tmp = f.resize((int(size[0]),int(size[1])),Image.LANCZOS)
         img = ImageTk.PhotoImage(tmp)
         return img
     else:
