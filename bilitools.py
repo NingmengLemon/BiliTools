@@ -1079,7 +1079,7 @@ class MainWindow(Window):
         self.change_tip(by_human=False)
         self.login(True)
         self.entry_source.focus()
-        self.entry_source.bind('<Tab>',lambda x=0:(self.intvar_entrymode.set((self.intvar_entrymode.get()+1)%3),
+        self.entry_source.bind('<Control-Tab>',lambda x=0:(self.intvar_entrymode.set((self.intvar_entrymode.get()+1)%3),
                                                    self.window.after(10,lambda:self.entry_source.focus())))
 
         self.mainloop()
