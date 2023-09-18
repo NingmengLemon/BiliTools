@@ -24,6 +24,7 @@ import functools
 
 import qrcode
 import danmaku2ass
+import lxml
 
 import biliapis
 from biliapis import bilicodes
@@ -126,7 +127,7 @@ def remove_repeat(l):
             l_.append(i)
     return l_
 
-def apply_proxy_config():
+def apply_proxy_config(): # also used as refresher
     if config['proxy']['enabled']:
         if config['proxy']['port'] == None:
             biliapis.requester.proxy = config['proxy']['host']
@@ -1098,6 +1099,7 @@ class MainWindow(Window):
             self.button_login.configure(state='normal')
         else:
             if w.status:
+                #time.sleep(0.2) # 实验性添加
                 biliapis.requester.load_local_cookies()
                 self.refresh_data()
             else:
@@ -2786,6 +2788,8 @@ class LoginWindow(Window):
         if self.condition == 0:
             cookiejar = biliapis.login.make_cookiejar(self.final_url)
             cookiejar.save(biliapis.requester.local_cookiejar_path)
+            biliapis.requester.cookies = cookiejar
+            apply_proxy_config()
             logging.debug('Cookie File saved to '+biliapis.requester.local_cookiejar_path)
             self.window.after(1000,self.close)
             return
