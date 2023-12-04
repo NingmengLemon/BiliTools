@@ -241,10 +241,10 @@ def convert_size(size):#单位:Byte
     return '%.2f GB'%size
 
 class _DownloadThread(threading.Thread):
-    def __init__(self,url,file,datarange=None,headers=fake_headers_get,buffer_size=1024*8):
+    def __init__(self,url,file,data_range=None,headers=fake_headers_get,buffer_size=1024*8):
         self.url = url
         self.file = file
-        self.range = datarange
+        self.range = data_range
         self.buffer_size = buffer_size
         self.headers = headers.copy()
         self.downloaded_size = 0
@@ -277,11 +277,8 @@ class _DownloadThread(threading.Thread):
             if self.expected_size == -1 and 'content-length' in web_headers:
                 self.expected_size = int(fp_web.getheader('content-length'))
                 self.range = (0,self.expected_size-1)
-            logging.debug('[{}]Start fetching data, host={}, range={}, code={}'.format(self.name,
-                                                                                       host,
-                                                                                       str(self.range),
-                                                                                       fp_web.getcode()
-                                                                                       ))
+            logging.debug('[{}]Start fetching data, host={}, range={}, code={}'.format(
+                self.name,host,str(self.range),fp_web.getcode()))
             write_mode = 'wb+'
             with open(self.file,write_mode) as fp_local: #本地文件
                 while True:
@@ -293,6 +290,26 @@ class _DownloadThread(threading.Thread):
         if self.expected_size >= 0 and self.downloaded_size < self.expected_size:
             raise request.ContentTooShortError("retrieval incomplete: got only %i out of %i bytes"%(
                 self.downloaded_size,self.expected_size),(self.file,web_headers))
+        
+def download_yield_new(url,filename,path='./',headers=fake_headers_get):
+    thread = _DownloadThread(
+        url=url,
+        file=os.path.normpath(os.path.abspath(os.path.join(path,filename))),
+        headers=headers,
+        )
+    thread.start()
+    while thread.is_alive():
+        yield (
+            thread.downloaded_size, thread.expected_size,
+            round(thread.downloaded_size/thread.expected_size*100,2)
+        )
+        time.sleep(0.05)
+    if thread.exception:
+        raise thread.exception
+    yield (
+        thread.downloaded_size, thread.expected_size,
+        round(thread.downloaded_size/thread.expected_size*100,2)
+        )
 
 def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
     file = os.path.join(os.path.abspath(path),_replaceChr(filename))
@@ -329,7 +346,8 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
         else:
             try:
                 with opener.open(request.Request(url,headers=headers),timeout=timeout) as fp_web: #网络文件
-                    logging.debug('Fetching data from {}, start_byte={}, Code {}'.format(url,size,fp_web.getcode())) 
+                    logging.debug('Fetching data from {}, start_byte={}, Code {}'.format(url,size,fp_web.getcode()))
+                    response_headers = fp_web.info()
                     with open(tmpfile,write_mode) as fp_local: #本地文件
                         while True:
                             data = fp_web.read(chunk_size)
@@ -344,8 +362,10 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
                 if os.path.getsize(tmpfile) != total_size:
                     error_size = os.path.getsize(tmpfile)
                     os.remove(tmpfile)
-                    raise RuntimeError('File Size not Match. The size given by server is {} Bytes, '\
-                        'howerver the received file\'s size is {} Bytes.'.format(total_size,error_size))
+                    raise error.ContentTooShortError(
+                        "retrieval incomplete: got only %i out of %i bytes"
+                        %(error_size,total_size),(filename,response_headers)
+                        )
         os.rename(tmpfile,file)
         yield total_size,total_size,100.00
 

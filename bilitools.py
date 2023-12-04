@@ -35,87 +35,38 @@ import textlib
 import ffdriver
 from videoshot_handler import VideoShotHandler
 
+from configuration import version, inner_data_path
+from configuration import default_config as config
+
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-version = '2.0.0_Dev16'
-work_dir = os.getcwd()
-user_name = os.getlogin()
-inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
+development_mode = True
 if not os.path.exists(inner_data_path):
     os.mkdir(inner_data_path)
 biliapis.requester.inner_data_path = inner_data_path
 config_path = os.path.join(inner_data_path,'config.json')
 desktop_path = biliapis.get_desktop()
 logging_path = os.path.join(inner_data_path,'last_run.log')
-development_mode = True
 
-config = {
-    'version':version,
-    'topmost':False,
-    'alpha':1.0,# 0.0 - 1.0
-    'filter_emoji':False,
-    'show_tips':False,
-    'download':{
-        'video':{
-            'quality':None,
-            'audio_convert':'mp3',
-            'allow_flac':False,
-            'subtitle':True,
-            'allow_ai_subtitle':False,
-            'subtitle_lang_regulation':['zh-CN','zh-Hans','zh-Hant','zh-HK','zh-TW','en-US','en-GB','ja','ja-JP'],
-            'danmaku':False,
-            'convert_danmaku':True,
-            'danmaku_filter':{
-                'keyword':[],
-                'regex':[],
-                'user':[], #用户uid的hash, crc32
-                'filter_level':0 #0-10
-                }
-            },
-        'audio':{
-            'convert':'mp3',
-            'lyrics':False
-            },
-        'manga':{
-            'save_while_viewing':False,
-            'auto_save_path':os.path.join(inner_data_path,'MangaAutoSave')
-            },
-        'max_thread_num':2,
-        'progress_backup_path':os.path.join(inner_data_path,'progress_backup.json')
-        },
-    'play':{
-        'video_quality':64, #720P
-        'audio_quality':2,  #320K
-        'repeat':0,
-        'fullscreen':False,
-        'auto_exit':False
-        },
-    'proxy':{
-        'enabled':False,
-        'use_system_proxy':False,
-        'host':'127.0.0.1',
-        'port':7890 #clash的默认端口
-        }
-    }
 biliapis.requester.filter_emoji = config['filter_emoji']
-#日志模块设置
+# 日志模块设置
 lg_cfg = {
     'format':'[%(asctime)s][%(levelname)s]%(message)s',
     'datefmt':'%Y-%m-%d %H:%M:%S',
     'level':{True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
     }
-#如果不是开发者模式就把日志输出到文件
+# 如果不是开发者模式就把日志输出到文件
 if development_mode:
     pass
 else:
     lg_cfg['filename'] = logging_path
     lg_cfg['filemode'] = 'w+'
 logging.basicConfig(**lg_cfg)
-#加载关于信息
+# 加载关于信息
 about_info = textlib.about_info.format(version=version)
-#加载Cookies
+# 加载Cookies
 biliapis.requester.load_local_cookies()
 
 rgb2hex = lambda r,g,b:'#{:0>6s}'.format(str(hex((r<<16)+(g<<8)+b))[2:])
@@ -179,13 +130,13 @@ def replaceChr(text):
         text = text.replace(t,repChr[t])
     return text
 
-def makeQrcode(data):
+def makeQrcode(data) -> BytesIO:
     qr = qrcode.QRCode()
     qr.add_data(data)
     img = qr.make_image()
     a = BytesIO()
     img.save(a,'png')
-    return a #返回一个BytesIO对象
+    return a
 
 def make_quality_regulation(qtext):
     targetlist = list(bilicodes.stream_dash_video_quality.keys())
@@ -198,6 +149,7 @@ class DownloadManager(object):
         self.task_queue = queue.Queue()
         self.refresh_loop_schedule = None
         self.task_receiving_lock = threading.Lock()
+        self.table_edit_lock = threading.Lock() # 尝试添加了这个, 希望能阻止 not in mainloop 报错
         self.table_columns = {
             'number':'序号',
             'title':'标题',
@@ -212,12 +164,12 @@ class DownloadManager(object):
             }
         self.table_columns_widths = [40,200,180,100,70,70,100,60,100,150]
         
-        self.table_display_list = [] #多维列表注意, 对应Treview的内容, 每项格式见table_columns
-        self.data_objs = [] #对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
-        self.thread_counter = 0 #线程计数器
-        self.failed_indexes = [] #存放失败任务在data_objs中的索引
-        self.running_indexes = [] #存放运行中的任务在data_objs中的索引
-        self.done_indexes = [] #存放已完成任务在data_objs中的索引
+        self.table_display_list = [] # 多维列表注意, 对应Treview的内容, 每项格式见table_columns
+        self.data_objs = [] # 对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
+        self.thread_counter = 0 # 线程计数器
+        self.failed_indexes = [] # 存放失败任务在data_objs中的索引
+        self.running_indexes = [] # 存放运行中的任务在data_objs中的索引
+        self.done_indexes = [] # 存放已完成任务在data_objs中的索引
         start_new_thread(self.auto_thread_starter) #启动线程启动器
         if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-debug' in sys.argv):
             if os.path.getsize(config['download']['progress_backup_path']) >= 50:
@@ -238,7 +190,8 @@ class DownloadManager(object):
                 dlist[0] = str(len(self.data_objs)+1)
                 dlist[-1] = '待处理'
                 self.data_objs.append(obj)
-                self.table_display_list.append(dlist)
+                with self.table_edit_lock:
+                    self.table_display_list.append(dlist)
                 if obj[1] == 'video':
                     self.task_queue.put_nowait(lambda args=obj[2]:self._video_download_thread(**args))
                 elif obj[1] == 'audio':
@@ -257,18 +210,19 @@ class DownloadManager(object):
             'objs':[],
             'displaylist':[]
             }
-        for index in range(0,len(self.data_objs)):
-            if index in self.failed_indexes:
-                pgr['objs'] += [self.data_objs[index]]
-                pgr['displaylist'] += [self.table_display_list[index]]
-            elif index in self.running_indexes:
-                pgr['objs'] += [self.data_objs[index]]
-                pgr['displaylist'] += [self.table_display_list[index]]
-            elif index in self.done_indexes:
-                continue
-            else:
-                pgr['objs'] += [self.data_objs[index]]
-                pgr['displaylist'] += [self.table_display_list[index]]
+        with self.table_edit_lock:
+            for index in range(0,len(self.data_objs)):
+                if index in self.failed_indexes:
+                    pgr['objs'] += [self.data_objs[index]]
+                    pgr['displaylist'] += [self.table_display_list[index]]
+                elif index in self.running_indexes:
+                    pgr['objs'] += [self.data_objs[index]]
+                    pgr['displaylist'] += [self.table_display_list[index]]
+                elif index in self.done_indexes:
+                    continue
+                else:
+                    pgr['objs'] += [self.data_objs[index]]
+                    pgr['displaylist'] += [self.table_display_list[index]]
         json.dump(pgr,open(path,'w+',encoding='utf-8',errors='ignore'))
         logging.debug('{} Progress Objs Saved to {}'.format(len(pgr['objs']),path))
         
@@ -306,8 +260,9 @@ class DownloadManager(object):
         aqs = []
         for astream in audiostreams:
             aqs.append(astream['quality'])
-        if 30251 in aqs and config['download']['video']['allow_flac']: # flac 不是音质代码最高的那个, 所以手动匹配
-            audiostream = audiostreams[aqs.index(30251)]
+        if bilicodes.stream_dash_audio_quality_["Flac"] in aqs and config['download']['video']['allow_flac']: 
+            # flac 不是音质代码中数值最高的那个, 所以要手动匹配
+            audiostream = audiostreams[aqs.index(bilicodes.stream_dash_audio_quality_["Flac"])]
         else:
             audiostream = audiostreams[aqs.index(max(aqs))]
         return videostream,audiostream
@@ -325,8 +280,9 @@ class DownloadManager(object):
         else:
             return None
 
-    def _edit_display_list(self,index,colname,var):#供download_thread调用
-        self.table_display_list[index][list(self.table_columns.keys()).index(colname)] = var
+    def _edit_display_list(self,index,colname,var): #供download_thread调用
+        with self.table_edit_lock:
+            self.table_display_list[index][list(self.table_columns.keys()).index(colname)] = var
 
     def _common_download_thread(self,index,url,filename,path,**trash):
         #跟下面辣两个函数差不多, 流程最简单, 然而这个函数并不能被用户使用...
@@ -470,9 +426,10 @@ class DownloadManager(object):
             self.save_progress()
 
     def _video_download_thread(self,index,cid,bvid,title,path,audio_format='mp3',audiostream_only=False,quality=None,subtitle=True,danmaku=False,
-                               convert_danmaku=True,subtitle_regulation=config['download']['video']['subtitle_lang_regulation'],**trash):#放在子线程里运行
-        #此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
-        #此处index为task_receiver为其分配的在tabled_display_list中的索引
+                               convert_danmaku=True,subtitle_regulation=config['download']['video']['subtitle_lang_regulation'],**trash):
+        # 放在子线程里运行
+        # 此函数被包装为lambda函数后放入task_queue中排队, 由auto_thread_starter取出并开启线程
+        # 此处index为task_receiver为其分配的在tabled_display_list中的索引
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
@@ -583,25 +540,45 @@ class DownloadManager(object):
             self.save_progress()
 
     def task_receiver(self,mode,path,data=None,**options):
-        '''mode: 下载模式, 必须从video/audio/common里选一个.
-path: 输出位置
-若mode为video, 则必须指定[avid/bvid]或[mdid/ssid/epid]
-↑若指定了avid/bvid并且此视频为互动视频, 则需[提交为真值的is_interact参数] 并 [手动传入cid 并且 [同时传入graph_id和edge_id或传入data]]
-↑此时data传入的是由biliapis.video.get_interact_edge_info()获取的数据, 并可以再传入一个包含主视频数据的video_data来避免大批量下载时的重复请求
-↑若视频不是互动视频但传入了video_data, 在没传入data的情况下将其当作data参数处理
-#实在想不到能够怎样一次性处理多个互动视频剧情节点了
--附加参数: audiostream_only,(如不指定往后的参数则会从config中读取),audio_format,quality,subtitle,danmaku,subtitle_regulation
-#弹幕过滤列表因为太长所以直接由线程从config中读取
--avid/bvid专用附加参数:pids(分P索引列表,可为空) 或 cids(cid列表,给互动视频用的,优先级>前面那个)
--mdid/ssid/epid专用附加参数:epindexes(EP索引列表.可为空),section_index(番外剧集索引)
--可选参数: data, 传入预请求的数据包(dict), 避免再次请求
---section_index不指定时, epindexes指正片内的索引; 超出索引范围操作无效
-若mode为audio, 则必须指定auid,
--附加参数: audio_format(如不指定则从config中读取)
-若mode为common, 则必须指定url和filename, 无附加参数.
-若mode为manga, 则必须指定[epid/mcid]; epindexes参数可选, 但在指定epid时无效
-'''     
-        with self.task_receiving_lock: #多线程操作防止资源混乱
+        '''
+        - `mode`: 下载模式, 必须为 `"video"` `"audio"` `"common"` `"manga"` 中的任意一个
+        - `path`: 保存位置
+        - `data`: (可选)传入预请求的数据(dict), 避免再次请求
+
+        ---
+
+        详细规则:
+
+        - 若`mode`为`video`, 则必须通过`**options`指定[avid/bvid]或[mdid/ssid/epid]参数
+            - `avid` 和 `bvid` 的专用附加参数:
+                - `pids`: 分P`索引`列表, 可为空
+                - `cids`: `cid`列表, 给互动视频用的, 会覆盖`pids`参数
+                - 如果此视频为互动视频:
+                    - 则需 提交为真值的`is_interact`参数 并 传入`cid`参数 并 [同时传入`graph_id`和`edge_id`参数 或 传入`data`参数]
+                    - 此时`data`传入的是由`biliapis.video.get_interact_edge_info()`获取的数据, 并可以再传入一个包含主视频数据的`video_data`来避免大批量下载时的重复请求
+                    - 若视频不是互动视频但传入了`video_data`, 在没传入`data`的情况下将其当作`data`参数处理
+                    - 我实在想不到能够怎样一次性处理多个互动视频剧情节点了, 交给调用循环罢
+            - `mdid` 和 `ssid` 和 `epid` 的专用附加参数:
+                - `epindexes`: EP索引列表, 可为空
+                - `section_index`: 番外剧集索引
+                    - `section_index`指定时, `epindexes`指的是对应番外中的剧集索引
+                    - 反之则`epindexes`指正片内的索引; 超出索引范围操作无效
+            - 通用可选参数: 
+                - `audiostream_only`: 是否仅抽取音轨
+                - `audio_format`: 音频转换格式, 仅当`audiostream_only`参数被指定时生效
+                - `quality`: 视频优先质量 
+                - `subtitle`: 是否下载字幕 
+                - `danmaku`: 是否下载弹幕
+                - `subtitle_regulation`: 字幕匹配规则
+                - 弹幕过滤列表因为可能太长所以直接由线程从`config`中实时读取
+                - 除了`audiostream_only`外都会读取`config`中的默认值
+        - 若`mode`为`audio`, 则必须指定`auid`参数
+            - `auid`的附加参数: `audio_format` (从`config`中读取默认值)
+        - 若`mode`为`common`, 则必须指定`url`和`filename`, 无附加参数.
+        - 若`mode`为`manga`, 则必须指定`epid`或`mcid`参数
+            - 若`mcid`被指定, 有 `epindexes` 参数可选
+        '''     
+        with self.task_receiving_lock: # 防止多线程操作资源混乱
             is_mainthread = isinstance(threading.current_thread(),threading._MainThread)
             if is_mainthread:
                 self.show() #规避 main thread not in main loop 错误
@@ -660,9 +637,10 @@ path: 输出位置
                         pre_opts['title'] = '{}_E{}_{}'.format(video_data['title'],edge_data['edge_id'],edge_data['title'])#文件名格式编辑在这里
                         pre_opts['index'] = len(self.data_objs)
                         self.data_objs.append([len(self.data_objs)+1,'video',pre_opts])
-                        self.table_display_list.append([
-                            str(len(self.data_objs)),video_data['title'],'E{} {}'.format(edge_data['edge_id'],edge_data['title']),'Cid'+str(cid),'','','','-',path,'待处理'
-                            ])
+                        with self.table_edit_lock:
+                            self.table_display_list.append([
+                                str(len(self.data_objs)),video_data['title'],'E{} {}'.format(edge_data['edge_id'],edge_data['title']),'Cid'+str(cid),'','','','-',path,'待处理'
+                                ])
                         self.task_queue.put_nowait(lambda args=pre_opts:self._video_download_thread(**args))
                     else:
                         # 正常处理普通视频
@@ -722,7 +700,8 @@ path: 输出位置
                                     tmpdict['title'] = '{}_P{}_{}'.format(video_data['title'],pid+1,part['title'])#文件名格式编辑在这里
                                 tmpdict['index'] = len(self.data_objs)
                                 self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                                self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
+                                with self.table_edit_lock:
+                                    self.table_display_list.append([str(len(self.data_objs)),video_data['title'],'P{} {}'.format(pid+1,part['title']),'Cid{}'.format(part['cid']),'','','',biliapis.second_to_time(part['length']),path,'待处理'])
                                 self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
                 elif 'ssid' in options or 'mdid' in options or 'epid' in options:
                     try:
@@ -789,7 +768,8 @@ path: 输出位置
                             tmpdict['bvid'] = episode['bvid']
                             tmpdict['index'] = len(self.data_objs)
                             self.data_objs.append([len(self.data_objs)+1,'video',tmpdict])
-                            self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
+                            with self.table_edit_lock:
+                                self.table_display_list.append([str(len(self.data_objs)),main_title,'{} {}.{}'.format(sstitle,epindex+1,episode['title']),'Cid{}'.format(episode['cid']),'','','','-',path,'待处理'])
                             self.task_queue.put_nowait(lambda args=tmpdict:self._video_download_thread(**args))
                 else:
                     raise AssertionError('提交的资源不足, 解析视频需要avid/bvid/mdid/ssid/epid中的任意一个')
@@ -808,7 +788,8 @@ path: 输出位置
                     tmpdict['data'] = data.copy()
                 tmpdict = tmpdict.copy()
                 self.data_objs.append([len(self.data_objs)+1,'audio',tmpdict])
-                self.table_display_list.append([str(len(self.data_objs)),'','','Auid'+str(tmpdict['auid']),'音频下载','','','',path,'待处理'])
+                with self.table_edit_lock:
+                    self.table_display_list.append([str(len(self.data_objs)),'','','Auid'+str(tmpdict['auid']),'音频下载','','','',path,'待处理'])
                 self.task_queue.put_nowait(lambda args=tmpdict:self._audio_download_thread(**args))
             elif mode == 'common':
                 tmpdict = {
@@ -818,7 +799,8 @@ path: 输出位置
                     'path':path
                     }
                 self.data_objs.append([len(self.data_objs)+1,'common',tmpdict])
-                self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
+                with self.table_edit_lock:
+                    self.table_display_list.append([str(len(self.data_objs)),options['filename'],'',options['url'],'普通下载','','','-',path,'待处理'])
                 self.task_queue.put_nowait(lambda args=tmpdict:self._common_download_thread(**args))
             elif mode == 'manga':
                 if 'mcid' in options:
@@ -850,7 +832,8 @@ path: 输出位置
                             'path':path
                             }
                         self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
-                        self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['ep_list'][index]['eptitle'],'EP'+str(data['ep_list'][index]['epid']),'漫画下载','','-','',path,'待处理'])
+                        with self.table_edit_lock:
+                            self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['ep_list'][index]['eptitle'],'EP'+str(data['ep_list'][index]['epid']),'漫画下载','','-','',path,'待处理'])
                         self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
                 elif 'epid' in options:
                     #提取预处理数据
@@ -871,7 +854,8 @@ path: 输出位置
                         'path':path
                         }
                     self.data_objs.append([len(self.data_objs)+1,'manga',tmpdict])
-                    self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['eptitle'],'EP'+str(data['epid']),'漫画下载','','-','',path,'待处理'])
+                    with self.table_edit_lock:
+                        self.table_display_list.append([str(len(self.data_objs)),data['comic_title'],data['eptitle'],'EP'+str(data['epid']),'漫画下载','','-','',path,'待处理'])
                     self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
             self.save_progress()
 
@@ -958,49 +942,50 @@ path: 输出位置
         
             self.auto_refresh_table()
             
-    def auto_refresh_table(self):#更新依据: self.table_display_list
-        if self.window:
-            obj = self.table.get_children()
-            fast_refresh = False
-            if len(obj) == len(self.table_display_list):
-                #不涉及项数增减的修改
-                for i in range(len(obj)):
-                    if self.table.item(obj[i])['values'] != self.table_display_list[i]:
-                        self.table.item(obj[i],values=self.table_display_list[i])
-                        fast_refresh = True
-            else:
-                fast_refresh = True
-                #涉及到项数增减的修改
-                #记录选中项
-                indexes = []
-                for item in self.table.selection():
-                    indexes.append(obj.index(item))
-                #删除旧项
-                for o in obj:
-                    self.table.delete(o)
-                #填充新内容
-                i = 0
-                for line in self.table_display_list:
-                    i += 1
-                    self.table.insert('','end',values=tuple(line))
-                #复现选中项
+    def auto_refresh_table(self): #更新依据: self.table_display_list
+        with self.table_edit_lock:
+            if self.window:
                 obj = self.table.get_children()
-                for index in indexes:
-                    self.table.selection_set(obj[index])
-            #更新统计信息
-            self.label_stat_totaltask['text'] = str(len(self.data_objs))
-            self.label_stat_donetask['text'] = str(len(self.done_indexes))
-            self.label_stat_failedtask['text'] = str(len(self.failed_indexes))
-            self.label_stat_runningtask['text'] = str(len(self.running_indexes))
-            self.label_stat_threadnum['text'] = '{} / {}'.format(self.thread_counter,config['download']['max_thread_num'])
-            self.label_stat_queuelen['text'] = str(self.task_queue.qsize())
-            #准备下一次循环
-            if fast_refresh:
-                self.refresh_loop_schedule = self.window.after(200+len(self.table_display_list)*2,self.auto_refresh_table)
+                fast_refresh = False
+                if len(obj) == len(self.table_display_list):
+                    #不涉及项数增减的修改
+                    for i in range(len(obj)):
+                        if self.table.item(obj[i])['values'] != self.table_display_list[i]:
+                            self.table.item(obj[i],values=self.table_display_list[i])
+                            fast_refresh = True
+                else:
+                    fast_refresh = True
+                    #涉及到项数增减的修改
+                    #记录选中项
+                    indexes = []
+                    for item in self.table.selection():
+                        indexes.append(obj.index(item))
+                    #删除旧项
+                    for o in obj:
+                        self.table.delete(o)
+                    #填充新内容
+                    i = 0
+                    for line in self.table_display_list:
+                        i += 1
+                        self.table.insert('','end',values=tuple(line))
+                    #复现选中项
+                    obj = self.table.get_children()
+                    for index in indexes:
+                        self.table.selection_set(obj[index])
+                #更新统计信息
+                self.label_stat_totaltask['text'] = str(len(self.data_objs))
+                self.label_stat_donetask['text'] = str(len(self.done_indexes))
+                self.label_stat_failedtask['text'] = str(len(self.failed_indexes))
+                self.label_stat_runningtask['text'] = str(len(self.running_indexes))
+                self.label_stat_threadnum['text'] = '{} / {}'.format(self.thread_counter,config['download']['max_thread_num'])
+                self.label_stat_queuelen['text'] = str(self.task_queue.qsize())
+                #准备下一次循环
+                if fast_refresh:
+                    self.refresh_loop_schedule = self.window.after(200+len(self.table_display_list)*2,self.auto_refresh_table)
+                else:
+                    self.refresh_loop_schedule = self.window.after(2000,self.auto_refresh_table)
             else:
-                self.refresh_loop_schedule = self.window.after(2000,self.auto_refresh_table)
-        else:
-            pass
+                pass
 
     def hide(self):
         if self.window:
@@ -1228,142 +1213,170 @@ class MainWindow(Window):
                 msgbox.showerror('','在尝试快速下载时出现了错误：\n'+traceback.format_exc(),parent=self.window)
                 raise
 
+    def __fd_commonv(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if not path:
+            return
+        video_data = biliapis.video.get_detail(**{flag:source})
+        parts = video_data['parts']
+        bvid = video_data['bvid']
+        title = video_data['title']
+        if len(parts) > 1:
+            tmp = []
+            for part in parts:
+                tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
+            indexes = PartsChooser(tmp).return_values
+            if not indexes:
+                return
+        else:
+            indexes = [0]
+        download_manager.task_receiver('video',path,bvid=video_data['bvid'],data=video_data,pids=indexes)
+
+    def __fd_audio(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if not path:
+            return
+        download_manager.task_receiver('audio',path,auid=source)
+
+    def __fd_media(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if not path:
+            return
+        bangumi_data = biliapis.media.get_detail(**{flag:source})
+        episodes = bangumi_data['episodes']
+        title = bangumi_data['title']
+        if len(episodes) > 0:
+            tmp = []
+            for episode in episodes:
+                tmp += [[episode['title'],'-','-']]
+            indexes = PartsChooser(tmp).return_values
+            if not indexes:
+                return
+        else:
+            msgbox.showinfo('','没有正片',parent=self.window)
+            return
+        download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
+
+    def __fd_manga(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if not path:
+            return
+        manga_data = biliapis.manga.get_detail(mcid=source)
+        if len(manga_data['ep_list']) > 0:
+            indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
+                                    title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
+            if not indexes:
+                return
+        else:
+            msgbox.showinfo('','没有章节',parent=self.window)
+            return
+        download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
+
+    def __fd_collection(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            collection = biliapis.video.get_archive_list(*source,page_size=100)
+            archives = collection['archives']
+            tp = collection['total_page']
+            if archives:
+                if tp > 1:
+                    if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
+                        def get_archives(source,tp):
+                            archives = []
+                            for p in range(2,tp+1):
+                                archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
+                                time.sleep(0.5)
+                            return archives
+                        archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
+                                        columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                if indexes:
+                    def putin_tasks(indexes,archives):
+                        for index in indexes:
+                            download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                    cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
+            else:
+                msgbox.showinfo('合集没有内容',parent=self.window)
+
+    def __fd_series(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            series = biliapis.video.get_series_list(*source,page_size=100)
+            archives = series['archives']
+            tp = series['total_page']
+            if archives:
+                if tp > 1:
+                    if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
+                        def get_archives(source,tp):
+                            archives = []
+                            for p in range(2,tp+1):
+                                archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
+                                time.sleep(0.5)
+                            return archives
+                        archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
+                indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
+                                        columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
+                if indexes:
+                    def putin_tasks(indexes,archives):
+                        for index in indexes:
+                            download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                    cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
+            else:
+                msgbox.showinfo('没有内容',parent=self.window)
+
+    def __fd_favlist(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if not path:
+            msgbox.showinfo('注意','操作已被取消',parent=self.window)
+            return
+        favlist = biliapis.user.get_favlist()
+
+    def __fd_audiolist(self, source, flag):
+        path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
+        if path:
+            data = biliapis.audio.get_list(source)
+            if data:
+                tp = data['total_page']
+                audio_list = data['data']
+                if tp > 1:
+                    if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
+                        def get_audio_lists(source,tp):
+                            audio_list = []
+                            for p in range(2,tp+1):
+                                audio_list += biliapis.audio.get_list(source,page=p)['data']
+                                time.sleep(0.5)
+                            return audio_list
+                        audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
+                if audio_list:
+                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
+                                            columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
+                    if indexes:
+                        def putin_tasks(indexes,audio_list):
+                            for index in indexes:
+                                download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+                        cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
+            else:
+                msgbox.showinfo('','歌单是空的.',parent=self.window)
+
     def _fast_download(self,source,flag):
         if flag == 'unknown':
             msgbox.showinfo('','无法解析......',parent=self.window)
         elif flag == 'avid' or flag == 'bvid':#普通视频
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if not path:
-                return
-            video_data = biliapis.video.get_detail(**{flag:source})
-            parts = video_data['parts']
-            bvid = video_data['bvid']
-            title = video_data['title']
-            if len(parts) > 1:
-                tmp = []
-                for part in parts:
-                    tmp += [[part['title'],biliapis.second_to_time(part['length']),part['cid']]]
-                indexes = PartsChooser(tmp).return_values
-                if not indexes:
-                    return
-            else:
-                indexes = [0]
-            download_manager.task_receiver('video',path,bvid=video_data['bvid'],data=video_data,pids=indexes)
+            self.__fd_commonv(source=source, flag=flag)
         elif flag == 'auid':#音频
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if not path:
-                return
-            download_manager.task_receiver('audio',path,auid=source)
+            self.__fd_audio(source=source, flag=flag)
         elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':#番
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if not path:
-                return
-            bangumi_data = biliapis.media.get_detail(**{flag:source})
-            episodes = bangumi_data['episodes']
-            title = bangumi_data['title']
-            if len(episodes) > 0:
-                tmp = []
-                for episode in episodes:
-                    tmp += [[episode['title'],'-','-']]
-                indexes = PartsChooser(tmp).return_values
-                if not indexes:
-                    return
-            else:
-                msgbox.showinfo('','没有正片',parent=self.window)
-                return
-            download_manager.task_receiver('video',path,ssid=bangumi_data['ssid'],data=bangumi_data,epindexes=indexes)
+            self.__fd_media(source=source, flag=flag)
         elif flag == 'mcid':#漫画
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if not path:
-                return
-            manga_data = biliapis.manga.get_detail(mcid=source)
-            if len(manga_data['ep_list']) > 0:
-                indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
-                                       title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
-                if not indexes:
-                    return
-            else:
-                msgbox.showinfo('','没有章节',parent=self.window)
-                return
-            download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
+            self.__fd_manga(source=source, flag=flag)
         elif flag == 'collection':#合集
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if path:
-                collection = biliapis.video.get_archive_list(*source,page_size=100)
-                archives = collection['archives']
-                tp = collection['total_page']
-                if archives:
-                    if tp > 1:
-                        if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
-                            def get_archives(source,tp):
-                                archives = []
-                                for p in range(2,tp+1):
-                                    archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
-                                    time.sleep(0.5)
-                                return archives
-                            archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                           columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                    if indexes:
-                        def putin_tasks(indexes,archives):
-                            for index in indexes:
-                                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                        cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-                else:
-                    msgbox.showinfo('合集没有内容',parent=self.window)
+            self.__fd_collection(source=source, flag=flag)
         elif flag == 'favlist':#收藏夹
-            pass
+            return
         elif flag == 'series':#系列
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if path:
-                series = biliapis.video.get_series_list(*source,page_size=100)
-                archives = series['archives']
-                tp = series['total_page']
-                if archives:
-                    if tp > 1:
-                        if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
-                            def get_archives(source,tp):
-                                archives = []
-                                for p in range(2,tp+1):
-                                    archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
-                                    time.sleep(0.5)
-                                return archives
-                            archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                           columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                    if indexes:
-                        def putin_tasks(indexes,archives):
-                            for index in indexes:
-                                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                        cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-                else:
-                    msgbox.showinfo('没有内容',parent=self.window)
+            self.__fd_series(source=source, flag=flag)
         elif flag == 'amid':
-            path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-            if path:
-                data = biliapis.audio.get_list(source)
-                if data:
-                    tp = data['total_page']
-                    audio_list = data['data']
-                    if tp > 1:
-                        if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
-                            def get_audio_lists(source,tp):
-                                audio_list = []
-                                for p in range(2,tp+1):
-                                    audio_list += biliapis.audio.get_list(source,page=p)['data']
-                                    time.sleep(0.5)
-                                return audio_list
-                            audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
-                    if audio_list:
-                        indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
-                                               columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
-                        if indexes:
-                            def putin_tasks(indexes,audio_list):
-                                for index in indexes:
-                                    download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
-                            cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
-                else:
-                    msgbox.showinfo('','歌单是空的.',parent=self.window)
+            self.__fd_audiolist(source=source,flag=flag)
         else:
             msgbox.showinfo('','暂不支持%s的快速下载'%flag,parent=self.window)
 
@@ -3924,9 +3937,9 @@ class PlotShower(Window):
         fd = fd.inner_frame
         # 框架内布置
             # 剧情图封面
-##        self.imglabel_cover = cusw.ImageLabel(
-##            fd, width=self.sidebar_width-25, height=int((self.sidebar_width-25)*(9/16)))
-##        self.imglabel_cover.grid(column=0, row=0, columnspan=2)
+    #    self.imglabel_cover = cusw.ImageLabel(
+    #        fd, width=self.sidebar_width-25, height=int((self.sidebar_width-25)*(9/16)))
+    #    self.imglabel_cover.grid(column=0, row=0, columnspan=2)
             # 剧情图EdgeID
         le = self.label_edgeid = tk.Label(fd, text='EdgeID -')
         le.grid(column=0,row=1,columnspan=2,sticky='w')
@@ -3940,8 +3953,8 @@ class PlotShower(Window):
         fq = self.frame_question = tk.LabelFrame(fd, text='Question')
         fq.grid(column=0,row=4,columnspan=2)
                 # 问题参数
-##        tqt = self.label_quescontent = tk.Text(fd)
-##        tqt.grid()
+    #    tqt = self.label_quescontent = tk.Text(fd)
+    #    tqt.grid()
         tl = self.label_timelimit = tk.Label(fq, text='限时 -s')
         tl.grid(column=0,row=0,sticky='w')
         ps = self.label_pause_or_not = tk.Label(fq, text='回答时视频会暂停')
@@ -4474,6 +4487,10 @@ class VideoShotViewer(Window):
             self.imglabel.set(bio)
             self.label_time['text'] = biliapis.second_to_time(dura)
             self._last_index = index
+
+class ArticleWindow(Window):
+    def __init__(self, cvid):
+        pass
 
 def main():
     load_config()

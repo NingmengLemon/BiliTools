@@ -1,4 +1,4 @@
-from . import audio,comment,manga,media,subtitle,user,video,danmaku,live,dynamic
+from . import audio,comment,manga,media,subtitle,user,video,danmaku,live,dynamic,article
 from . import bilicodes 
 from . import stream,login,other
 from . import requester,wbi
@@ -9,7 +9,7 @@ import winreg
 import re
 
 child_modules = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
-                 'stream','bilicodes','other','dynamic']
+                 'stream','bilicodes','other','dynamic','article']
 __all__ = child_modules + ['requester','BiliError',
            'get_desktop','second_to_time','format_img','parse_url','convert_number']
 

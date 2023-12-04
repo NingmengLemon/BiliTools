@@ -5,9 +5,11 @@ from . import wbi
 from urllib import parse
 import json
 from .video import _video_detail_handler
+from .article import _article_stat_handler
 
 __all__ = ['search','get_info','get_favlist','get_all_favlists',
-           'get_liveroom','get_toview']
+           'get_liveroom','get_toview','get_article_list',
+           'get_readlist_list']
 
 def get_liveroom(uid):
     api = 'http://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?'\
@@ -73,7 +75,7 @@ def get_info(uid):
     params = {
         'mid':uid
         }
-    api += '?'+urllib.parse.urlencode(wbi.sign(params))
+    api += '?'+parse.urlencode(wbi.sign(params))
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -125,7 +127,7 @@ def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
                 'uploader':{
                     'uid':i['upper']['mid'],
                     'name':i['upper']['name'],
-                    'face':i['upper']['fave']
+                    'face':i['upper']['face']
                     },
                 'stat':{
                     'collect':i['cnt_info']['collect'],
@@ -212,4 +214,81 @@ def get_toview():
             'add_time':v['add_at'], # timestamp, s
             'watch_prg':v['progress'] # 观看进度, s
             })
+    return res
+
+def get_article_list(uid:int,page:int=1,page_size:int=30,sort:str='publish_time'):
+    '''
+    page_size 的上限为 30
+
+    sort = publish_time / view / fav
+    '''
+    api = 'https://api.bilibili.com/x/space/article'
+    api += '?mid=%s&pn=%s&ps=%s&sort=%s'%(uid,page,page_size,sort)
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    articles = data['articles']
+
+    res = {
+        'page':data['pn'],
+        'page_size':data['ps'],
+        'count':data['count'], # 总数
+        'articles':[{
+            'cvid':a['id'],
+            'categories':[t['name'] for t in a['categories']],
+            #'tags':[t['name'] for t in a['tags']],
+            'title':a['title'],
+            'desc':a['summary'],
+            'banner':a['banner_url'],
+            'cover':a['origin_image_urls'][0],
+            'stat':_article_stat_handler(a['stats']),
+            'time':{
+                'publish':a['publish_time'],
+                'create':a['ctime']
+                },
+            #'dynamic':a['dynamic'],
+            'is_liked':a['is_like'],
+            'author':{
+                'uid':a['author']['mid'],
+                'name':a['author']['name'],
+                'avatar':a['author']['face']
+            },
+            'words':a['words'], # 事字数
+        } for a in articles]
+    }
+    return res
+
+
+def get_readlist_list(uid:int,sort:int=0): # 文集
+    '''
+    sort = 0 / 1
+
+    0: 按时间; 1: 按访问量
+    '''
+    api = 'https://api.bilibili.com/x/article/up/lists'
+    api += '?mid=%s&sort=%d'%(uid,sort)
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'],data['message'])
+    data = data['data']
+    lists = data['lists']
+
+    res = {
+        'total':data['total'],
+        'lists':[{
+            'rlid':d['id'],
+            'uid':d['mid'],
+            'title':d['name'],
+            'cover':d['image_url'],
+            'time':{
+                'update':d['update_time'],
+                'create':d['ctime'],
+                'publish':d['publish_time']
+            },
+            'words':d['words'],
+            'view':d['read'], # 浏览量
+            'count':d['articles_count'], # 内容物计数
+        } for d in lists]
+    }
     return res
