@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from bs4 import BeautifulSoup
-
+import lxml
 __all__ = ['filter','get_xmlstr','get_filter_rule']
 
 def _parse_d(dp):
