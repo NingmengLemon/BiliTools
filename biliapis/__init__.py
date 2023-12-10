@@ -5,17 +5,12 @@ from . import requester,wbi
 from .error import BiliError
 import threading
 
-import winreg
 import re
 
 child_modules = ['audio','comment','login','manga','media','subtitle','user','video','danmaku','live',
                  'stream','bilicodes','other','dynamic','article']
 __all__ = child_modules + ['requester','BiliError',
            'get_desktop','second_to_time','format_img','parse_url','convert_number']
-
-def get_desktop():
-    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
-    return winreg.QueryValueEx(key,"Desktop")[0]
 
 def convert_number(a):
     try:
@@ -111,10 +106,11 @@ def parse_url(url):
             if sid:
                 return (uid,int(sid[0])),'collection'
         #收藏夹
-        elif 'favlist' in url.lower():
-            fid = re.findall(r'fid\=([0-9]+)',url,re.I)
-            if fid:
-                return (uid,int(fid[0])),'favlist'
+        elif 'favlist' in url.lower() and 'ftype=create' in url.lower():
+            mlid = re.findall(r'fid\=([0-9]+)',url,re.I)
+            if mlid:
+                return (uid,int(mlid[0])),'favlist'
+            
         #系列
         elif 'seriesdetail' in url.lower():
             sid = re.findall(r'sid\=([0-9]+)',url,re.I)

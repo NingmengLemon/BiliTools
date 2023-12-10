@@ -95,6 +95,13 @@ def get_info(uid):
     return res
 
 def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
+    '''
+    mlid:       fid + uid[-2:]
+    tid:        分区 ID
+    order:      排序方式 {pubtime, view, mtime}
+    page_size:  每页视频数 [1,20]
+    page:       页数
+    '''
     api = 'https://api.bilibili.com/x/v3/fav/resource/list?'\
           'media_id={}&tid={}&order={}&ps={}&pn={}&platform=pc'.format(mlid,tid,order,page_size,page)
     data = requester.get_content_str(api)
@@ -115,15 +122,16 @@ def get_favlist(mlid,tid=0,order='mtime',page_size=20,page=1):
             'title':info['title'],
             'cover':info['cover'],
             'description':info['intro'],
-            'is_collected':bool(info['fav_state']), #是否收藏, 需要登录
-            'is_liked':bool(info['like_state']), #是否点赞, 同上
-            'content_count':info['media_count'],
+            'is_collected':bool(info['fav_state']), # 是否收藏, 需要登录
+            'is_liked':bool(info['like_state']),    # 是否点赞, 同上
+            'content_count':info['media_count'],    # 内容物计数
             'content':[{
                 'bvid':i['bvid'],
                 'title':i['title'],
                 'fav_time':i['fav_time'],
                 'pub_time':i['pubtime'],
                 'description':i['intro'],
+                'duration':i['duration'],
                 'uploader':{
                     'uid':i['upper']['mid'],
                     'name':i['upper']['name'],
