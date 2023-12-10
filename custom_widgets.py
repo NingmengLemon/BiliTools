@@ -272,11 +272,13 @@ class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在hei
 
 class Thread_with_gui(Window):
     def __init__(self,func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
-        '''由于涉及到GUI, 该方法只能在主线程中运行...
-is_progress_hook_available 的意思是, 传入的函数是否可以被传入progress_hook参数,
-函数通过修改该变量可以向GUI通报进度或状态.
-progress_hook是一个字典, 可以包含: status:(str),progress:(done(int),total(int))(tuple)/None
-is_task_queue_available 的意思是, 传入的函数是否可以被传入task_queue参数, 该参数是一个队列, 线程可以向它提交无参函数给主线程执行'''
+        '''
+        由于涉及到GUI, 该方法只能在主线程中运行...
+        is_progress_hook_available 的意思是, 传入的函数是否可以被传入progress_hook参数,
+        函数通过修改该变量可以向GUI通报进度或状态.
+        progress_hook是一个字典, 可以包含: status:(str),progress:(done(int),total(int))(tuple)/None
+        is_task_queue_available 的意思是, 传入的函数是否可以被传入task_queue参数, 该参数是一个队列, 线程可以向它提交无参函数给主线程执行
+        '''
         super().__init__('BiliTools - Working...',master=master,topmost=True)
         self.window.overrideredirect(True)
         ww,wh = (420,65)

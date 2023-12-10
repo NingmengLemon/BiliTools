@@ -3,3 +3,4 @@ qrcode
 beautifulsoup4
 brotli
 lxml
+colorama

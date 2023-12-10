@@ -21,6 +21,7 @@ import base64
 import subprocess
 import copy
 import functools
+import typing
 
 import qrcode
 import danmaku2ass
@@ -31,39 +32,25 @@ from biliapis import bilicodes
 import custom_widgets as cusw
 from basic_window import Window
 import imglib
-import textlib
 import ffdriver
 from videoshot_handler import VideoShotHandler
 
 from configuration import version, inner_data_path
+from configuration import config_path
 from configuration import default_config as config
+from configuration import development_mode
+import textlib
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-development_mode = True
+
 if not os.path.exists(inner_data_path):
     os.mkdir(inner_data_path)
 biliapis.requester.inner_data_path = inner_data_path
-config_path = os.path.join(inner_data_path,'config.json')
-desktop_path = biliapis.get_desktop()
-logging_path = os.path.join(inner_data_path,'last_run.log')
 
 biliapis.requester.filter_emoji = config['filter_emoji']
-# 日志模块设置
-lg_cfg = {
-    'format':'[%(asctime)s][%(levelname)s]%(message)s',
-    'datefmt':'%Y-%m-%d %H:%M:%S',
-    'level':{True:logging.DEBUG,False:logging.INFO}[development_mode or '-debug' in sys.argv]
-    }
-# 如果不是开发者模式就把日志输出到文件
-if development_mode:
-    pass
-else:
-    lg_cfg['filename'] = logging_path
-    lg_cfg['filemode'] = 'w+'
-logging.basicConfig(**lg_cfg)
 # 加载关于信息
 about_info = textlib.about_info.format(version=version)
 # 加载Cookies
@@ -164,13 +151,13 @@ class DownloadManager(object):
             }
         self.table_columns_widths = [40,200,180,100,70,70,100,60,100,150]
         
-        self.table_display_list = [] # 多维列表注意, 对应Treview的内容, 每项格式见table_columns
-        self.data_objs = [] # 对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
-        self.thread_counter = 0 # 线程计数器
-        self.failed_indexes = [] # 存放失败任务在data_objs中的索引
-        self.running_indexes = [] # 存放运行中的任务在data_objs中的索引
-        self.done_indexes = [] # 存放已完成任务在data_objs中的索引
-        start_new_thread(self.auto_thread_starter) #启动线程启动器
+        self.table_display_list = []    # 多维列表注意, 对应Treeview的内容, 每项格式见table_columns
+        self.data_objs = []             # 对应每个下载项的数据包, 每项格式:[序号(整型),类型(字符串,video/audio/common/manga),选项(字典,包含从task_receiver传入的除源以外的**args)]
+        self.thread_counter = 0         # 线程计数器
+        self.failed_indexes = []        # 存放失败任务在data_objs中的索引
+        self.running_indexes = []       # 存放运行中的任务在data_objs中的索引
+        self.done_indexes = []          # 存放已完成任务在data_objs中的索引
+        start_new_thread(self.auto_thread_starter) # 启动线程启动器
         if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-debug' in sys.argv):
             if os.path.getsize(config['download']['progress_backup_path']) >= 50:
                 self.show()
@@ -515,9 +502,11 @@ class DownloadManager(object):
                     self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
                     #Mix
                     self._edit_display_list(index,'status','混流/转码')
-                    ffstatus = ffdriver.merge_media(os.path.join(path,tmpname_audio),
-                                           os.path.join(path,tmpname_video),
-                                           os.path.join(path,final_filename))
+                    ffstatus = ffdriver.merge_media(
+                        os.path.join(path,tmpname_audio),
+                        os.path.join(path,tmpname_video),
+                        os.path.join(path,final_filename)
+                        )
                     try:
                         os.remove(os.path.join(path,tmpname_audio))
                         os.remove(os.path.join(path,tmpname_video))
@@ -539,7 +528,7 @@ class DownloadManager(object):
             self.thread_counter -= 1
             self.save_progress()
 
-    def task_receiver(self,mode,path,data=None,**options):
+    def task_receiver(self, mode: str, path: str, data: typing.Union[dict, None] = None, **options) -> None:
         '''
         - `mode`: 下载模式, 必须为 `"video"` `"audio"` `"common"` `"manga"` 中的任意一个
         - `path`: 保存位置
@@ -602,11 +591,18 @@ class DownloadManager(object):
                         assert 'cid' in options,'提交的资源不够, 互动视频分P的解析需要cid'
                         cid = options['cid']
                         if 'graph_id' in options and 'edge_id' in options:
-                            edge_data = biliapis.video.get_interact_edge_info(
-                                graph_id=options['graph_id'],
-                                edge_id=options['edge_id'],
-                                **abvid
-                                )
+                            try:
+                                edge_data = biliapis.video.get_interact_edge_info(
+                                    graph_id=options['graph_id'],
+                                    edge_id=options['edge_id'],
+                                    **abvid
+                                    )
+                            except Exception as e:
+                                if is_mainthread:
+                                    msgbox.showerror('Error','Unable to get edge data:\n'+str(e),parent=self.window)
+                                else:
+                                    logging.error('Unable to get edge data: '+str(e))
+                                return
                         elif data:
                             # 没有办法做验证
                             edge_data = data
@@ -619,7 +615,14 @@ class DownloadManager(object):
                                 assert options['bvid']==options['video_data']['bvid'],'预请求数据包内容不匹配'
                             video_data = options['video_data']
                         else:
-                            video_data = biliapis.video.get_detail(**abvid)
+                            try:
+                                video_data = biliapis.video.get_detail(**abvid)
+                            except Exception as e:
+                                if is_mainthread:
+                                    msgbox.showerror('Error','Unable to get video data:\n'+str(e),parent=self.window)
+                                else:
+                                    logging.error('Unable to get video data: '+str(e))
+                                return
 
                         pre_opts = {}
                         pre_opts['audio_format'] = config['download']['video']['audio_convert']
@@ -645,29 +648,29 @@ class DownloadManager(object):
                     else:
                         # 正常处理普通视频
                         video_data = None
-                        try:
-                            if not data and 'video_data' in options:
-                                data = options['video_data']
-                            if data:
-                                #提取预处理数据包
-                                if 'avid' in options:
-                                    assert options['avid']==data['avid'],'预请求数据包内容不匹配'
-                                else:
-                                    assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
-                                video_data = data
+                        if not data and 'video_data' in options:
+                            data = options['video_data']
+                        if data:
+                            #提取预处理数据包
+                            if 'avid' in options:
+                                assert options['avid']==data['avid'],'预请求数据包内容不匹配'
                             else:
-                                #提取avid/bvid
+                                assert options['bvid']==data['bvid'],'预请求数据包内容不匹配'
+                            video_data = data
+                        else:
+                            #提取avid/bvid
+                            try:
                                 video_data = biliapis.video.get_detail(**abvid)
-                                # if 'avid' in options:
-                                #     video_data = biliapis.video.get_detail(avid=options['avid'])
-                                # else:
-                                #     video_data = biliapis.video.get_detail(bvid=options['bvid'])
-                        except Exception as e:
-                            if is_mainthread:
-                                msgbox.showerror('',str(e),parent=self.window)
+                            except Exception as e:
+                                if is_mainthread:
+                                    msgbox.showerror('Error','Unable to get video data:\n'+str(e),parent=self.window)
+                                else:
+                                    logging.error('Unable to get video data: '+str(e))
                                 return
-                            else:
-                                raise e
+                            # if 'avid' in options:
+                            #     video_data = biliapis.video.get_detail(avid=options['avid'])
+                            # else:
+                            #     video_data = biliapis.video.get_detail(bvid=options['bvid'])
                         #提取分P索引列表
                         if 'pids' in options: #这里的所谓pid其实是分P的索引值哒
                             pids = options['pids']
@@ -722,11 +725,13 @@ class DownloadManager(object):
                             else:
                                 bangumi_data = biliapis.media.get_detail(epid=options['epid'])
                     except Exception as e:
+                        if isinstance(e, AssertionError):
+                            raise
                         if is_mainthread:
                             msgbox.showerror('',str(e),parent=self.window)
-                            return
                         else:
-                            raise e
+                            logging.error("Unable to get media data: "+str(e))
+                        return
                     main_title = bangumi_data['title']
                     #选择正片/番外
                     if 'section_index' in options:
@@ -813,9 +818,9 @@ class DownloadManager(object):
                         except Exception as e:
                             if is_mainthread:
                                 msgbox.showerror('',str(e),parent=self.window)
-                                return
                             else:
-                                raise e
+                                logging.error("Unable to get manga data: "+str(e))
+                            return
                     #提取epindexes
                     if 'epindexes' in options:
                         indexes = options['epindexes']
@@ -837,17 +842,17 @@ class DownloadManager(object):
                         self.task_queue.put_nowait(lambda args=tmpdict:self._manga_download_thread(**args))
                 elif 'epid' in options:
                     #提取预处理数据
-                    try:
-                        if data:
-                            assert data['epid']==options['epid'],'预请求数据包内容不匹配'
-                        else:
+                    if data:
+                        assert data['epid']==options['epid'],'预请求数据包内容不匹配'
+                    else:
+                        try:
                             data = biliapis.manga.get_episode_info(options['epid'])
-                    except Exception as e:
-                        if is_mainthread:
-                            msgbox.showerror('',str(e),parent=self.window)
+                        except Exception as e:
+                            if is_mainthread:
+                                msgbox.showerror('',str(e),parent=self.window)
+                            else:
+                                logging.error('Unable to get episode data: '+str(e))
                             return
-                        else:
-                            raise e
                     tmpdict = {
                         'index':len(self.data_objs),
                         'epid':options['epid'],
@@ -887,7 +892,7 @@ class DownloadManager(object):
             self.task_queue.put_nowait(lambda args=data[2]:self._manga_download_thread(**args))
         
     def show(self):
-        if self.window:#构建GUI
+        if self.window: # 构建GUI
             if self.window.state() == 'iconic':
                 self.window.deiconify()
         else:
@@ -897,7 +902,7 @@ class DownloadManager(object):
             self.window.protocol('WM_DELETE_WINDOW',self.hide)
             self.window.wm_attributes('-alpha',config['alpha'])
             self.window.wm_attributes('-topmost',config['topmost'])
-            #任务列表
+            # 任务列表
             self.frame_table = tk.Frame(self.window)
             self.frame_table.grid(column=0,row=0,sticky='w',columnspan=2)
             self.scbar_y = tk.Scrollbar(self.frame_table,orient='vertical')
@@ -908,13 +913,13 @@ class DownloadManager(object):
             self.scbar_x['command'] = self.table.xview
             self.scbar_y.grid(column=1,row=0,sticky='wns')
             self.scbar_x.grid(column=0,row=1,sticky='nwe')
-            #初始化表头
+            # 初始化表头
             i = 0
             for column in self.table_columns.keys():
                 self.table.column(column,width=self.table_columns_widths[i],minwidth=self.table_columns_widths[i],anchor='w')
                 self.table.heading(column,text=self.table_columns[column],anchor='w')
                 i += 1
-            #数据统计
+            # 数据统计
             self.frame_stat = tk.Frame(self.window)
             self.frame_stat.grid(column=0,row=1,sticky='nw',padx=10)
             tk.Label(self.frame_stat,text='总任务数:')  .grid(column=0,row=0,sticky='e')
@@ -935,7 +940,7 @@ class DownloadManager(object):
             self.label_stat_threadnum.grid(column=1,row=4,sticky='w')
             self.label_stat_queuelen = tk.Label(self.frame_stat,text='0')
             self.label_stat_queuelen.grid(column=1,row=5,sticky='w')
-            #操作面板
+            # 操作面板
             self.frame_console = tk.LabelFrame(self.window,text='操作')
             self.frame_console.grid(column=1,row=1,sticky='nw')
             ttk.Button(self.frame_console,text='重试所有失败任务',command=self.retry_all_failed).grid(column=0,row=0,sticky='w')
@@ -1084,7 +1089,7 @@ class MainWindow(Window):
             self.button_login.configure(state='normal')
         else:
             if w.status:
-                #time.sleep(0.2) # 实验性添加
+                #time.sleep(0.2) # 实验性(?)
                 biliapis.requester.load_local_cookies()
                 self.refresh_data()
             else:
@@ -1249,7 +1254,7 @@ class MainWindow(Window):
             tmp = []
             for episode in episodes:
                 tmp += [[episode['title'],'-','-']]
-            indexes = PartsChooser(tmp).return_values
+            indexes = PartsChooser(tmp, title='Media %s'%title).return_values
             if not indexes:
                 return
         else:
@@ -1261,10 +1266,20 @@ class MainWindow(Window):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
         if not path:
             return
+        
         manga_data = biliapis.manga.get_detail(mcid=source)
         if len(manga_data['ep_list']) > 0:
-            indexes = PartsChooser([[i['eptitle'],str(i['epid']),{True:'Yes',False:'No'}[i['pay_gold']==0],{True:'Yes',False:'No'}[i['is_locked']]] for i in manga_data['ep_list']],
-                                    title='EpisodesChooser',columns=['章节标题','EpID','是否免费','是否锁定'],columns_widths=[200,70,60,60]).return_values
+            indexes = PartsChooser(
+                [[
+                    i['eptitle'],
+                    str(i['epid']),
+                    {True:'Yes',False:'No'}[i['pay_gold']==0],
+                    {True:'Yes',False:'No'}[i['is_locked']]
+                    ] for i in manga_data['ep_list']],
+                title='EpisodesChooser',
+                columns=['章节标题','EpID','是否免费','是否锁定'],
+                columns_widths=[200,70,60,60]
+                ).return_values
             if not indexes:
                 return
         else:
@@ -1272,113 +1287,250 @@ class MainWindow(Window):
             return
         download_manager.task_receiver('manga',path,data=manga_data,mcid=source,epindexes=indexes)
 
+    # 下面几个函数的结构, 其实都差不多...?
+    # 我想是否可以做个模板来套, 但是似乎有点...
     def __fd_collection(self, source, flag):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-        if path:
-            collection = biliapis.video.get_archive_list(*source,page_size=100)
-            archives = collection['archives']
-            tp = collection['total_page']
-            if archives:
-                if tp > 1:
-                    if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
-                        def get_archives(source,tp):
-                            archives = []
-                            for p in range(2,tp+1):
-                                archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
-                                time.sleep(0.5)
-                            return archives
-                        archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                        columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                if indexes:
-                    def putin_tasks(indexes,archives):
-                        for index in indexes:
-                            download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                    cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-            else:
-                msgbox.showinfo('合集没有内容',parent=self.window)
+        if not path:
+            return
+        
+        collection = biliapis.video.get_archive_list(*source,page_size=100)
+        archives = collection['archives']
+        tp = collection['total_page']
+        if not archives:
+            msgbox.showinfo('合集没有内容',parent=self.window)
+            return
+        if tp > 1:
+            if msgbox.askyesno('多个分页','目标合集内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(collection['total']),parent=self.window):
+                def get_archives(source,tp,progress_hook):
+                    archives = []
+                    for p in range(2,tp+1):
+                        progress_hook['status'] = 'Fetching page %d of %d'%(p, tp)
+                        progress_hook['progress'] = (p-1, tp)
+                        archives += biliapis.video.get_archive_list(*source,page_size=100,page=p)['archives']
+                        time.sleep(config['download']['batch_sleep'])
+                    return archives
+                archives += cusw.run_with_gui(
+                    get_archives,
+                    master=self.window,
+                    args=(source,tp),
+                    is_progress_hook_available=True
+                    )
+
+        indexes = PartsChooser(
+            [[
+                i['title'],
+                biliapis.second_to_time(i['duration']),
+                i['bvid'],
+                {True:'Yes',False:'No'}[i['is_interact_video']]
+            ] for i in archives],
+            columns=['标题','长度','BvID','互动视频'],
+            title='Collection'
+            ).return_values
+        if not indexes:
+            return
+        
+        def putin_tasks(indexes,archives,progress_hook):
+            count = 0
+            ind_total = len(indexes)
+            for index in indexes:
+                count += 1
+                progress_hook['status'] = 'Adding task %d of %d'%(count, ind_total)
+                progress_hook['progress'] = (count-1, ind_total)
+                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                time.sleep(config['download']['batch_sleep'])
+        cusw.run_with_gui(
+            putin_tasks,
+            args=(indexes,archives),
+            master=self.window,
+            is_progress_hook_available=True
+            )
 
     def __fd_series(self, source, flag):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-        if path:
-            series = biliapis.video.get_series_list(*source,page_size=100)
-            archives = series['archives']
-            tp = series['total_page']
-            if archives:
-                if tp > 1:
-                    if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
-                        def get_archives(source,tp):
-                            archives = []
-                            for p in range(2,tp+1):
-                                archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
-                                time.sleep(0.5)
-                            return archives
-                        archives += cusw.run_with_gui(get_archives,master=self.window,args=(source,tp))
-                indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],{True:'Yes',False:'No'}[i['is_interact_video']]] for i in archives],
-                                        columns=['标题','长度','BvID','互动视频'],title='Collection').return_values
-                if indexes:
-                    def putin_tasks(indexes,archives):
-                        for index in indexes:
-                            download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
-                    cusw.run_with_gui(putin_tasks,args=(indexes,archives),master=self.window)
-            else:
-                msgbox.showinfo('没有内容',parent=self.window)
+        if not path:
+            return
+        
+        series = biliapis.video.get_series_list(*source,page_size=100)
+        archives = series['archives']
+        tp = series['total_page']
+        if not archives:
+            msgbox.showinfo('没有内容',parent=self.window)
+            return
+        if tp > 1:
+            if msgbox.askyesno('多个分页','目标内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(series['total']),parent=self.window):
+                def get_archives(source, tp, progress_hook):
+                    archives = []
+                    for p in range(2,tp+1):
+                        progress_hook['status'] = 'Fetching page %d of %d'%(p, tp)
+                        progress_hook['progress'] = (p-1, tp)
+                        archives += biliapis.video.get_series_list(*source,page_size=100,page=p)['archives']
+                        time.sleep(config['download']['batch_sleep'])
+                    return archives
+                archives += cusw.run_with_gui(
+                    get_archives,
+                    master=self.window,
+                    args=(source,tp),
+                    is_progress_hook_available=True
+                    )
+                
+        indexes = PartsChooser(
+            [[
+                i['title'],
+                biliapis.second_to_time(i['duration']),
+                i['bvid'],
+                {True:'Yes',False:'No'}[i['is_interact_video']]
+            ] for i in archives],
+            columns=['标题','长度','BvID','互动视频'],
+            title='Collection'
+            ).return_values
+        if not indexes:
+            return
+        
+        def putin_tasks(indexes,archives,progress_hook):
+            count = 0
+            ind_total = len(indexes)
+            for index in indexes:
+                count += 1
+                progress_hook['status'] = 'Adding task %d of %d'%(count, ind_total)
+                progress_hook['progress'] = (count-1, ind_total)
+                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                time.sleep(config['download']['batch_sleep'])
+        cusw.run_with_gui(
+            putin_tasks,
+            args=(indexes,archives),
+            master=self.window,
+            is_progress_hook_available=True
+            )
 
     def __fd_favlist(self, source, flag):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
         if not path:
             msgbox.showinfo('注意','操作已被取消',parent=self.window)
             return
-        favlist = biliapis.user.get_favlist()
+        
+        favlist = biliapis.user.get_favlist(mlid=source[1])
+        total = favlist['content_count']
+        page_size = 20 # 已经是最大了
+        page = math.ceil(total/page_size)
+        content = favlist['content']
+        if total == 0:
+            msgbox.showinfo('','收藏夹没有内容',parent=self.window)
+            return
+        elif page > 1:
+            if msgbox.askyesno('多个分页','目标内容量超过{}(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(page_size, total),parent=self.window):
+                def get_favlist_content(source, tp, progress_hook):
+                    archives = []
+                    for p in range(2,tp+1):
+                        progress_hook['status'] = 'Fetching page %d of %d'%(p, tp)
+                        progress_hook['progress'] = (p-1, tp)
+                        archives += biliapis.user.get_favlist(source[1],page_size=page_size,page=p)['content']
+                        time.sleep(config['download']['batch_sleep'])
+                    return archives
+                content += cusw.run_with_gui(
+                    get_favlist_content,
+                    master=self.window,
+                    args=(source, page),
+                    is_progress_hook_available=True
+                    )
+                
+        indexes = PartsChooser(
+            [[i['title'],biliapis.second_to_time(i['duration']),i['bvid'],i['uploader']['name']] for i in content],
+            columns=['标题','长度','BvID','UP主'],
+            title='FavList {} by {}'.format(source[1], favlist['uploader']['name'])
+            ).return_values  
+        if not indexes:
+            return
+        
+        def putin_tasks(indexes, archives, progress_hook):
+            count = 0
+            ind_total = len(indexes)
+            for index in indexes:
+                count += 1
+                progress_hook['status'] = 'Adding task %d of %d'%(count, ind_total)
+                progress_hook['progress'] = (count-1, ind_total)
+                download_manager.task_receiver('video',path,bvid=archives[index]['bvid'])
+                time.sleep(config['download']['batch_sleep'])
+        cusw.run_with_gui(
+            putin_tasks,
+            args=(indexes, content),
+            master=self.window,
+            is_progress_hook_available=True
+            )
 
     def __fd_audiolist(self, source, flag):
         path = filedialog.askdirectory(title='选择保存位置',parent=self.window)
-        if path:
-            data = biliapis.audio.get_list(source)
-            if data:
-                tp = data['total_page']
-                audio_list = data['data']
-                if tp > 1:
-                    if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
-                        def get_audio_lists(source,tp):
-                            audio_list = []
-                            for p in range(2,tp+1):
-                                audio_list += biliapis.audio.get_list(source,page=p)['data']
-                                time.sleep(0.5)
-                            return audio_list
-                        audio_list += cusw.run_with_gui(get_audio_lists,args=(source,tp),master=self.window)
-                if audio_list:
-                    indexes = PartsChooser([[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
-                                            columns=['标题','长度','AuID','关联BvID'],title='Audio List').return_values
-                    if indexes:
-                        def putin_tasks(indexes,audio_list):
-                            for index in indexes:
-                                download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
-                        cusw.run_with_gui(putin_tasks,args=(indexes,audio_list),master=self.window)
-            else:
-                msgbox.showinfo('','歌单是空的.',parent=self.window)
+        if not path:
+            return
+        
+        data = biliapis.audio.get_list(source)
+        if not data:
+            msgbox.showinfo('','歌单是空的.',parent=self.window)
+            return
+        tp = data['total_page']
+        audio_list = data['data']
+
+        if tp > 1:
+            if msgbox.askyesno('多个分页','目标歌单内容量超过100(共{}), 要全部获取吗？\n这可能会花上一段时间.'.format(data['total_size']),parent=self.window):
+                def get_audio_lists(source,tpprogress_hook):
+                    audio_list = []
+                    for p in range(2,tp+1):
+                        audio_list += biliapis.audio.get_list(source,page=p)['data']
+                        time.sleep(config['download']['batch_sleep'])
+                    return audio_list
+                audio_list += cusw.run_with_gui(
+                    get_audio_lists,
+                    args=(source,tp),
+                    master=self.window,
+                    is_progress_hook_available=True
+                    )
+        if not audio_list:
+            return
+        
+        indexes = PartsChooser(
+            [[i['title'],biliapis.second_to_time(i['length']),str(i['auid']),i['connect_video']['bvid']] for i in audio_list],
+            columns=['标题','长度','AuID','关联BvID'],
+            title='Audio List'
+            ).return_values
+        if not indexes:
+            return
+        def putin_tasks(indexes,audio_list,progress_hook):
+            count = 0
+            ind_total = len(indexes)
+            for index in indexes:
+                count += 1
+                progress_hook['status'] = 'Adding task %d of %d'%(count, ind_total)
+                progress_hook['progress'] = (count-1, ind_total)
+                download_manager.task_receiver('audio',path,auid=audio_list[index]['auid'],data=audio_list[index])
+        cusw.run_with_gui(
+            putin_tasks,
+            args=(indexes,audio_list),
+            master=self.window,
+            is_progress_hook_available=True
+            )
 
     def _fast_download(self,source,flag):
         if flag == 'unknown':
             msgbox.showinfo('','无法解析......',parent=self.window)
-        elif flag == 'avid' or flag == 'bvid':#普通视频
+        elif flag == 'avid' or flag == 'bvid':                      # 普通视频
             self.__fd_commonv(source=source, flag=flag)
-        elif flag == 'auid':#音频
+        elif flag == 'auid':                                        # 音频
             self.__fd_audio(source=source, flag=flag)
-        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':#番
+        elif flag == 'ssid' or flag == 'mdid' or flag == 'epid':    # 番
             self.__fd_media(source=source, flag=flag)
-        elif flag == 'mcid':#漫画
+        elif flag == 'mcid':                                        # 漫画
             self.__fd_manga(source=source, flag=flag)
-        elif flag == 'collection':#合集
+        elif flag == 'collection':                                  # 合集
             self.__fd_collection(source=source, flag=flag)
-        elif flag == 'favlist':#收藏夹
-            return
-        elif flag == 'series':#系列
+        elif flag == 'favlist':                                     # 收藏夹
+            self.__fd_favlist(source=source, flag=flag)
+        elif flag == 'series':                                      # 系列
             self.__fd_series(source=source, flag=flag)
-        elif flag == 'amid':
+        elif flag == 'amid':                                        # 歌单
             self.__fd_audiolist(source=source,flag=flag)
         else:
             msgbox.showinfo('','暂不支持%s的快速下载'%flag,parent=self.window)
+
 
 class BatchWindow(Window):
     def __init__(self):
@@ -1418,6 +1570,7 @@ class BatchWindow(Window):
                 source,flag = biliapis.parse_url(line)
                 if flag in ['avid','bvid']:
                     download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
+                    time.sleep(config['download']['batch_sleep'])
 
 class InputWindow(Window):
     def __init__(self,master,label=None,text=None):
@@ -1492,6 +1645,9 @@ class ConfigWindow(Window):
         self.checkbutton_allow_flac = ttk.Checkbutton(self.frame_download,text='允许Flac音轨',onvalue=True,offvalue=False,variable=self.boolvar_allow_flac)
         self.checkbutton_allow_flac.grid(column=0,row=2,sticky='w',columnspan=2)
         self.tooltip_allow_flac = cusw.ToolTip(self.checkbutton_allow_flac,'由于mp4容器的限制，包含flac音轨的视频将被封装为mkv格式。')
+        #batch sleep
+        self.frame_batch_sleep = tk.Frame(self.frame_download)
+        # self.frame_batch_sleep.grid(col)
 
         #Subtitle
         self.frame_subtitle = tk.LabelFrame(self.window,text='字幕与歌词')
@@ -4313,16 +4469,8 @@ class PlotShower(Window):
                 self.canvas.create_rectangle(x,y,x+plot_w,y+plot_h,fill=color)
                 #Text
                 self.canvas.create_text(x+plot_w/2,y+0.2*plot_h,text=plot['title'])
-                #t = tk.Entry(self.canvas,bg='#ffffff',bd=0,width=20)
-                #self.canvas.create_window(x+plot_w/2,y+0.2*plot_h,window=t)
-                #t.insert(tk.END,plot['title'])
-                #self._bind_scroll_event(t)
-                #t['state'] = 'readonly'
                 #Plot id
                 self.canvas.create_text(x+plot_w/2,y+0.5*plot_h,text='EdgeID %s'%plot['edge_id'])
-                #Viewing Button
-                #b = ttk.Button(self.canvas,text='View Detail',command=lambda index=(li,pi):self.show_plot_info(*index))
-                #self.canvas.create_window(x+plot_w/2,y+0.8*plot_h,window=b)
                 #使用bind事件返回的event判断点击了哪个plot块
             x += plot_w+empty_w
         # 连接Plot块 #arrow='last'
@@ -4491,6 +4639,12 @@ class VideoShotViewer(Window):
 class ArticleWindow(Window):
     def __init__(self, cvid):
         pass
+
+class ToviewWindow(Window):
+    def __init__(self, master):
+        super().__init__('Toview', True,config['topmost'],config['alpha'],master=master)
+
+
 
 def main():
     load_config()

@@ -25,7 +25,7 @@ def getMixinKey(orig: str):
     '对 imgKey 和 subKey 进行字符顺序打乱编码'
     return reduce(lambda s, i: s + orig[i], mixinKeyEncTab, '')[:32]
 
-def encWbi(params: dict, img_key: str, sub_key: str):
+def encWbi(params: dict, img_key: str, sub_key: str) -> dict:
     '为请求参数进行 wbi 签名'
     mixin_key = getMixinKey(img_key + sub_key)
     curr_time = round(time.time())
@@ -61,11 +61,11 @@ def init():
     last_fetch = time.time()
     logging.info('WBI KEY has been initialized')
 
-def sign(params):
+def sign(params) -> str:
     global img_key
     global sub_key
     global last_fetch
-    if (not img_key or not sub_key) or time.time()-last_fetch>60*60*24:
+    if (not img_key or not sub_key) or (time.time()-last_fetch) > 60*60*6:
         img_key, sub_key = getWbiKeys()
     signed_params = encWbi(
         params=params,

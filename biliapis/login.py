@@ -7,6 +7,13 @@ import time
 
 __all__ = ['get_csrf','dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
 
+def get_spi():
+    api = 'https://api.bilibili.com/x/frontend/finger/spi'
+    data = requester.get_content_str(api)
+    data = json.loads(data)
+    error_raiser(data['code'])
+    return data['data']
+
 def dict_from_cookiejar(cj):
     cookie_dict = {}
 
@@ -71,7 +78,7 @@ def copy_cookies(cj,from_domain,to_domain):
             cookie_dict[cookie.name] = cookie.value
     for name,value in cookie_dict.items():
         cj.set_cookie(cookiejar.Cookie(
-            0,i[0],i[1],
+            0,name,value,
             None,False,
             to_domain,True,to_domain.startswith('.'),
             '/',False,

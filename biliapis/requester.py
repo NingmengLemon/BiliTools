@@ -56,6 +56,11 @@ def auto_retry(retry_time=3):
                 try:
                     return func(*args,**kwargs)
                 except Exception as e:
+                    if isinstance(e, error.HTTPError):
+                        if not str(e.code)[0] in '25':
+                            raise
+                    elif isinstance(e, error.URLError):
+                        raise
                     logging.error('Unexpected Error occurred while executing function {}: '\
                                   '{}; Retrying...'.format(str(func),str(e)))
                     if _run_counter > retry_time:
