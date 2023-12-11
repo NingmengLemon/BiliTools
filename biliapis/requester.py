@@ -64,7 +64,7 @@ def auto_retry(retry_time=3):
                     logging.error('Unexpected Error occurred while executing function {}: '\
                                   '{}; Retrying...'.format(str(func),str(e)))
                     if _run_counter > retry_time:
-                        raise e
+                        raise
         return wrapped
     return retry_decorator
 
@@ -265,7 +265,7 @@ class _DownloadThread(threading.Thread):
         except Exception as e:
             self.exception = e
             self.traceback_info = traceback.format_exc()
-            raise e
+            raise
         else:
             pass
 
@@ -362,7 +362,7 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
                             done_size += len(data)
                             yield done_size,total_size,round(done_size/total_size*100,2)
             except Exception as e:
-                raise e
+                raise
             if check:
                 if os.path.getsize(tmpfile) != total_size:
                     error_size = os.path.getsize(tmpfile)

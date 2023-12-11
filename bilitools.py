@@ -244,6 +244,8 @@ class DownloadManager(object):
         else:
             videostream = videostreams[vqs.index(max(vqs))]
         #Audio
+        if not audiostreams:
+            return videostream, None
         aqs = []
         for astream in audiostreams:
             aqs.append(astream['quality'])
@@ -285,7 +287,7 @@ class DownloadManager(object):
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
             if development_mode:
-                raise e
+                raise
         else:
             self.done_indexes.append(index)
             self._edit_display_list(index,'status','完成')
@@ -339,7 +341,7 @@ class DownloadManager(object):
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
             if development_mode:
-                raise e
+                raise
         else:
             self.done_indexes.append(index)
         finally:
@@ -404,7 +406,7 @@ class DownloadManager(object):
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
             if development_mode:
-                raise e
+                raise
         else:
             self.done_indexes.append(index)
         finally:
@@ -425,94 +427,124 @@ class DownloadManager(object):
             stream_data = biliapis.stream.get_video_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
             self._edit_display_list(index,'length',biliapis.second_to_time(stream_data['length']))
             vstream,astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality)
-            if audiostream_only:
-                self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
-                self._edit_display_list(index,'mode','音轨抽取')
+            # 处理没有音频流但是又请求了音轨抽取的情况
+            if not astream and audiostream_only:
+                self._edit_display_list(index,'status','中止 - 目标没有音频流')
             else:
-                self._edit_display_list(index,'quality',bilicodes.stream_dash_video_quality[vstream['quality']]+'/'+\
-                                        bilicodes.stream_dash_audio_quality[astream['quality']])
-                self._edit_display_list(index,'mode','视频下载')
-            #生成文件名
-            tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
-            tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
-            if astream['quality'] == 30251:
-                final_filename = replaceChr('{}_{}.mkv'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
-                audio_format = bilicodes.stream_dash_audio_quality[astream['quality']].lower()
-            else:
-                final_filename = replaceChr('{}_{}.mp4'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
-            final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
-            #字幕
-            is_sbt_downloaded = False
-            subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
-            if subtitle and not audiostream_only:
-                self._edit_display_list(index,'status','获取字幕')
-                bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid,allow_ai=config['download']['video']['allow_ai_subtitle']),subtitle_regulation)
-                if bccdata:
-                    bccdata = json.loads(biliapis.requester.get_content_str(bccdata['url']))
-                    srtdata = biliapis.subtitle.bcc_to_srt(bccdata)
-                    with open(os.path.join(path,subtitle_filename),'w+',encoding='utf-8',errors='ignore') as f:
-                        f.write(srtdata)
-                    is_sbt_downloaded = True
-            #弹幕
-            danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
-            if danmaku and not audiostream_only:
-                self._edit_display_list(index,'status','获取弹幕')
-                xmlstr = biliapis.danmaku.get_xmlstr(cid)
-                self._edit_display_list(index,'status','过滤弹幕')
-                xmlstr = biliapis.danmaku.filter(xmlstr,**config['download']['video']['danmaku_filter'])
-                with open(os.path.join(path,danmaku_filename),'w+',encoding='utf-8',errors='ignore') as f:
-                    f.write(xmlstr)
-                if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
-                    ass_danmaku_filename = replaceChr('{}_{}.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
-                    danmaku_to_ass(os.path.join(path,danmaku_filename),os.path.join(path,ass_danmaku_filename),w=vstream['width'],h=vstream['height'])
-            #注意这里判断的是成品文件是否存在
-            #断点续传和中间文件存在判断是交给requester的
-            if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
-                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
-            elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
-                self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
-            else:
-                #Audio Stream
-                a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
-                for donesize,totalsize,percent in a_session:
-                    self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
-                size = totalsize
-                #Video Stream
                 if audiostream_only:
-                    self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
-                    if audio_format == 'copy' or astream['quality'] == 30251:
-                        if astream['quality'] == 30251:
-                            os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.flac')
-                        else:
-                            os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
-                    else:
-                        self._edit_display_list(index,'status','混流/转码')
-                        ffdriver.convert_audio(os.path.join(path,tmpname_audio),
-                                               os.path.join(path,final_filename_audio_only),audio_format,
-                                               bilicodes.stream_dash_audio_quality[astream['quality']].lower())
-                        try:
-                            os.remove(os.path.join(path,tmpname_audio))
-                        except:
-                            pass
+                    self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
+                    self._edit_display_list(index,'mode','音轨抽取')
                 else:
-                    v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
-                    for donesize,totalsize,percent in v_session:
-                        self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
-                    size += totalsize
-                    self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
-                    #Mix
-                    self._edit_display_list(index,'status','混流/转码')
-                    ffstatus = ffdriver.merge_media(
-                        os.path.join(path,tmpname_audio),
-                        os.path.join(path,tmpname_video),
-                        os.path.join(path,final_filename)
-                        )
-                    try:
-                        os.remove(os.path.join(path,tmpname_audio))
-                        os.remove(os.path.join(path,tmpname_video))
-                    except:
-                        pass
-                self._edit_display_list(index,'status','完成')
+                    if astream:
+                        self._edit_display_list(
+                            index,'quality',
+                            bilicodes.stream_dash_video_quality[vstream['quality']]+'/'+\
+                                bilicodes.stream_dash_audio_quality[astream['quality']]
+                            )
+                    else:
+                        self._edit_display_list(
+                            index,'quality',
+                            bilicodes.stream_dash_video_quality[vstream['quality']]+'/Null'
+                            )
+                    self._edit_display_list(index,'mode','视频下载')
+                #生成文件名
+                tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
+                tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
+                filename_template = '{}_{}.mp4'
+                if astream:
+                    if astream['quality'] == bilicodes.stream_dash_audio_quality_['Flac']:
+                        filename_template = '{}_{}.mkv'
+                        audio_format = 'flac'
+                    final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
+                else:
+                    final_filename_audio_only = replaceChr('{}'.format(title))#音频抽取不带后缀名
+                final_filename = replaceChr(filename_template.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
+                #字幕
+                is_sbt_downloaded = False
+                subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
+                if subtitle and not audiostream_only:
+                    self._edit_display_list(index,'status','获取字幕')
+                    bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid,allow_ai=config['download']['video']['allow_ai_subtitle']),subtitle_regulation)
+                    if bccdata:
+                        bccdata = json.loads(biliapis.requester.get_content_str(bccdata['url']))
+                        srtdata = biliapis.subtitle.bcc_to_srt(bccdata)
+                        with open(os.path.join(path,subtitle_filename),'w+',encoding='utf-8',errors='ignore') as f:
+                            f.write(srtdata)
+                        is_sbt_downloaded = True
+                #弹幕
+                danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
+                if danmaku and not audiostream_only:
+                    self._edit_display_list(index,'status','获取弹幕')
+                    xmlstr = biliapis.danmaku.get_xmlstr(cid)
+                    self._edit_display_list(index,'status','过滤弹幕')
+                    xmlstr = biliapis.danmaku.filter(xmlstr,**config['download']['video']['danmaku_filter'])
+                    with open(os.path.join(path,danmaku_filename),'w+',encoding='utf-8',errors='ignore') as f:
+                        f.write(xmlstr)
+                    if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
+                        ass_danmaku_filename = replaceChr('{}_{}.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
+                        danmaku_to_ass(os.path.join(path,danmaku_filename),os.path.join(path,ass_danmaku_filename),w=vstream['width'],h=vstream['height'])
+                #注意这里判断的是成品文件是否存在
+                #断点续传和中间文件存在判断是交给requester的
+                if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
+                    self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
+                elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
+                    self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename_audio_only+'.'+audio_format)
+                else:
+                    #Audio Stream
+                    if astream:
+                        a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
+                        for donesize,totalsize,percent in a_session:
+                            self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
+                        size = totalsize
+                    else:
+                        size = 0
+                    #Video Stream
+                    if audiostream_only:
+                        self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
+                        if audio_format == 'copy' or astream['quality'] == bilicodes.stream_dash_audio_quality_['Flac']:
+                            if astream['quality'] == bilicodes.stream_dash_audio_quality_['Flac']:
+                                os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.flac')
+                            else:
+                                os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
+                        else:
+                            self._edit_display_list(index,'status','转码')
+                            ffdriver.convert_audio(os.path.join(path,tmpname_audio),
+                                                   os.path.join(path,final_filename_audio_only),audio_format,
+                                                   bilicodes.stream_dash_audio_quality[astream['quality']].lower())
+                            try:
+                                os.remove(os.path.join(path,tmpname_audio))
+                            except:
+                                pass
+                    else:
+                        v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
+                        for donesize,totalsize,percent in v_session:
+                            self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
+                        size += totalsize
+                        self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
+                        #Mix
+                        if astream:
+                            self._edit_display_list(index,'status','混流')
+                            ffstatus = ffdriver.merge_media(
+                                os.path.join(path,tmpname_audio),
+                                os.path.join(path,tmpname_video),
+                                os.path.join(path,final_filename)
+                                )
+                            try:
+                                os.remove(os.path.join(path,tmpname_audio))
+                                os.remove(os.path.join(path,tmpname_video))
+                            except:
+                                pass
+                        else:
+                            self._edit_display_list(index,'status','封装')
+                            ffstatus = ffdriver.convert_video(
+                                os.path.join(path,tmpname_video),
+                                os.path.join(path,final_filename)
+                                )
+                            try:
+                                os.remove(os.path.join(path,tmpname_video))
+                            except:
+                                pass
+                    self._edit_display_list(index,'status','完成')
         except biliapis.BiliError as e:
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+e.msg)
@@ -520,7 +552,7 @@ class DownloadManager(object):
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
             if development_mode:
-                raise e
+                raise
         else:
             self.done_indexes.append(index)
         finally:
@@ -1166,7 +1198,7 @@ class MainWindow(Window):
         if xmlfiles:
             for f in xmlfiles:
                 danmaku_to_ass(f,os.path.splitext(f)[0]+'.ass')
-        msgbox.showinfo('',f'已尝试转换 {len(xmlfiles)} 个文件.')
+            msgbox.showinfo('',f'已尝试转换 {len(xmlfiles)} 个文件.')
 
     def goto_config(self):
         self.button_config['state'] = 'disabled'
@@ -2612,7 +2644,7 @@ class CommonVideoWindow(Window):
                 else:
                     self.task_queue.put_nowait(lambda e=e:msgbox.showerror('意料之外的错误',str(e),parent=self.window))
                     self.task_queue.put_nowait(self.close)
-                    raise e
+                    raise
             opener_lambda = lambda:webbrowser.open(self.link)
             self.video_data = data
             self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的组件的存放空间
@@ -3689,7 +3721,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
             except Exception as e:
                 self.task_queue.put_nowait(lambda e=e:msgbox.showerror('',str(e),parent=self.master))
                 if development_mode:
-                    raise e
+                    raise
                 return
             else:
                 self.task_queue.put_nowait(lambda s=sort:self.om_sort.set_menu(s,*list(self.sort_methods.keys())))
@@ -3859,7 +3891,7 @@ class _MediaSearchShower(cusw.VerticalScrolledFrame):
             except Exception as e:
                 self.task_queue.put_nowait(lambda e=e:msgbox.showerror('',str(e),parent=self.master))
                 if development_mode:
-                    raise e
+                    raise
                 return
             else:
                 self.task_queue.put_nowait(lambda t=data['time_cost']:self.label_searchtime.configure(text=f'搜索用时: {t}s'))
@@ -4660,7 +4692,7 @@ if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
         traceback_info = traceback.format_exc()
         with open('./crash_report.txt','w+',encoding='utf-8') as f:
             f.write(traceback_info)
-        raise e
+        raise
     else:
         sys.exit(0)
 else:

@@ -132,13 +132,14 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,_
 
 def _video_stream_dash_handler(data: dict) -> dict:
     audio = []
-    for au in data['dash']['audio']:
-        audio.append({
-            'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
-            'url':au['baseUrl'],
-            'url_backup':au['backupUrl'],
-            'codec':au['codecs'],
-            })
+    if data['dash'].get('audio'):
+        for au in data['dash']['audio']:
+            audio.append({
+                'quality':au['id'],#对照表 .bilicodes.stream_dash_audio_quality
+                'url':au['baseUrl'],
+                'url_backup':au['backupUrl'],
+                'codec':au['codecs'],
+                })
     if 'flac' in data['dash']:
         flac = data['dash']['flac']
         if flac:

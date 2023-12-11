@@ -243,7 +243,12 @@ stream_dash_video_quality = {
 # 以下划线结尾的表示反查字典
 stream_dash_video_quality_ = {v: k for k, v in stream_dash_video_quality.items()}
 
-stream_dash_audio_quality = {30216: "64K", 30232: "132K", 30280: "192K", 30251: "Flac"}
+stream_dash_audio_quality = {
+    30216: "64K", 
+    30232: "132K", 
+    30280: "192K", 
+    30251: "Flac"
+    }
 
 stream_dash_audio_quality_ = {v: k for k, v in stream_dash_audio_quality.items()}
 

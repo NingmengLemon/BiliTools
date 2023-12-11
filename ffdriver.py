@@ -32,6 +32,11 @@ def merge_media(audio_file,video_file,output_file): #传入时要带后缀
     #       '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
     assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file))),\
            '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
+    
+def convert_video(video_file, output_file):
+    logging.info('Calling FFmpeg...')
+    assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -vcodec copy -acodec copy "{}"'.format(video_file,output_file))),\
+           '转换失败: "{}"->"{}"'.format(video_file ,output_file)
 
 def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#outfile的后缀名由audio_format决定
     if quality.lower() == 'flac':
