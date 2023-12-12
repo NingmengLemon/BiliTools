@@ -32,11 +32,13 @@ def merge_media(audio_file,video_file,output_file): #传入时要带后缀
     #       '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
     assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file))),\
            '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
+    logging.info("FFmpeg exit normally")
     
 def convert_video(video_file, output_file):
     logging.info('Calling FFmpeg...')
     assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -vcodec copy -acodec copy "{}"'.format(video_file,output_file))),\
            '转换失败: "{}"->"{}"'.format(video_file ,output_file)
+    logging.info("FFmpeg exit normally")
 
 def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#outfile的后缀名由audio_format决定
     if quality.lower() == 'flac':
@@ -46,14 +48,15 @@ def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#out
     else:
         path,filename = os.path.split(inputfile)
         outfile = os.path.join(path,os.path.splitext(filename)[0]+'.'+audio_format)
-    logging.info('Calling FFmpeg...')
     if quality == 'flac':
         os.rename(inputfile,outfile)
     else:
+        logging.info('Calling FFmpeg...')
         #assert not bool(os.popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile)).close()),\
         #       '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
         assert not bool(subprocess_popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile))),\
                '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
+        logging.info("FFmpeg exit normally")
 
 def call_ffplay(*urls,referer='https://www.bilibili.com',title=None,is_audio=False,repeat=0,
                 fullscreen=False,auto_exit=False):
@@ -87,6 +90,7 @@ def call_ffplay(*urls,referer='https://www.bilibili.com',title=None,is_audio=Fal
     logging.info('Calling FFplay...')
     #assert not bool(os.popen(command).close()),'调用ffplay时出现错误'
     assert not bool(subprocess_popen(command)),'调用ffplay时出现错误'
+    logging.info("FFplay exit normally")
 
 @atexit.register
 def clear_tmpfiles():

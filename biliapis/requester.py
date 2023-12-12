@@ -129,61 +129,59 @@ def global_config(use_cookie=True,use_proxy=None):
     opener = request.build_opener(*handler_list)
 
 @auto_retry(retry_time)
-def _get_response(url, headers=fake_headers_get):
-    with opener.open(request.Request(url, headers=headers), None, timeout=timeout) as response:
-        data = response.read()
-        if response.info().get('Content-Encoding') == 'gzip':
-            data = _ungzip(data)
-        elif response.info().get('Content-Encoding') == 'deflate':
-            data = _undeflate(data)
-        elif response.info().get('Content-Encoding') == 'br':
-            data = _unbrotli(data)
-        response.data = data
-        logging.debug('Get Response from: '+url)
-        return response
+def read_and_decode_data(response):
+    data = response.read()
+    if response.info().get('Content-Encoding') == 'gzip':
+        data = _ungzip(data)
+    elif response.info().get('Content-Encoding') == 'deflate':
+        data = _undeflate(data)
+    elif response.info().get('Content-Encoding') == 'br':
+        data = _unbrotli(data)
+    return data
 
 @auto_retry(retry_time)
-def _post_request(url,data,headers=fake_headers_post):
+def get(url, headers=fake_headers_get):
+    req = request.Request(url, headers=headers)
+    response = opener.open(req, None, timeout=timeout)
+    response.request = req
+    logging.debug('Get: '+url)
+    return response
+
+@auto_retry(retry_time)
+def post(url,data,headers=fake_headers_post):
     params = parse.urlencode(data).encode()
-    with opener.open(request.Request(url,data=params,headers=headers), timeout=timeout) as response:
-        data = response.read()
-        if response.info().get('Content-Encoding') == 'gzip':
-            data = _ungzip(data)
-        elif response.info().get('Content-Encoding') == 'deflate':
-            data = _undeflate(data)
-        elif response.info().get('Content-Encoding') == 'br':
-            data = _unbrotli(data)
-        response.data = data
-        if len(params) <= 100:
-            logging.debug('Post Data to {} with Params {}'.format(url,str(params)))
-        else:
-            logging.debug('Post Data to {} with a very long params'.format(url))
-        return response
+    req = request.Request(url,data=params,headers=headers)
+    response = opener.open(req, timeout=timeout)
+    response.request = req
+    if len(params) <= 100:
+        logging.debug('Post: {} with {}'.format(url,str(params)))
+    else:
+        logging.debug('Post: {}'.format(url))
+    return response
+
+@auto_retry(retry_time)
+def post_data_bytes(url,data,headers=fake_headers_post):
+    with post(url,data,headers) as response:
+        return read_and_decode_data(response)
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
-    content = _post_request(url,data,headers).data
+    content = post_data_bytes(url,data,headers)
     data = content.decode(encoding, 'ignore')
     if filter_emoji:
         data = remove_emoji(data)
     return data
 
-def post_data_bytes(url,data,headers=fake_headers_post,encoding='utf-8'):
-    response = _post_request(url,data,headers)
-    return response.data
+@auto_retry(retry_time)
+def get_content_bytes(url, headers=fake_headers_get):
+    with get(url, headers=headers) as response:
+        return read_and_decode_data(response)
 
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
-    content = _get_response(url, headers=headers).data
+    content = get_content_bytes(url, headers=headers)
     data = content.decode(encoding, 'ignore')
     if filter_emoji:
         data = remove_emoji(data)
     return data
-
-def get_content_json(**options):
-    return json.loads(get_content_str(**options))
-
-def get_content_bytes(url, headers=fake_headers_get):
-    content = _get_response(url, headers=headers).data
-    return content
 
 def get_redirect_url(url,headers=fake_headers_get):
     with opener.open(request.Request(url, headers=headers), None, timeout=timeout) as rsp:
@@ -230,7 +228,7 @@ def download_common(url,tofile,headers=fake_headers_get,use_cookie=True,use_prox
                     f.write(data)
                 else:
                     break
-    logging.debug('Download file from {} to {}.'.format(url,tofile))
+    logging.debug('Downloaded {} to {}.'.format(url,tofile))
            
 
 def convert_size(size):#单位:Byte
@@ -375,5 +373,7 @@ def download_yield(url,filename,path='./',headers=fake_headers_get,check=True):
         yield total_size,total_size,100.00
 
 
+if __name__ == '__main__':
+    global_config()
+    print()
 
-global_config()

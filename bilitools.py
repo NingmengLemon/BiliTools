@@ -45,16 +45,9 @@ import textlib
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
 #↑步入现代风（并不
 
-
-if not os.path.exists(inner_data_path):
-    os.mkdir(inner_data_path)
-biliapis.requester.inner_data_path = inner_data_path
-
 biliapis.requester.filter_emoji = config['filter_emoji']
 # 加载关于信息
 about_info = textlib.about_info.format(version=version)
-# 加载Cookies
-biliapis.requester.load_local_cookies()
 
 rgb2hex = lambda r,g,b:'#{:0>6s}'.format(str(hex((r<<16)+(g<<8)+b))[2:])
 
@@ -93,6 +86,7 @@ def load_config(fp=config_path):
                 logging.debug('Config File Loaded from {}'.format(config_path))
             else:
                 dump_config(fp)
+                logging.warning("Config file version not match, old covered")
         else:
             dump_config(fp)
     else:
@@ -217,6 +211,7 @@ class DownloadManager(object):
         while True:
             if self.thread_counter < config['download']['max_thread_num'] and not self.task_queue.empty():
                 func = self.task_queue.get_nowait()
+                logging.debug("Starting download thread: "+str(func))
                 start_new_thread(func) #线程计数器由开启的download_thread来修改
                 time.sleep(0.5)
                 self.save_progress()
@@ -278,17 +273,23 @@ class DownloadManager(object):
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
+            logging.info(
+                "New video download started: %s as %s"%(url, str(
+                threading.current_thread()
+            )))
             self._edit_display_list(index,'status','准备下载')
             session = biliapis.requester.download_yield(url,filename,path)
             for donesize,totalsize,percent in session:
                 self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
             self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
         except Exception as e:
+            logging.warning("%s exit abnormally"%str(threading.current_thread()))
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
             if development_mode:
                 raise
         else:
+            logging.info("%s exit normally"%str(threading.current_thread()))
             self.done_indexes.append(index)
             self._edit_display_list(index,'status','完成')
         finally:
@@ -301,6 +302,10 @@ class DownloadManager(object):
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
+            logging.info(
+                "New video download started: Ep%d as %s"%(epid,str(
+                threading.current_thread()
+            )))
             #收集信息
             self._edit_display_list(index,'status','收集信息')
             episode_info = biliapis.manga.get_episode_info(epid)
@@ -334,15 +339,15 @@ class DownloadManager(object):
                 size += os.path.getsize(os.path.join(path,i))
             self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
             self._edit_display_list(index,'status','完成')
-        except biliapis.BiliError as e:
-            self.failed_indexes.append(index)
-            self._edit_display_list(index,'status','错误: '+e.msg)
         except Exception as e:
+            logging.warning("%s exit abnormally"%str(threading.current_thread()))
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if development_mode:
-                raise
+            if not isinstance(e, biliapis.BiliError):
+                if development_mode:
+                    raise
         else:
+            logging.info("%s exit normally"%str(threading.current_thread()))
             self.done_indexes.append(index)
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
@@ -354,6 +359,10 @@ class DownloadManager(object):
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
+            logging.info(
+                "New video download started: Au%d as %s"%(auid,str(
+                threading.current_thread()
+            )))
             #收集信息
             self._edit_display_list(index,'status','收集信息')
             if data:
@@ -399,15 +408,15 @@ class DownloadManager(object):
                 else:
                     os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
                 self._edit_display_list(index,'status','完成')
-        except biliapis.BiliError as e:
-            self.failed_indexes.append(index)
-            self._edit_display_list(index,'status','错误: '+e.msg)
         except Exception as e:
+            logging.warning("%s exit abnormally"%str(threading.current_thread()))
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if development_mode:
-                raise
+            if not isinstance(e, biliapis.BiliError):
+                if development_mode:
+                    raise
         else:
+            logging.info("%s exit normally"%str(threading.current_thread()))
             self.done_indexes.append(index)
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
@@ -422,6 +431,16 @@ class DownloadManager(object):
         self.thread_counter += 1
         self.running_indexes.append(index)
         try:
+            if audiostream_only:
+                logging.info(
+                    "New video download started: Cid%d (audio only) as %s"%(cid,str(
+                    threading.current_thread()
+                )))
+            else:
+                logging.info(
+                    "New video download started: Cid%d as %s"%(cid,str(
+                    threading.current_thread()
+                )))
             audio_format = audio_format.lower()
             self._edit_display_list(index,'status','正在取流')
             stream_data = biliapis.stream.get_video_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
@@ -545,15 +564,15 @@ class DownloadManager(object):
                             except:
                                 pass
                     self._edit_display_list(index,'status','完成')
-        except biliapis.BiliError as e:
-            self.failed_indexes.append(index)
-            self._edit_display_list(index,'status','错误: '+e.msg)
         except Exception as e:
+            logging.warning("%s exit abnormally"%str(threading.current_thread()))
             self.failed_indexes.append(index)
             self._edit_display_list(index,'status','错误: '+str(e))
-            if development_mode:
-                raise
+            if not isinstance(e, biliapis.BiliError):
+                if development_mode:
+                    raise
         else:
+            logging.info("%s exit normally"%str(threading.current_thread()))
             self.done_indexes.append(index)
         finally:
             del self.running_indexes[self.running_indexes.index(index)]
@@ -897,11 +916,13 @@ class DownloadManager(object):
             self.save_progress()
 
     def retry_all_failed(self):
+        count = len(self.failed_indexes)
         if self.failed_indexes:
             while self.failed_indexes:
                 self._restart_task(self.failed_indexes[0])
         elif self.window:
             msgbox.showinfo('','没有失败的任务呢.',parent=self.window)
+        logging.info("Retried all failed: count=%d"%count)
 
     def _restart_task(self,index):
         if index in self.failed_indexes:
@@ -1119,15 +1140,16 @@ class MainWindow(Window):
             msgbox.showwarning('','登录出现错误: \n'+str(e),parent=self.window)
             logging.error('Unexpected Error occurred when login: '+str(e))
             self.button_login.configure(state='normal')
+            raise
         else:
             if w.status:
-                #time.sleep(0.2) # 实验性(?)
-                biliapis.requester.load_local_cookies()
+                # time.sleep(0.2) # 实验性(?)
                 self.refresh_data()
             else:
                 msgbox.showwarning('','登录未完成.',parent=self.window)
                 self.button_login.configure(state='normal')
-        self.window.wm_attributes('-topmost',config['topmost'])
+        finally:
+            self.window.wm_attributes('-topmost',config['topmost'])
 
     def refresh_data(self,init=False):
         def tmp():
@@ -2987,9 +3009,12 @@ class LoginWindow(Window):
         self.status,self.final_url,self.condition = res
         self.label_text['text'] = {0:'登录成功',-1:'密钥错误',-2:'二维码已超时',-4:'使用B站客户端扫描二维码以登录',-5:'在手机上确认登录'}[self.condition]
         if self.condition == 0:
-            cookiejar = biliapis.login.make_cookiejar(self.final_url)
-            cookiejar.save(biliapis.requester.local_cookiejar_path)
-            biliapis.requester.cookies = cookiejar
+            if not biliapis.requester.cookies:
+                cookiejar = biliapis.login.make_cookiejar_from_url(self.final_url)
+                cookiejar.save(biliapis.requester.local_cookiejar_path)
+                biliapis.requester.cookies = cookiejar
+                biliapis.requester.load_local_cookies()
+            biliapis.requester.refresh_local_cookies()
             apply_proxy_config()
             logging.debug('Cookie File saved to '+biliapis.requester.local_cookiejar_path)
             self.window.after(1000,self.close)
@@ -4676,13 +4701,32 @@ class ToviewWindow(Window):
     def __init__(self, master):
         super().__init__('Toview', True,config['topmost'],config['alpha'],master=master)
 
+def refresh_cookies():
+    try:
+        if biliapis.login.check_if_refresh_required():
+            biliapis.login.refresh_cookies()
+    except Exception as e:
+        trace = traceback.format_exc()
+        if isinstance(e, AssertionError):
+            logging.warning("Cookie Refreshment failed: "+str(e))
+        else:
+            logging.error("Cookie Refreshment failed: "+str(e))
+            if development_mode:
+                print(trace)
 
-
-def main():
+def initialize():
+    logging.info("Initializing")
     load_config()
+    if not os.path.exists(inner_data_path):
+        os.mkdir(inner_data_path)
+    biliapis.requester.load_local_cookies()
     apply_proxy_config()
     threading.Thread(target=biliapis.wbi.init,name='WBI_Initialization').start()
-    logging.info('Program Running.')
+    threading.Thread(target=refresh_cookies,name='Cookie_refreshment').start()
+
+def main():
+    initialize()
+    logging.info('Program Running')
     w = MainWindow()   
 
 if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
