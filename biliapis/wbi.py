@@ -50,7 +50,7 @@ def getWbiKeys():# -> tuple[str, str]:
     sub_url: str = json_content['data']['wbi_img']['sub_url']
     img_key = img_url.rsplit('/', 1)[1].split('.')[0]
     sub_key = sub_url.rsplit('/', 1)[1].split('.')[0]
-    logging.debug('WBI KEY has been refreshed')
+    logging.info('WBI KEY refreshed')
     return img_key, sub_key
 
 def init():
@@ -59,7 +59,6 @@ def init():
     global last_fetch
     img_key, sub_key = getWbiKeys()
     last_fetch = time.time()
-    logging.info('WBI KEY has been initialized')
 
 def sign(params) -> str:
     global img_key

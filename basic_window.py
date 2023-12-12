@@ -4,6 +4,7 @@ import tkinter.filedialog as filedialog
 import queue
 import logging
 import ctypes
+import traceback
 
 __all__ = ['Window']
 
@@ -37,6 +38,11 @@ class Window(object):#程序中所有常规窗口的父类
             except Exception as e:
                 logging.error('Task Listener Caught an Error: '+str(e))
                 #raise
+                traceback_info = traceback.format_exc()
+                print(traceback_info)
+            else:
+                pass
+                #logging.debug("Call func: "+str(func))
         if self.task_queue.empty():
             self.window.after(10,self.listen_task)
         else:

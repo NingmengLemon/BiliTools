@@ -115,7 +115,7 @@ def _video_detail_handler(data,detailmode=True):
                 'length':i['duration'],#Second
                           })
         res['parts'] = parts
-        res['warning_info'] = data['stat']['argue_msg']
+        res['warning_info'] = data['argue_info']['argue_msg']
         res['is_interact_video'] = bool(data['rights']['is_stein_gate'])
         res['is_cooperation'] = data['rights']['is_cooperation']
     return res

@@ -1,5 +1,5 @@
 import os
-from biliapis import bilicodes
+from biliapis import bilicodes, requester, login
 import logging
 import colorama
 import sys
@@ -111,6 +111,9 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 logger = logging.getLogger()
 logger.addFilter(colored_filter)
 logging.basicConfig(**basic_logging_config)
+
+requester.inner_data_path = inner_data_path
+login.ref_token_path = inner_data_path
 
 if __name__ == "__main__":
     print("--- Logging Test ---")
