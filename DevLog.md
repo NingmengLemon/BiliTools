@@ -300,3 +300,7 @@
 - 尝试添加了 Cookie Refresh 逻辑
 - 大改`biliapis.requester`的请求封装
 - 添加了一些日志
+- 正在尝试跨平台适配
+- 修复了若干 Bug
+- 修改了普通请求时的 Cookie 刷新逻辑
+

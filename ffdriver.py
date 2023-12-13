@@ -24,19 +24,17 @@ def replaceChr(text):
         text = text.replace(t,repChr[t])
     return text
 
-tmpfile_path = 'C:\\Users\\{}\\BiliTools\\tmpfiles\\'.format(os.getlogin())
+tmpfile_path = './tmpfiles/'
 
 def merge_media(audio_file,video_file,output_file): #传入时要带后缀
     logging.info('Calling FFmpeg...')
-    #assert not bool(os.popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file)).close()),\
-    #       '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
-    assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file))),\
+    assert not bool(subprocess_popen('ffmpeg -loglevel quiet -nostdin -hide_banner -i "{}" -i "{}" -vcodec copy -acodec copy "{}"'.format(audio_file,video_file,output_file))),\
            '混流失败: "{}"&"{}"->"{}"'.format(video_file,audio_file,output_file)
     logging.info("FFmpeg exit normally")
     
 def convert_video(video_file, output_file):
     logging.info('Calling FFmpeg...')
-    assert not bool(subprocess_popen('ffmpeg.exe -loglevel quiet -nostdin -hide_banner -i "{}" -vcodec copy -acodec copy "{}"'.format(video_file,output_file))),\
+    assert not bool(subprocess_popen('ffmpeg -loglevel quiet -nostdin -hide_banner -i "{}" -vcodec copy -acodec copy "{}"'.format(video_file,output_file))),\
            '转换失败: "{}"->"{}"'.format(video_file ,output_file)
     logging.info("FFmpeg exit normally")
 
@@ -52,9 +50,7 @@ def convert_audio(inputfile,outfile=None,audio_format='mp3',quality='320k'):#out
         os.rename(inputfile,outfile)
     else:
         logging.info('Calling FFmpeg...')
-        #assert not bool(os.popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile)).close()),\
-        #       '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
-        assert not bool(subprocess_popen('ffmpeg.exe -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile))),\
+        assert not bool(subprocess_popen('ffmpeg -nostdin -hide_banner -i "{}" -ab {} "{}"'.format(inputfile,quality,outfile))),\
                '转码失败: "{}"->"{}" with bitrate {}bit/s'.format(inputfile,outfile,quality)
         logging.info("FFmpeg exit normally")
 
@@ -74,7 +70,7 @@ def call_ffplay(*urls,referer='https://www.bilibili.com',title=None,is_audio=Fal
     else:
         source = urls[0]
     ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43'
-    command = 'ffplay.exe -loglevel quiet -hide_banner -user_agent "{}" -referer "{}"'.format(ua,referer,title,source)
+    command = 'ffplay -loglevel quiet -hide_banner -user_agent "{}" -referer "{}"'.format(ua,referer,title,source)
     if title:
         command += ' -window_title "{}"'.format(title)
     if is_audio:
@@ -99,6 +95,5 @@ def clear_tmpfiles():
             os.remove(os.path.join(tmpfile_path,f))
 
 def check_ffmpeg():
-    #return not bool(os.popen('ffmpeg.exe -h').close())
-    return not bool(subprocess_popen('ffmpeg.exe -h'))
+    return not bool(subprocess_popen('ffmpeg -h'))
 

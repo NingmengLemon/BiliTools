@@ -20,8 +20,8 @@ import math
 import brotli
 
 filter_emoji = False
-user_name = os.getlogin()
-inner_data_path = 'C:\\Users\\{}\\BiliTools\\'.format(user_name)
+inner_data_path = './data/'
+get_cookiejar_path = lambda: os.path.join(inner_data_path,'cookies.txt')
 
 cookies = None
 proxy = None
@@ -39,9 +39,6 @@ fake_headers_post = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43',
     'Referer':'https://www.bilibili.com/'
     }
-
-
-local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
 
 timeout = 15
 retry_time = 3
@@ -115,11 +112,12 @@ def _dict_to_headers(dict_to_conv):
         res.append((keys[i],values[i]))
     return res
 
-def global_config(use_cookie=True,use_proxy=None):
+def global_config(use_proxy=None):
     global opener
     handler_list = []
-    if use_cookie and cookies:
-        handler_list.append(request.HTTPCookieProcessor(cookies))
+    if not cookies:
+        load_local_cookies()
+    handler_list.append(request.HTTPCookieProcessor(cookies))
     if use_proxy == None:
         handler_list.append(request.ProxyHandler())
     elif use_proxy == True:
@@ -159,9 +157,11 @@ def post(url,data,headers=fake_headers_post):
         logging.debug('Post: {}'.format(url))
     return response
 
-@auto_retry(retry_time)
+# @auto_retry(retry_time)
 def post_data_bytes(url,data,headers=fake_headers_post):
     with post(url,data,headers) as response:
+        if cookies:
+            cookies.make_cookies(response, response.request)
         return read_and_decode_data(response)
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
@@ -171,9 +171,11 @@ def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
         data = remove_emoji(data)
     return data
 
-@auto_retry(retry_time)
+# @auto_retry(retry_time)
 def get_content_bytes(url, headers=fake_headers_get):
     with get(url, headers=headers) as response:
+        if cookies:
+            cookies.make_cookies(response, response.request)
         return read_and_decode_data(response)
 
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
@@ -186,16 +188,10 @@ def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
 def get_redirect_url(url,headers=fake_headers_get):
     with opener.open(request.Request(url, headers=headers), None, timeout=timeout) as rsp:
         return rsp.geturl()
-
-#Cookie Operation
-def clear_cookies():
-    global cookies
-    cookies = None
-    if os.path.exists(local_cookiejar_path):
-        os.remove(local_cookiejar_path)
     
 def load_local_cookies():
     global cookies
+    local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
     if not os.path.exists(local_cookiejar_path):
         f = open(local_cookiejar_path,'w+',encoding='utf-8')
         f.write('# Netscape HTTP Cookie File\n'\
@@ -209,6 +205,7 @@ def load_local_cookies():
 @atexit.register
 def refresh_local_cookies():
     global cookies
+    local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
     if cookies:
         cookies.save(local_cookiejar_path)
 
@@ -217,10 +214,9 @@ def set_proxy(new_proxy):
     proxy = new_proxy
 
 #Download Operation
-def download_common(url,tofile,headers=fake_headers_get,use_cookie=True,use_proxy=False):
-    
+def download_common(url,tofile,headers=fake_headers_get):
     chunk_size = 1024
-    with opener.open(request.Request(url,headers=headers),timeout=timeout) as response:
+    with get(url, headers) as response:
         with open(tofile,'wb+') as f:
             while True:
                 data = response.read(chunk_size)

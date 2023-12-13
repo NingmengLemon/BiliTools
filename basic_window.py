@@ -39,7 +39,7 @@ class Window(object):#程序中所有常规窗口的父类
                 logging.error('Task Listener Caught an Error: '+str(e))
                 #raise
                 traceback_info = traceback.format_exc()
-                print(traceback_info)
+                # print(traceback_info)
             else:
                 pass
                 #logging.debug("Call func: "+str(func))

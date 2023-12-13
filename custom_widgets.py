@@ -115,7 +115,8 @@ class _TipWindow(tk.Toplevel):
         ## 隐藏窗体的标题、状态栏等
         self.overrideredirect(True)
         ## 保持在主窗口的上面
-        self.attributes("-toolwindow", 1)  # 也可以使用 `-topmost`
+        # self.attributes("-toolwindow", 1)  # 也可以使用 `-topmost`
+        self.attributes("-topmost", 1)
         self.attributes("-alpha", 0.928)    # 设置透明度为 13/14
 
     def _label_params(self, text, textvariable):
@@ -200,7 +201,7 @@ class ToolTip:
         
         参数
         =========
-        :event:  来自于 tkinter，有鼠标的 x,y 坐标属性
+        :event:  来自于 tkinter, 有鼠标的 x,y 坐标属性
         """
         self.unschedule()
         self.update_cursor(event)
@@ -220,13 +221,14 @@ class ToolTip:
          
         参数
         =========
-        :event:  来自于 tkinter，没有被使用
+        :event:  来自于 tkinter, 没有被使用
         """
         self.unschedule()
         self.hide_tip()
 
-class VerticalScrolledFrame(tk.Frame): #所以说这个B玩意为什么会在height>31000px的时候失效啊wdnmd
-    #这个滚动框架采用的是frame套canvas再套frame的操作
+class VerticalScrolledFrame(tk.Frame): 
+    # 所以说这个B玩意为什么会在height>31000px的时候失效啊wdnmd
+    # 这个滚动框架采用的是frame套canvas再套frame的操作
     def __init__(self,master,height=200,**kwargs):
         '''组件宽度由内部的框架大小决定'''
         super().__init__(master,**kwargs)
