@@ -16,7 +16,7 @@ from Crypto.Hash import SHA256
 from lxml import etree
 
 __all__ = ['get_csrf','dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
-ref_token_path = './'
+ref_token_path = './data/'
 ref_token_filename = 'refresh_token'
 _reftoken_access_lock = threading.Lock()
 
@@ -211,11 +211,12 @@ def get_login_info(): #Cookies is Required.
         }
     return res
 
+# from bilibili-API-collect, modified
+
 def check_if_refresh_required():
     # 需要登录
     api = 'https://passport.bilibili.com/x/passport-login/web/cookie/info'
-    if not requester.cookies:
-        raise RuntimeError('CookiesJar not Loaded.')
+    assert requester.cookies, 'CookiesJar not Loaded.'
     csrf = get_csrf(requester.cookies)
     if csrf:
         data = json.loads(requester.get_content_str(
@@ -306,6 +307,12 @@ def refresh_cookies(cj=None):
     logging.info("Cookies refreshed")
 
     return cj
+
+def fetch_cookies_manually():
+    if not requester.cookies:
+        requester.load_local_cookies()
+    with requester.get('https://www.bilibili.com/') as resp:
+        requester.cookies.make_cookies(resp, resp.request)
         
 
 

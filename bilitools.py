@@ -27,6 +27,12 @@ import qrcode
 import danmaku2ass
 import lxml
 
+from configuration import version, inner_data_path
+from configuration import config_path
+from configuration import default_config as config
+from configuration import development_mode
+import textlib
+
 import biliapis
 from biliapis import bilicodes
 import custom_widgets as cusw
@@ -34,12 +40,6 @@ from basic_window import Window
 import imglib
 import ffdriver
 from videoshot_handler import VideoShotHandler
-
-from configuration import version, inner_data_path
-from configuration import config_path
-from configuration import default_config as config
-from configuration import development_mode
-import textlib
 
 #注意：
 #为了页面美观，将 Button/Radiobutton/Checkbutton/Entry 的母模块从tk换成ttk
@@ -111,7 +111,7 @@ def replaceChr(text):
         text = text.replace(t,repChr[t])
     return text
 
-def makeQrcode(data) -> BytesIO:
+def make_qrcode(data) -> BytesIO:
     qr = qrcode.QRCode()
     qr.add_data(data)
     img = qr.make_image()
@@ -1195,7 +1195,8 @@ class MainWindow(Window):
         try:
             biliapis.login.exit_login()
             biliapis.requester.cookies.save()
-        except biliapis.BiliError:
+        except biliapis.BiliError as e:
+            print(traceback.format_exc())
             msgbox.showwarning('','未登录.',parent=self.window)
             self.button_login.configure(text='退出登录',command=self.logout)
             self.button_refresh.configure(state='normal')
@@ -1698,10 +1699,20 @@ class ConfigWindow(Window):
         self.boolvar_allow_flac = tk.BooleanVar(self.window,config['download']['video']['allow_flac'])
         self.checkbutton_allow_flac = ttk.Checkbutton(self.frame_download,text='允许Flac音轨',onvalue=True,offvalue=False,variable=self.boolvar_allow_flac)
         self.checkbutton_allow_flac.grid(column=0,row=2,sticky='w',columnspan=2)
-        self.tooltip_allow_flac = cusw.ToolTip(self.checkbutton_allow_flac,'由于mp4容器的限制，包含flac音轨的视频将被封装为mkv格式。')
+        self.tooltip_allow_flac = cusw.ToolTip(self.checkbutton_allow_flac,'由于mp4容器的限制，包含flac音轨的视频将被封装为mkv.')
         #batch sleep
-        self.frame_batch_sleep = tk.Frame(self.frame_download)
-        # self.frame_batch_sleep.grid(col)
+        self.frame_batch_sleep = tk.LabelFrame(self.frame_download,text='批量处理时的请求间隔')
+        self.frame_batch_sleep.grid(column=0,row=3,columnspan=2)
+        self.doublevar_batch_sleep = tk.DoubleVar(self.window,value=config['download']['batch_sleep'])
+        self.label_batch_sleep_shower = tk.Label(self.frame_batch_sleep,text='% 4.2f s  '%(config['download']['batch_sleep']),width=5)
+        self.label_batch_sleep_shower.grid(column=0,row=0,sticky='w')
+        self.scale_batch_sleep = ttk.Scale(
+            self.frame_batch_sleep,
+            from_=0.0,to=5.0,orient=tk.HORIZONTAL,
+            variable=self.doublevar_batch_sleep,
+            command=lambda coor:self.label_batch_sleep_shower.configure(text='% 4.2f s  '%(float(coor))))
+        self.scale_batch_sleep.grid(column=1,row=0,sticky='w')
+        self.tooltip_batch_sleep = cusw.ToolTip(self.frame_batch_sleep,text='不清楚接口调用速度过快会不会寄，索性交给你来决定')
 
         #Subtitle
         self.frame_subtitle = tk.LabelFrame(self.window,text='字幕与歌词')
@@ -1917,6 +1928,7 @@ class ConfigWindow(Window):
         config['filter_emoji'] = self.boolvar_filteremoji.get()
         config['show_tips'] = self.boolvar_show_tips.get()
         
+        config['download']['batch_sleep'] = round(self.doublevar_batch_sleep.get(), 2)
         config['download']['max_thread_num'] = self.intvar_threadnum.get()
         config['download']['video']['quality'] = bilicodes.stream_dash_video_quality_[self.strvar_video_quality.get()]
         biliapis.requester.filter_emoji = config['filter_emoji']
@@ -2382,7 +2394,7 @@ class CommonVideoWindow(Window):
     def collect(self):
         w = CollectWindow(self.window,self.video_data['avid'])
         if w.del_mlids or w.add_mlids:
-            msgbox.showinfo('','在本次收藏操作中，\n这个视频在 %s 个收藏夹中被新添加，从 %s 个收藏夹中被删除'%(
+            msgbox.showinfo('','在本次收藏操作中，\n这个视频在 %s 个收藏夹中被新添加，\n从 %s 个收藏夹中被删除'%(
                 len(w.add_mlids),len(w.del_mlids)
                 ),parent=self.window)
         if w.is_collected:
@@ -2658,15 +2670,15 @@ class CommonVideoWindow(Window):
                     tags = biliapis.video.get_tags(bvid=self.abvid)
                     self.recommend = biliapis.video.get_recommend(bvid=self.abvid)
                     self.link = 'https://www.bilibili.com/video/'+self.abvid
-            except biliapis.BiliError as e:
-                if e.code in [-404,62002]:
-                    self.task_queue.put_nowait(lambda:msgbox.showerror('','视频不存在',parent=self.window))
-                    self.task_queue.put_nowait(self.close)
-                    return
-                else:
-                    self.task_queue.put_nowait(lambda e=e:msgbox.showerror('意料之外的错误',str(e),parent=self.window))
-                    self.task_queue.put_nowait(self.close)
-                    raise
+            except Exception as e:
+                if isinstance(e, biliapis.BiliError):
+                    if e.code in [-404,62002]:
+                        self.task_queue.put_nowait(lambda:msgbox.showerror('','视频不存在',parent=self.window))
+                        self.task_queue.put_nowait(self.close)
+                        return
+                self.task_queue.put_nowait(lambda e=e:msgbox.showerror('意料之外的错误',str(e),parent=self.window))
+                self.task_queue.put_nowait(self.close)
+                raise
             opener_lambda = lambda:webbrowser.open(self.link)
             self.video_data = data
             self.task_queue.put_nowait(lambda:self._prepare_recommend(len(self.recommend)))#准备相关视频的组件的存放空间
@@ -2987,7 +2999,7 @@ class LoginWindow(Window):
         
         self.label_imgshower = cusw.ImageLabel(self.window,width=300,height=300)
         self.label_imgshower.pack()
-        self.label_text = tk.Label(self.window,text='未获取',font=('Microsoft YaHei UI',15))
+        self.label_text = tk.Label(self.window,text='未获取',font=13)
         self.label_text.pack(pady=10)
         self.button_refresh = ttk.Button(self.window,text='刷新',state='disabled',command=self.fresh)
         self.button_refresh.pack()
@@ -2999,7 +3011,7 @@ class LoginWindow(Window):
         self.button_refresh['state'] = 'disabled'
         self.label_text['text'] = '正在刷新'
         self.login_url,self.oauthkey = biliapis.login.get_login_url()
-        self.label_imgshower.set(makeQrcode(self.login_url))
+        self.label_imgshower.set(make_qrcode(self.login_url))
         self.start_autocheck()
 
     def start_autocheck(self):
@@ -3011,13 +3023,14 @@ class LoginWindow(Window):
         if self.condition == 0:
             if not biliapis.requester.cookies:
                 cookiejar = biliapis.login.make_cookiejar_from_url(self.final_url)
-                cookiejar.save(biliapis.requester.local_cookiejar_path)
+                cookiejar.save(biliapis.requester.get_cookiejar_path())
                 biliapis.requester.cookies = cookiejar
                 biliapis.requester.load_local_cookies()
             biliapis.requester.refresh_local_cookies()
             apply_proxy_config()
-            logging.debug('Cookie File saved to '+biliapis.requester.local_cookiejar_path)
+            logging.debug('Cookie File saved to '+biliapis.requester.get_cookiejar_path())
             self.window.after(1000,self.close)
+            start_new_thread(biliapis.login.fetch_cookies_manually)
             return
         elif self.condition == -2:
             self.button_refresh['state'] = 'normal'
@@ -4420,12 +4433,16 @@ class PlotShower(Window):
         self._config_event()
 
     def explore(self, callback_func=None, callback_dict=None): # 耗时, 丢子线程里, 仅需调用一次
-        # callback_func接受3个参数
-        # - 当前剧情图所在的layer(int)
-        # - 当前剧情图的 Edge ID
-        # - 当前剧情图的标题
-        # 每探索到一个剧情图就回调一次
-        # ..._dict同理 只是把调用变成了修改
+        '''
+        callback_func接受3个参数
+        - 当前剧情图所在的layer(int)
+        - 当前剧情图的 Edge ID
+        - 当前剧情图的标题
+
+        每探索到一个剧情图就回调一次
+
+        ..._dict同理 只是把调用变成了修改
+        '''
         bvid = self.bvid
         gid = self.graph_id = biliapis.video.get_interact_graph_id(self.cid,bvid=bvid)
         root_plot = biliapis.video.get_interact_edge_info(gid,bvid=bvid)
@@ -4476,7 +4493,7 @@ class PlotShower(Window):
                     
                 self.explored_plot_ids[plot['edge_id']] = (layer_num,i)
                 i += 1
-                time.sleep(0.2)
+                time.sleep(config['download']['batch_sleep'])
             next_layer = []
             layer_num += 1
         self.is_explored = True
@@ -4707,22 +4724,19 @@ def refresh_cookies():
             biliapis.login.refresh_cookies()
     except Exception as e:
         trace = traceback.format_exc()
-        if isinstance(e, AssertionError):
-            logging.warning("Cookie Refreshment failed: "+str(e))
-        else:
-            logging.error("Cookie Refreshment failed: "+str(e))
-            if development_mode:
-                print(trace)
+        logging.warning("Cookie Refreshment failed: "+str(e))
+        if development_mode:
+            print(trace)
 
 def initialize():
     logging.info("Initializing")
-    load_config()
-    if not os.path.exists(inner_data_path):
-        os.mkdir(inner_data_path)
     biliapis.requester.load_local_cookies()
+    load_config()
     apply_proxy_config()
-    threading.Thread(target=biliapis.wbi.init,name='WBI_Initialization').start()
-    threading.Thread(target=refresh_cookies,name='Cookie_refreshment').start()
+    biliapis.wbi.init()
+    refresh_cookies()
+    # threading.Thread(target=biliapis.wbi.init,name='WBI_Initialization').start()
+    # threading.Thread(target=refresh_cookies,name='Cookie_refreshment').start()
 
 def main():
     initialize()
@@ -4739,6 +4753,8 @@ if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
         raise
     else:
         sys.exit(0)
+    finally:
+        biliapis.requester.refresh_local_cookies()
 else:
     #dump_config()
     pass

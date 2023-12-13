@@ -5,20 +5,31 @@ import colorama
 import sys
 from PIL import Image
 
-# import winreg
-
 development_mode = True
 
 work_dir = os.getcwd()
 user_name = os.getlogin()
 version = "2.0.0_Dev17"
-inner_data_path = "C:\\Users\\{}\\BiliTools\\".format(user_name)
-config_path = os.path.join(inner_data_path, "config.json")
-logging_path = os.path.join(inner_data_path, "last_run.log")
 
-# def get_desktop():
-#     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
-#     return winreg.QueryValueEx(key,"Desktop")[0]
+if sys.platform.startswith('win'):
+    platform = 'win'
+    inner_data_path = os.path.join(os.environ['USERPROFILE'],'.bilitools')
+    inner_data_path_legacy = os.path.join(os.environ['USERPROFILE'],'BiliTools')
+elif sys.platform.startswith('linux'):
+    platform = 'linux'
+    inner_data_path = os.path.join(os.environ['HOME'],'.bilitools')
+    inner_data_path_legacy = os.path.join(os.environ['HOME'],'BiliTools')
+else:
+    raise AssertionError('Unknown platform...')
+if os.path.exists(inner_data_path_legacy) and not os.path.exists(inner_data_path):
+    os.rename(inner_data_path_legacy, inner_data_path)
+requester.inner_data_path = inner_data_path
+login.ref_token_path = inner_data_path
+
+if not os.path.exists(inner_data_path):
+    os.mkdir(inner_data_path)
+config_path = os.path.join(inner_data_path, "config.json")
+logging_path = os.path.join('./', "last_run.log")
 
 default_config = {
     "version": version,
@@ -111,9 +122,6 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 logger = logging.getLogger()
 logger.addFilter(colored_filter)
 logging.basicConfig(**basic_logging_config)
-
-requester.inner_data_path = inner_data_path
-login.ref_token_path = inner_data_path
 
 if __name__ == "__main__":
     print("--- Logging Test ---")
