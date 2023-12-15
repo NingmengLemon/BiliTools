@@ -126,7 +126,6 @@ def global_config(use_proxy=None):
         handler_list.append(request.ProxyHandler({}))
     opener = request.build_opener(*handler_list)
 
-@auto_retry(retry_time)
 def read_and_decode_data(response):
     data = response.read()
     if response.info().get('Content-Encoding') == 'gzip':
@@ -158,9 +157,9 @@ def post(url,data,headers=fake_headers_post):
     return response
 
 # @auto_retry(retry_time)
-def post_data_bytes(url,data,headers=fake_headers_post):
+def post_data_bytes(url,data,headers=fake_headers_post, update_cookie=True):
     with post(url,data,headers) as response:
-        if cookies:
+        if cookies and update_cookie:
             cookies.make_cookies(response, response.request)
         return read_and_decode_data(response)
 
@@ -172,9 +171,9 @@ def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
     return data
 
 # @auto_retry(retry_time)
-def get_content_bytes(url, headers=fake_headers_get):
+def get_content_bytes(url, headers=fake_headers_get, update_cookie=True):
     with get(url, headers=headers) as response:
-        if cookies:
+        if cookies and update_cookie:
             cookies.make_cookies(response, response.request)
         return read_and_decode_data(response)
 
@@ -193,11 +192,10 @@ def load_local_cookies():
     global cookies
     local_cookiejar_path = os.path.join(inner_data_path,'cookies.txt')
     if not os.path.exists(local_cookiejar_path):
-        f = open(local_cookiejar_path,'w+',encoding='utf-8')
-        f.write('# Netscape HTTP Cookie File\n'\
-                '# https://curl.haxx.se/rfc/cookie_spec.html\n'\
-                '# This is a generated file!  Do not edit.')
-        f.close()
+        with open(local_cookiejar_path,'w+',encoding='utf-8') as f:
+            f.write('''# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.''')
     cookies = cookiejar.MozillaCookieJar(local_cookiejar_path)
     cookies.load()
     logging.debug('Cookiejar loaded from '+local_cookiejar_path)

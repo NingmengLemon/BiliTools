@@ -273,7 +273,7 @@ class VerticalScrolledFrame(tk.Frame):
         self._canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
 class Thread_with_gui(Window):
-    def __init__(self,func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
+    def __init__(self,func,args=None,kwargs=None,master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
         '''
         由于涉及到GUI, 该方法只能在主线程中运行...
         is_progress_hook_available 的意思是, 传入的函数是否可以被传入progress_hook参数,
@@ -293,6 +293,8 @@ class Thread_with_gui(Window):
             'status':'Working...',
             'progress':None #当此项为None时, 进度条左右游荡, 为元组时进度条显示进度
             }
+        if not kwargs:
+            kwargs = {}
         if is_progress_hook_available:
             kwargs['progress_hook'] = self.progress_hook
         if is_task_queue_available:
@@ -320,6 +322,7 @@ class Thread_with_gui(Window):
             self.return_value = self.func(*args,**kwargs)
         except Exception as e:
             self.error = e
+            raise
 
     def refresh_gui(self):
         if self.thread.is_alive():
@@ -348,7 +351,9 @@ class Thread_with_gui(Window):
             if self.error:
                 raise self.error #将异常传达到主线程抛出
 
-def run_with_gui(func,args=(),kwargs={},master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
+def run_with_gui(func,args=(),kwargs=None,master=None,is_progress_hook_available=False,is_task_queue_available=False,no_window=False):
+    if not kwargs:
+        kwargs = {}
     thread = Thread_with_gui(func,args,kwargs,master,is_progress_hook_available,is_task_queue_available,no_window)
     thread.mainloop()
     return thread.return_value
@@ -405,7 +410,7 @@ class _CustomMsgbox(object):
         self.window = w = tk.Toplevel(master)
         w.title(title)
         w.resizable(False,False)
-        w.attributes('-toolwindow',1,'-topmost',1)
+        w.attributes('-topmost',1)
         w.protocol('WM_DELETE_WINDOW',w.destroy)
         
         self.label = l = tk.Label(w,text=text,justify='left')

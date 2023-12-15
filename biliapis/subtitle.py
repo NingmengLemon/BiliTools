@@ -13,7 +13,7 @@ def get_bcc(cid,avid=None,bvid=None,allow_ai=False):
     elif bvid != None:
         api = 'https://api.bilibili.com/x/player/v2?cid=%s&bvid=%s'%(cid,bvid)
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])

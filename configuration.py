@@ -11,16 +11,16 @@ work_dir = os.getcwd()
 user_name = os.getlogin()
 version = "2.0.0_Dev17"
 
-if sys.platform.startswith('win'):
-    platform = 'win'
-    inner_data_path = os.path.join(os.environ['USERPROFILE'],'.bilitools')
-    inner_data_path_legacy = os.path.join(os.environ['USERPROFILE'],'BiliTools')
-elif sys.platform.startswith('linux'):
-    platform = 'linux'
-    inner_data_path = os.path.join(os.environ['HOME'],'.bilitools')
-    inner_data_path_legacy = os.path.join(os.environ['HOME'],'BiliTools')
+if sys.platform.startswith("win"):
+    platform = "win"
+    inner_data_path = os.path.join(os.environ["USERPROFILE"], ".bilitools")
+    inner_data_path_legacy = os.path.join(os.environ["USERPROFILE"], "BiliTools")
+elif sys.platform.startswith("linux"):
+    platform = "linux"
+    inner_data_path = os.path.join(os.environ["HOME"], ".bilitools")
+    inner_data_path_legacy = os.path.join(os.environ["HOME"], "BiliTools")
 else:
-    raise AssertionError('Unknown platform...')
+    raise AssertionError("Unknown platform...")
 if os.path.exists(inner_data_path_legacy) and not os.path.exists(inner_data_path):
     os.rename(inner_data_path_legacy, inner_data_path)
 requester.inner_data_path = inner_data_path
@@ -29,7 +29,7 @@ login.ref_token_path = inner_data_path
 if not os.path.exists(inner_data_path):
     os.mkdir(inner_data_path)
 config_path = os.path.join(inner_data_path, "config.json")
-logging_path = os.path.join('./', "last_run.log")
+logging_path = os.path.join("./", "last_run.log")
 
 default_config = {
     "version": version,
@@ -91,11 +91,11 @@ default_config = {
 
 # 日志设置
 LOGLEVEL_COLOR_DICT = {
-    logging.DEBUG: colorama.Fore.BLUE + "{}" + colorama.Fore.RESET,
-    logging.INFO: colorama.Fore.GREEN + "{}" + colorama.Fore.RESET,
-    logging.WARNING: colorama.Fore.YELLOW + "{}" + colorama.Fore.RESET,
-    logging.ERROR: colorama.Fore.RED + "{}" + colorama.Fore.RESET,
-    logging.CRITICAL: colorama.Fore.LIGHTRED_EX + "{}" + colorama.Fore.RESET,
+    logging.DEBUG:      colorama.Fore.BLUE + "{}" + colorama.Fore.RESET,
+    logging.INFO:       colorama.Fore.GREEN + "{}" + colorama.Fore.RESET,
+    logging.WARNING:    colorama.Fore.YELLOW + "{}" + colorama.Fore.RESET,
+    logging.ERROR:      colorama.Fore.RED + "{}" + colorama.Fore.RESET,
+    logging.CRITICAL:   colorama.Fore.LIGHTRED_EX + "{}" + colorama.Fore.RESET,
 }
 
 

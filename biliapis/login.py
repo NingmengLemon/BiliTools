@@ -13,7 +13,7 @@ import binascii
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-from lxml import etree
+from bs4 import BeautifulSoup
 
 __all__ = ['get_csrf','dict_from_cookiejar','get_login_info','get_login_url','check_scan','check_login','make_cookiejar','exit_login']
 ref_token_path = './data/'
@@ -250,10 +250,8 @@ def get_refresh_csrf():
     cp = _get_correspondpath(time.time()*1000)
     api += cp
     webpage = requester.get_content_str(api)
-    csrf = etree.HTML(webpage, etree.HTMLParser()).xpath(
-        "//div[id='1-name']/text()"
-    )
-    _save_reftoken(csrf)
+    bs = BeautifulSoup(webpage, 'lxml')
+    csrf = bs.find(name='div',id='1-name').get_text()
     return csrf
 
 def confirm_refresh_cookies(refresh_token_old, csrf):

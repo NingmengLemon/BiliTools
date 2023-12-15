@@ -30,7 +30,7 @@ def get_recommend(avid:int=None,bvid:str=None):
     elif bvid != None:
         api = f'https://api.bilibili.com/x/web-interface/archive/related?bvid='+bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -345,7 +345,7 @@ def like(csrf,avid=None,bvid=None,opt=1): # 点赞
     elif bvid != None:
         data['bvid'] = bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data['like'] = opt
     data['csrf'] = csrf
     data = json.loads(requester.post_data_str(api,data=data))
@@ -361,7 +361,7 @@ def is_liked(avid=None,bvid=None): # 判断是否赞过
     elif bvid != None:
         api += f'?bvid={bvid}'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -380,7 +380,7 @@ def coin(csrf,avid=None,bvid=None,num=1,like=False): # 投币
     elif bvid != None:
         data['bvid'] = bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data['multiply'] = num
     data['select_like'] = int(like)
     data['csrf'] = csrf
@@ -398,7 +398,7 @@ def is_coined(avid=None,bvid=None): # 判断是否投过币
     elif bvid != None:
         api += f'?bvid={bvid}'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -415,7 +415,7 @@ def triple(csrf,avid=None,bvid=None): # 三连
     elif bvid != None:
         data['bvid'] = bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data['csrf'] = csrf
     data = json.loads(requester.post_data_str(api,data=data))
     error_raiser(data['code'],data['message'])
@@ -447,7 +447,7 @@ def is_collected(avid=None,bvid=None):
     elif bvid != None:
         api += f'?aid={bvid}'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -463,7 +463,7 @@ def get_interact_graph_id(cid,avid=None,bvid=None):
     elif bvid != None:
         api = f'https://api.bilibili.com/x/player/v2?bvid={bvid}&cid={cid}'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
@@ -485,7 +485,7 @@ def get_interact_edge_info(graph_id,avid=None,bvid=None,edge_id=0):
     elif bvid != None:
         api = f'https://api.bilibili.com/x/stein/edgeinfo_v2?bvid={bvid}'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     api += f'&graph_version={graph_id}&edge_id={edge_id}'
     data = requester.get_content_str(api)
     data = json.loads(data)
@@ -561,7 +561,7 @@ def add_to_toview(csrf,avid=None,bvid=None):
     elif bvid != None:
         data['bvid'] = bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data['csrf'] = csrf
     data = json.loads(requester.post_data_str(api,data=data))
     error_raiser(data['code'],data['message'])
@@ -577,7 +577,7 @@ def get_videoshot(avid=None,bvid=None,cid=None):
     elif bvid != None:
         api = f'https://api.bilibili.com/x/player/videoshot?bvid={bvid}&index=1'
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     if cid:
         api += f'&cid={cid}'
     data = requester.get_content_str(api)
