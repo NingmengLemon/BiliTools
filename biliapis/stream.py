@@ -6,7 +6,19 @@ from urllib import parse
 import logging
 
 __all__ = ['get_audio_stream','get_live_stream',
-           'get_video_stream_dash','get_video_stream_flv']
+           'get_video_stream_dash','get_video_stream_flv',
+           'quality_to_dimension']
+
+quality_to_dimension = {
+    '240P': (427, 240),
+    '360P': (640, 360),
+    '480P': (854, 480),
+    '720P': (1280, 720),
+    '1080P': (1920, 1080),
+    '1440P': (2560, 1440),
+    '4K': (3840, 2160),
+    '8K': (7680, 4320)
+}
 
 def get_video_stream_flv(cid,avid=None,bvid=None,quality_id=64):
     fnval = 0
@@ -19,7 +31,7 @@ def get_video_stream_flv(cid,avid=None,bvid=None,quality_id=64):
     elif bvid != None:
         api = 'https://api.bilibili.com/x/player/playurl?bvid=%s&cid=%s&fnval=%s&fourk=%s&qn=%s'%(bvid,cid,fnval,fourk,quality_id)
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     data = requester.get_content_str(api)
     data = json.loads(data)
     if data['code'] == -404:
@@ -70,15 +82,15 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,_
         'fourk': fourk
     }
     api_wbi = 'https://api.bilibili.com/x/player/wbi/playurl'
-    api_legacy = 'https://api.bilibili.com/x/player/playurl'
+    api_legacy = 'https://api.bilibili.com/pgc/player/web/v2/playurl'
     api_legacy_backup = 'https://api.bilibili.com/pgc/player/web/playurl'
-    api_legacy_backup_2 = 'https://api.bilibili.com/pgc/player/web/v2/playurl'
+    api_legacy_backup_2 = 'https://api.bilibili.com/x/player/playurl'
     if avid != None:
         params['avid'] = avid
     elif bvid != None:
         params['bvid'] = bvid
     else:
-        raise RuntimeError('You must choose one parameter between avid and bvid.')
+        raise AssertionError('avid and bvid, choose one plz.')
     
     succ_flag = 0
     # 尝试请求 wbi 接口
@@ -125,12 +137,22 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,_
         else:
             logging.warning('playurl-getting method legacy C failure: '+data['message'])
 
-    if not succ_flag:
-        raise BiliError('NaN', '所有取流方式均失败.')     
-            
+    assert succ_flag, 'Stream request failure' 
+
+    # if 'dash' in data:
+    #     return _video_stream_dash_handler(data)
+    # elif 'durl' in data:
+    #     return _video_stream_mp4_handler(data)
+    # else:
+    #     raise AssertionError('Unknown stream format.')
+    
     return _video_stream_dash_handler(data)
 
 def _video_stream_dash_handler(data: dict) -> dict:
+    assert 'dash' in data,'''DASH data not found,
+This is usually caused by accessing vip media without vip account logged in.
+(But sometimes happens without reason)'''
+
     audio = []
     if data['dash'].get('audio'):
         for au in data['dash']['audio']:
@@ -150,22 +172,47 @@ def _video_stream_dash_handler(data: dict) -> dict:
                     'url_backup':flac['audio']['backup_url'], #list
                     'codec':flac['audio']['codecs']
                     })
+                
     video = []
     for vi in data['dash']['video']:
         video.append({
             'quality':vi['id'],#对照表 .bilicodes.stream_dash_video_quality
-            'url':vi['baseUrl'],
+            'url':vi['base_url'],
+            'url_backup':vi['backup_url'],
             'codec':vi['codecs'],
             'width':vi['width'],
             'height':vi['height'],
             'frame_rate':vi['frameRate'],#帧率
             })
+        
     stream = {
+        'method':'dash',
         'audio':audio,
         'video':video,
         'length':data['timelength']/1000 #sec
         }
     return stream
+
+def _video_stream_mp4_handler(data:dict) -> dict:
+    
+    assert 'durl' in data, '''DURL data not found
+Maybe it's not a mp4 stream data package?'''
+
+    return {
+        'method':'mp4',
+        'length':data['timelength']/1000,
+        'quality': data['quality'],
+        # 'dimension':bilicodes.,
+        'format':data['format'],
+        'accept_quality':data['accept_quality'],
+        'durl': [{
+            'order':d['order'],
+            'size':d['size'],
+            'url':d['url'],
+            'url_backup':d['backup_url']
+        } for d in data['durl']]
+    }
+
 
 def get_audio_stream(auid,quality=3,platform='web',uid=0):
     '''quality = 0(128K)/1(192K)/2(320K)/3(FLAC)'''
@@ -180,7 +227,7 @@ def get_audio_stream(auid,quality=3,platform='web',uid=0):
         'quality_id':data['type'],
         'size':data['size'],#(Byte)
         'url':data['cdns'][0],
-        'urls_backup':data['cdns'][1:],
+        'url_backup':data['cdns'][1:],
         'title':data['title'],
         'cover':data['cover']
         }

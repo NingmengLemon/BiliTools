@@ -76,6 +76,7 @@ def get_detail(ssid=None,epid=None,mdid=None):
     data = json.loads(data)
     error_raiser(data['code'],data['message'])
     data = data['result']
+
     episodes = []
     for ep in data['episodes']:
         episodes.append({
@@ -89,24 +90,30 @@ def get_detail(ssid=None,epid=None,mdid=None):
             'time_publish':ep['pub_time'],
             'url':ep['link'],
             'media_title':data['title'],
-            'section_title':'正片'
+            'section_title':'正片',
+            'tag':ep['badge'],
+            'url':ep['link'],
+            'vid':ep['vid'], # Unknown
             })
+        
     sections = []
     if 'section' in data:
         for sec in data['section']:
             sections_ = []
-            for sec_ in sec['episodes']:
+            for ep in sec['episodes']:
                 try:
                     sections_.append({
-                        'avid':sec_['aid'],
-                        'bvid':sec_['bvid'],
-                        'cid':sec_['cid'],
-                        'epid':sec_['id'],
-                        'cover':sec_['cover'],
-                        'title':sec_['title'],
-                        'url':sec_['share_url'],
+                        'avid':ep['aid'],
+                        'bvid':ep['bvid'],
+                        'cid':ep['cid'],
+                        'epid':ep['id'],
+                        'cover':ep['cover'],
+                        'title':ep['title'],
+                        'title_short':'',
+                        'url':ep['share_url'],
                         'media_title':data['title'],
-                        'section_title':sec['title']
+                        'section_title':sec['title'],
+                        'tag':ep['badge']
                         })
                 except:
                     continue
@@ -114,6 +121,7 @@ def get_detail(ssid=None,epid=None,mdid=None):
                 'title':sec['title'],
                 'episodes':sections_
                 })
+            
     upinfo = None
     if 'up_info' in data:
         upinfo = {
@@ -122,17 +130,32 @@ def get_detail(ssid=None,epid=None,mdid=None):
             'follower':data['up_info']['follower'],
             'name':data['up_info']['uname']
             }
+    
+    seasons = []
+    if 'seasons' in data:
+        for ss in data['seasons']:
+            seasons.append({
+                'ssid':ss['season_id'],
+                'mdid':ss['media_id'],
+                'cover':ss['cover'],
+                'title':ss['season_title']
+            })
         
     result = {
         'bgpic':data['bkg_cover'],
         'cover':data['cover'],
-        'episodes':episodes,#正片内容
+        'episodes':episodes, # 正片内容
         'description':data['evaluate'],
         'mdid':data['media_id'],
         'ssid':data['season_id'],
         'record':data['record'],
         'title':data['title'],
-        'sections':sections,#非正片内容, 可能没有
+        'sections':sections, # 非正片内容, 可能没有
+        'is_finished':bool(data['publish']['is_finish']),
+        'is_published':bool(data['publish']['is_started']),
+        'publish_time':data['publish']['pub_time'], # str, YYYY-MM-DDD hh:mm:ss
+        'rating':data['rating'], # count 评分人数, score 分数
+        'seasons':seasons, # 同系列其他季度
         'stat':{
             'coin':data['stat']['coins'],
             'danmaku':data['stat']['danmakus'],
@@ -142,7 +165,8 @@ def get_detail(ssid=None,epid=None,mdid=None):
             'share':data['stat']['share'],
             'view':data['stat']['views']
             },
-        'uploader':upinfo#可能没有
+        'uploader':upinfo, # 可能没有
+        'series_info':data['series'] # series_id, series_title
     }
     return result
 

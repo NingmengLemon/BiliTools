@@ -66,7 +66,9 @@ class Window(object):#程序中所有常规窗口的父类
     def close(self):
         self.window.destroy()
 
-    def start_window(self,winobj,args=(),kwargs={}):
+    def start_window(self,winobj,args=(),kwargs=None):
+        if not kwargs:
+            kwargs = {}
         w = winobj(*args,**kwargs)
 
     def is_alive(self):

@@ -152,12 +152,18 @@ class DownloadManager(object):
         self.running_indexes = []       # 存放运行中的任务在data_objs中的索引
         self.done_indexes = []          # 存放已完成任务在data_objs中的索引
         start_new_thread(self.auto_thread_starter) # 启动线程启动器
-        if os.path.exists(config['download']['progress_backup_path']) and (not development_mode or '-debug' in sys.argv):
-            if os.path.getsize(config['download']['progress_backup_path']) >= 50:
+        # if (not development_mode or '-debug' in sys.argv):
+        #     self.recover_progress()
+
+    def recover_progress(self, path=config['download']['progress_backup_path']):
+        if os.path.exists(path):
+            if os.path.getsize(path) >= 50:
+                hide_window = not bool(self.window)
                 self.show()
                 if msgbox.askyesno('PrgRecovery','恢复下载进度？',parent=self.window):
-                    self.load_progress(config['download']['progress_backup_path'])
-                self.hide()
+                    self.load_progress(path)
+                if hide_window:
+                    self.hide()
 
     def load_progress(self,file=config['download']['progress_backup_path']):
         if os.path.exists(file):
@@ -365,6 +371,7 @@ class DownloadManager(object):
             )))
             #收集信息
             self._edit_display_list(index,'status','收集信息')
+            audio_format = audio_format.lower()
             if data:
                 audio_info = data
             else:
@@ -377,7 +384,7 @@ class DownloadManager(object):
             stream = biliapis.stream.get_audio_stream(auid)
             self._edit_display_list(index,'quality',stream['quality'])
             #下载
-            tmp_filename = replaceChr('{}_{}.aac'.format(auid,stream['quality_id']))
+            tmp_filename = replaceChr('{}_{}.m4a'.format(auid,stream['quality_id']))
             final_filename = replaceChr('{}_{}'.format(audio_info['title'],stream['quality']))#文件名格式编辑在这里, 不带后缀名
             lyrics_filename = replaceChr('{}_{}.lrc'.format(audio_info['title'],stream['quality']))
             if not os.path.exists(os.path.join(path,lyrics_filename)) and lyrics:
@@ -392,12 +399,22 @@ class DownloadManager(object):
                 self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
                 self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
             else:
-                session = biliapis.requester.download_yield(stream['url'],tmp_filename,path)
-                for donesize,totalsize,percent in session:
-                    self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
+                surls = [stream['url']]+stream['url_backup']
+                for i in range(len(surls)):
+                    try:
+                        session = biliapis.requester.download_yield(surls[i],tmp_filename,path)
+                        for donesize,totalsize,percent in session:
+                            self._edit_display_list(index,'status','下载中 - {}%'.format(percent))
+                    except Exception as e:
+                        if i >= len(surls)-1:
+                            raise
+                        else:
+                            logging.warning(f'Stream URL {i+1} failed: '+str(e))
+                    else:
+                        break
                 self._edit_display_list(index,'size',biliapis.requester.convert_size(totalsize))
                 #进一步处理
-                if audio_format and audio_format not in ['aac','copy']:
+                if audio_format and audio_format not in ['m4a','copy']:
                     self._edit_display_list(index,'status','转码')
                     ffdriver.convert_audio(os.path.join(path,tmp_filename),os.path.join(path,final_filename),audio_format,stream['quality'].lower())
                     self._edit_display_list(index,'size',biliapis.requester.convert_size(os.path.getsize(os.path.join(path,final_filename+'.'+audio_format))))
@@ -406,7 +423,7 @@ class DownloadManager(object):
                     except:
                         pass
                 else:
-                    os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.aac')
+                    os.rename(os.path.join(path,tmp_filename),os.path.join(path,final_filename)+'.m4a')
                 self._edit_display_list(index,'status','完成')
         except Exception as e:
             logging.warning("%s exit abnormally"%str(threading.current_thread()))
@@ -445,11 +462,27 @@ class DownloadManager(object):
             self._edit_display_list(index,'status','正在取流')
             stream_data = biliapis.stream.get_video_stream_dash(cid,bvid=bvid,hdr=True,_4k=True,dolby_vision=True,_8k=True)
             self._edit_display_list(index,'length',biliapis.second_to_time(stream_data['length']))
-            vstream,astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality)
+            filename_template = '{}_{}.mp4' # 如果需要封装为mkv的话后面会自己改
+            filename_template_with_flac = '{}_{}.mkv'
+            # 发现有些远古视频不能用dash取流, 于是正在试图写出MP4备案
+            # 写牛魔, 一点都不想碰以前拉的史山了, nmlgbd
+            # 哪天重写一下罢
+            is_dash_available = stream_data['method']=='dash'
+            if is_dash_available:
+                vstream, astream = self.match_dash_quality(stream_data['video'],stream_data['audio'],quality)
+                stream_mp4 = None
+                tmpname_audio = '{}_{}_audiostream.m4s'.format(bvid,cid)
+                tmpname_video = '{}_{}_{}_videostream.m4s'.format(bvid,cid,vstream['quality'])
+            else:
+                vstream, astream = None, None
+                stream_mp4 = stream_data
+                tmpname_audio = '{}_{}_audiostream.m4s'.format(bvid,cid)
+                tmpname_video = '{}_{}_{}_videostream.mp4'.format(bvid,cid,bilicodes.stream_flv_video_quality[stream_mp4['quality']])
             # 处理没有音频流但是又请求了音轨抽取的情况
-            if not astream and audiostream_only:
+            if not astream and audiostream_only and not stream_mp4:
                 self._edit_display_list(index,'status','中止 - 目标没有音频流')
             else:
+                # 更新状态
                 if audiostream_only:
                     self._edit_display_list(index,'quality',bilicodes.stream_dash_audio_quality[astream['quality']])
                     self._edit_display_list(index,'mode','音轨抽取')
@@ -466,21 +499,18 @@ class DownloadManager(object):
                             bilicodes.stream_dash_video_quality[vstream['quality']]+'/Null'
                             )
                     self._edit_display_list(index,'mode','视频下载')
-                #生成文件名
-                tmpname_audio = '{}_{}_audiostream.aac'.format(bvid,cid)
-                tmpname_video = '{}_{}_{}_videostream.avc'.format(bvid,cid,vstream['quality'])
-                filename_template = '{}_{}.mp4'
+                # 生成文件名
                 if astream:
                     if astream['quality'] == bilicodes.stream_dash_audio_quality_['Flac']:
-                        filename_template = '{}_{}.mkv'
+                        filename_template = filename_template_with_flac
                         audio_format = 'flac'
-                    final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']]))#音频抽取不带后缀名
+                    final_filename_audio_only = replaceChr('{}_{}'.format(title,bilicodes.stream_dash_audio_quality[astream['quality']])) # 音频抽取不带后缀名
                 else:
-                    final_filename_audio_only = replaceChr('{}'.format(title))#音频抽取不带后缀名
-                final_filename = replaceChr(filename_template.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#标题由task_receiver生成
-                #字幕
+                    final_filename_audio_only = replaceChr('{}'.format(title)) # 这一行根本不会被执行
+                final_filename = replaceChr(filename_template.format(title,bilicodes.stream_dash_video_quality[vstream['quality']])) # 标题由task_receiver生成
+                # 字幕
                 is_sbt_downloaded = False
-                subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))#字幕文件名与视频文件保持一致
+                subtitle_filename = replaceChr('{}_{}.srt'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']])) # 字幕文件名与视频文件保持一致
                 if subtitle and not audiostream_only:
                     self._edit_display_list(index,'status','获取字幕')
                     bccdata = self.choose_subtitle_lang(biliapis.subtitle.get_bcc(cid,bvid=bvid,allow_ai=config['download']['video']['allow_ai_subtitle']),subtitle_regulation)
@@ -490,7 +520,7 @@ class DownloadManager(object):
                         with open(os.path.join(path,subtitle_filename),'w+',encoding='utf-8',errors='ignore') as f:
                             f.write(srtdata)
                         is_sbt_downloaded = True
-                #弹幕
+                # 弹幕
                 danmaku_filename = replaceChr('{}_{}.xml'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
                 if danmaku and not audiostream_only:
                     self._edit_display_list(index,'status','获取弹幕')
@@ -502,8 +532,8 @@ class DownloadManager(object):
                     if convert_danmaku and os.path.exists(os.path.join(path,danmaku_filename)):
                         ass_danmaku_filename = replaceChr('{}_{}.ass'.format(title,bilicodes.stream_dash_video_quality[vstream['quality']]))
                         danmaku_to_ass(os.path.join(path,danmaku_filename),os.path.join(path,ass_danmaku_filename),w=vstream['width'],h=vstream['height'])
-                #注意这里判断的是成品文件是否存在
-                #断点续传和中间文件存在判断是交给requester的
+                # 注意这里判断的是成品文件是否存在
+                # 断点续传和中间文件存在判断是交给requester的
                 if os.path.exists(os.path.join(path,final_filename)) and not audiostream_only:
                     self._edit_display_list(index,'status','跳过 - 文件已存在: '+final_filename)
                 elif os.path.exists(os.path.join(path,final_filename_audio_only)+'.'+audio_format) and audiostream_only:
@@ -511,9 +541,19 @@ class DownloadManager(object):
                 else:
                     #Audio Stream
                     if astream:
-                        a_session = biliapis.requester.download_yield(astream['url'],tmpname_audio,path)
-                        for donesize,totalsize,percent in a_session:
-                            self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
+                        surls = [astream['url']]+astream['url_backup']
+                        for i in range(len(surls)):
+                            try:
+                                a_session = biliapis.requester.download_yield(surls[i],tmpname_audio,path)
+                                for donesize,totalsize,percent in a_session:
+                                    self._edit_display_list(index,'status','下载音频流 - {}%'.format(percent))
+                            except Exception as e:
+                                if i >= len(surls)-1:
+                                    raise
+                                else:
+                                    logging.warning(f'Stream URL {i+1} failed: '+str(e))
+                            else:
+                                break
                         size = totalsize
                     else:
                         size = 0
@@ -524,7 +564,7 @@ class DownloadManager(object):
                             if astream['quality'] == bilicodes.stream_dash_audio_quality_['Flac']:
                                 os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.flac')
                             else:
-                                os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.aac')
+                                os.rename(os.path.join(path,tmpname_audio),os.path.join(path,final_filename_audio_only)+'.m4s')
                         else:
                             self._edit_display_list(index,'status','转码')
                             ffdriver.convert_audio(os.path.join(path,tmpname_audio),
@@ -535,12 +575,22 @@ class DownloadManager(object):
                             except:
                                 pass
                     else:
-                        v_session = biliapis.requester.download_yield(vstream['url'],tmpname_video,path)
-                        for donesize,totalsize,percent in v_session:
-                            self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
+                        surls = [vstream['url']]+vstream['url_backup']
+                        for i in range(len(surls)):
+                            try:
+                                v_session = biliapis.requester.download_yield(surls[i],tmpname_video,path)
+                                for donesize,totalsize,percent in v_session:
+                                    self._edit_display_list(index,'status','下载视频流 - {}%'.format(percent))
+                            except Exception as e:
+                                if i >= len(surls)-1:
+                                    raise
+                                else:
+                                    logging.warning(f'Stream URL {i+1} failed: '+str(e))
+                            else:
+                                break
                         size += totalsize
                         self._edit_display_list(index,'size',biliapis.requester.convert_size(size))
-                        #Mix
+                        # Mix
                         if astream:
                             self._edit_display_list(index,'status','混流')
                             ffstatus = ffdriver.merge_media(
@@ -2853,7 +2903,7 @@ class CollectWindow(Window):
 
         super().__init__('Collect av%s'%avid,True,True,config['alpha'],master=master)
         w = self.window
-        w.attributes('-toolwindow',1)
+        w.attributes('-topmost',1)
         self.add_mlids = []
         self.del_mlids = []
         self.is_collected = None
@@ -3261,8 +3311,7 @@ class BangumiWindow(Window):
     def __init__(self,ssid=None,mdid=None,epid=None):
         super().__init__('BiliTools - Media',True,config['topmost'],config['alpha'])
         self.ids = {'ssid':ssid,'mdid':mdid,'epid':epid}
-        if not ssid and not mdid and not epid:
-            raise RuntimeError('You must choose one parameter between ssid, mdid and epid.')
+        assert ssid or mdid or epid, 'ssid, mdid and epid, must choose one to fill'
         self.media_data = None
 
         #左侧
@@ -3314,7 +3363,7 @@ class BangumiWindow(Window):
         self.section_tabs = [] #采用列表套列表的形式
         #简介
         tk.Label(self.frame_right,text='简介↓').grid(column=0,row=1,sticky='w')
-        self.text_desc = scrolledtext.ScrolledText(self.frame_right,state='disabled',bg='#f0f0f0',bd=0,height=10,width=63)
+        self.text_desc = scrolledtext.ScrolledText(self.frame_right,state='disabled',bg='#f0f0f0',bd=0,height=10,width=80)
         self.text_desc.grid(column=0,row=2,sticky='w')
 
         self.load_data()
@@ -3342,8 +3391,8 @@ class BangumiWindow(Window):
         self.section_tabs[-1] += [tk.Frame(self.notebook_secshower)]
         self.notebook_secshower.add(self.section_tabs[-1][1],text=tabname)
         #表格
-        headings = ['标题','BvID','EpID']
-        head_widths = [200,120,80]
+        headings = ['标题','BvID','EpID','标识','短标题']
+        head_widths = [200,120,80,40,60]
         self.section_tabs[-1] += [ttk.Treeview(self.section_tabs[-1][1],show="headings",columns=tuple(['序号']+headings),height=15)]
         self.section_tabs[-1][2].grid(column=0,row=0)
         #初始化表头
@@ -3358,7 +3407,9 @@ class BangumiWindow(Window):
         i = 0
         for item in section_data:
             i += 1
-            self.section_tabs[-1][2].insert("","end",values=(str(i),item['title'],item['bvid'],str(item['epid'])))
+            self.section_tabs[-1][2].insert("","end",values=(
+                str(i),item['title'],item['bvid'],str(item['epid']),item['tag'],item['title_short']
+                ))
         #滚动条
         self.section_tabs[-1] += [ttk.Scrollbar(self.section_tabs[-1][1],command=self.section_tabs[-1][2].yview,orient='vertical')]
         self.section_tabs[-1][3].grid(column=1,row=0,sticky='nsw')
@@ -3666,7 +3717,7 @@ class _CommonVideoSearchShower(cusw.VerticalScrolledFrame):
         ttk.Separator(self.inner_frame,orient='horizontal').grid(ipadx=550,sticky='we',column=0,row=1,columnspan=2)
         
         self.frame_result = tk.Frame(self.inner_frame)
-        self.frame_result.grid(column=0,row=2,columnspan=2)
+        self.frame_result.grid(column=0,row=2,columnspan=2,sticky='w')
         self._bind_scroll_event(self.frame_result)
         self.tk_objs = []
         for y in range(rownum):
@@ -3991,9 +4042,9 @@ class SearchWindow(Window):
         #(待扩充)
 
         super().__init__('BiliTools - Search',True,config['topmost'],config['alpha'])
+        # ww,wh = (1175,650)
         ww,wh = (1125,650)
-        sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
-        self.window.geometry('%dx%d+%d+%d'%(ww,wh,(sw-ww)/2,(sh-wh)/2-40))
+        self.set_wh(ww, wh, centre=True)
         #输入区
         self.frame_input = tk.Frame(self.window)
         self.frame_input.grid(column=0,row=0)
@@ -4032,6 +4083,18 @@ class SearchWindow(Window):
             self.entry.insert('end',' '.join(init_kws))
         #self.mainloop()
 
+    def set_wh(self, w, h, centre=True):
+        ww, wh = w, h
+        sw,sh = (self.window.winfo_screenwidth(),self.window.winfo_screenheight())
+        if centre:
+            self.window.geometry('%dx%d+%d+%d'%(ww,wh,(sw-ww)/2,(sh-wh)/2-40))
+        else:
+            self.window.geometry('%dx%d'%(ww,wh))
+
+    def _auto_judge_wh(self):
+        obj = self.nb.children[self.nb.select().split('.')[-1]]
+        self.set_wh(obj.winfo_reqwidth(), self.window.winfo_height(), centre=False)
+
     def _jump_page(self,event=None):
         try:
             self.turn_page(page=int(self.entry_page.get().strip()))
@@ -4050,6 +4113,7 @@ class SearchWindow(Window):
         else:
             msgbox.showwarning('','关键字列表为空.',parent=self.window)
         self.button_start['state'] = 'normal'
+        self._auto_judge_wh()
 
     def turn_page(self,offset=None,page=None):
         target = self.nb.children[self.nb.select().split('.')[-1]]
@@ -4065,6 +4129,7 @@ class SearchWindow(Window):
         self.button_next['state'] = 'normal'
         self.button_last['state'] = 'normal'
         self.button_tp['state'] = 'normal'
+        self._auto_judge_wh()
         
     def set_nb_state(self,nb,state='normal'):
         for i in range(len(nb.tabs())):
@@ -4659,7 +4724,7 @@ class VideoShotViewer(Window):
         self.vshandler = None
         self._init_thread = None
         self._last_index = 1
-        self.window.wm_attributes('-toolwindow',1)
+        self.window.wm_attributes('-topmost',1)
         
         fm = self.frame_main = tk.Frame(self.window)
         fm.grid(column=0,row=0,padx=10,pady=10)
@@ -4728,19 +4793,42 @@ def refresh_cookies():
         if development_mode:
             print(trace)
 
-def initialize():
+def init_wbi():
+    try:
+        biliapis.wbi.init()
+    except Exception as e:
+        trace = traceback.format_exc()
+        logging.warning("WBI initialization failed: "+str(e))
+        if development_mode:
+            print(trace)
+
+
+def initialize(progress_hook={}):
     logging.info("Initializing")
+
+    progress_hook['status'] = '加载设置...'
+    progress_hook['progress'] = (0,3)
     biliapis.requester.load_local_cookies()
     load_config()
     apply_proxy_config()
-    biliapis.wbi.init()
+
+    progress_hook['status'] = '更新用户凭证...'
+    progress_hook['progress'] = (1,3)
     refresh_cookies()
+
+    progress_hook['status'] = '更新 API 凭证...'
+    progress_hook['progress'] = (2,3)
+    init_wbi()
+
+    progress_hook['progress'] = (3,3)
     # threading.Thread(target=biliapis.wbi.init,name='WBI_Initialization').start()
     # threading.Thread(target=refresh_cookies,name='Cookie_refreshment').start()
 
 def main():
-    initialize()
+    cusw.run_with_gui(initialize, is_progress_hook_available=True)
+    # initialize()
     logging.info('Program Running')
+    download_manager.recover_progress()
     w = MainWindow()   
 
 if (__name__ == '__main__' and not development_mode) or '-debug' in sys.argv:
