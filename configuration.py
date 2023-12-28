@@ -5,6 +5,8 @@ import colorama
 import sys
 from PIL import Image
 
+# 这个文件叫 configuration 是因为主程序里已经有 config 这个变量了
+
 development_mode = True
 
 work_dir = os.getcwd()
@@ -21,8 +23,8 @@ elif sys.platform.startswith("linux"):
     inner_data_path_legacy = os.path.join(os.environ["HOME"], "BiliTools")
 else:
     raise AssertionError("Unknown platform...")
-if os.path.exists(inner_data_path_legacy) and not os.path.exists(inner_data_path):
-    os.rename(inner_data_path_legacy, inner_data_path)
+# if os.path.exists(inner_data_path_legacy) and not os.path.exists(inner_data_path):
+#     os.rename(inner_data_path_legacy, inner_data_path)
 requester.inner_data_path = inner_data_path
 login.ref_token_path = inner_data_path
 

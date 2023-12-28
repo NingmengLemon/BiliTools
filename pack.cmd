@@ -6,7 +6,7 @@
 @pipenv run pip install -r requirements.txt
 @echo ================== Generating: DIR ===================
 @pipenv run pyinstaller -w --noconfirm -i "./favicon.ico" --onedir "./bilitools.py"
-@echo ================= Generating: FILE ===================
+@echo ================== Generating: FILE ===================
 @pipenv run pyinstaller -w --noconfirm -i "./favicon.ico" --onefile "./bilitools.py"
 @echo ======================== DONE ========================
 @pause
