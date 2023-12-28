@@ -1666,16 +1666,21 @@ class BatchWindow(Window):
             if path:
                 audiomode = self.boolvar_audiomode.get()
                 self.close()
-                cusw.run_with_gui(self.working_thread,(text,audiomode,path))
+                cusw.run_with_gui(self.working_thread,(text,audiomode,path),is_progress_hook_available=True)
             
-    def working_thread(self,text,audiomode,path):
+    def working_thread(self,text,audiomode,path,progress_hook):
         lines = text.split('\n')
+        total = len(lines)
+        count = 0
         for line in lines:
+            progress_hook['progress'] = (count,total)
+            progress_hook['status'] = 'Line %d of %d'%(count,total)
             if line:
                 source,flag = biliapis.parse_url(line)
                 if flag in ['avid','bvid']:
                     download_manager.task_receiver('video',path,audiostream_only=audiomode,**{flag:source})
                     time.sleep(config['download']['batch_sleep'])
+            count += 1
 
 class InputWindow(Window):
     def __init__(self,master,label=None,text=None):
@@ -2800,6 +2805,7 @@ class CommonVideoWindow(Window):
             #lcfs buttons
             def check_like(avid):
                 # 查询点赞状态
+                is_liked = self.is_liked = False
                 try:
                     is_liked = self.is_liked = biliapis.video.is_liked(avid=avid)
                 except biliapis.BiliError as e:
@@ -2810,6 +2816,7 @@ class CommonVideoWindow(Window):
                     self.task_queue.put_nowait(lambda:self.button_like.set(imglib.like_sign))
             def check_coin(avid,is_orig):
                 # 查询投币状态
+                coin = self.coined_number = 0
                 try:
                     coin = self.coined_number = biliapis.video.is_coined(avid=avid)
                 except biliapis.BiliError as e:
@@ -2823,6 +2830,7 @@ class CommonVideoWindow(Window):
                 elif coin == 2 or (coin==1 and not is_orig): # 硬币投满
                     self.task_queue.put_nowait(lambda:self.button_coin.set(imglib.coin_sign))
             def check_collect(avid):
+                is_collected = self.is_collected = False
                 try:
                     is_collected = self.is_collected = biliapis.video.is_collected(avid=avid)
                 except biliapis.BiliError as e:
