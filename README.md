@@ -2,9 +2,9 @@
 
 ## Bilibili工具箱
 
-此项目仍在**开发中**，并且很多功能仍不完善，甚至简陋
+请注意，此程序有很多功能仍不完善，甚至可以说是简陋。而网上其实也有很多已经成熟的同类工具，你可以优先考虑他们。
 
-↑ 所以到目前为止发的 release 的类型都是 pre-release
+~~↑ 所以到目前为止发的 release 的类型都是 pre-release~~
 
 此项目使用 Python 和 Tkinter 进行开发，旨在满足自己的日常使用需求（所以这就是你不注重美观的原因吗（恼））
 
@@ -48,8 +48,16 @@
 
 感谢 [FFmpeg](https://github.com/FFmpeg/FFmpeg) 的~~十分甚至九分~~好用的媒体处理程序
 
-<details><summary>P.S. </summary>这个项目其实也有一段时间的历史了，算是我的练习作罢。但也正因为如此，一些代码已经堆成了shit山，再加上现在我进了大学的计算机系，得突破舒适区去细学别的语言了，这个项目可能不会更新得很频繁。但会保持在能用的程度，也就是说不会失效，因为这个程序我平时也在用ww</details>
+目前存在的问题：
+- 早年遗留的问题，比如线程不安全、默认参数不重复评估引起的问题
+- 对于部分视频（比如[这个视频](https://www.bilibili.com/video/BV1ZW41147ER/)的某些分P）只能获取到MP4流，而不是DASH流 | [详细信息](https://github.com/SocialSisterYi/bilibili-API-collect/issues/888)
+- 启动时疑似 Cookie 丢失导致的登录失效问题
 
+已经打算期末考完之后进行一个 remake 了😇
+
+对了，欢迎来看这个程序的详解(?)：[这是链接](https://blog.lemonyaweb.top/2023/12/29/Try-to-introduce-my-BiliTools/)
+
+Thank you sir♂
 
 <details><summary>一些界面的截图</summary>
   
@@ -60,7 +68,3 @@
   ![下载窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/download_window.png)
   ![小黑屋窗口](https://raw.githubusercontent.com/NingmengLemon/BiliTools/main/images/blackroom_window.png)
 </details>
-
-既然都看到这里了，不如点个star叭 (。・∀・)ノ
-
-我会继续努力更新这个项目的~
