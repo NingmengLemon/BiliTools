@@ -53,11 +53,7 @@
 - 对于部分视频（比如[这个视频](https://www.bilibili.com/video/BV1ZW41147ER/)的某些分P）只能获取到MP4流，而不是DASH流 | [详细信息](https://github.com/SocialSisterYi/bilibili-API-collect/issues/888)
 - 启动时疑似 Cookie 丢失导致的登录失效问题
 
-已经打算期末考完之后进行一个 remake 了😇
-
 对了，欢迎来看这个程序的详解(?)：[这是链接](https://blog.lemonyaweb.top/2023/12/29/Try-to-introduce-my-BiliTools/)
-
-Thank you sir♂
 
 <details><summary>一些界面的截图</summary>
   
