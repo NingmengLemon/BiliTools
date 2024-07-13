@@ -4431,6 +4431,7 @@ class PlotShower(Window):
     def play_plot(self,pid):
         i1,i2 = self.explored_plot_ids[pid]
         data = self.plots[i1][i2]
+        # incomplete
 
     def download_specific_plot(self, button_to_lock=None):
         if button_to_lock:
@@ -4715,6 +4716,7 @@ class PlotShower(Window):
         return self.canvas.create_line(*p,**kwargs)
     
     def _scroll_event(self,event):
+        # emmm 有可能造成点击事件错位
         self.canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
     def _bind_scroll_event(self,widget):

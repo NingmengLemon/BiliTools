@@ -109,7 +109,7 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,_
             api_legacy+'?'+parse.urlencode(params)
         )
         data = json.loads(data)
-        if data['code'] == 0:
+        if data['code'] == 0 and "data" in data:
             succ_flag = 1
             data = data['data']
         else:
@@ -120,13 +120,13 @@ def get_video_stream_dash(cid,avid=None,bvid=None,dolby_vision=False,hdr=False,_
             api_legacy_backup+'?'+parse.urlencode(params)
             )
         data = json.loads(data)
-        if data['code'] == 0:
+        if data['code'] == 0 and "result" in data:
             succ_flag = 1
             data = data['result']
         else:
             logging.warning('playurl-getting method legacy B failure: '+data['message'])
     # 尝试请求原来的接口3
-    if not succ_flag:
+    if not succ_flag and "result" in data:
         data = requester.get_content_str(
             api_legacy_backup_2+'?'+parse.urlencode(params)
             )
