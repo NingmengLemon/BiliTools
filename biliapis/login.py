@@ -117,7 +117,7 @@ def check_scan(oauthkey):
             _save_reftoken(data['refresh_token'])
             if requester.cookies:
                 # 返回的 response 被做过特殊处理, 拥有了 request 属性
-                requester.cookies.make_cookies(response, response.request)
+                requester.cookies.extract_cookies(response, response.request)
             logging.info("QR login succeeded")
             return True,data['url'],0 #成功与否,URL,状态码
         else:
@@ -297,7 +297,7 @@ def refresh_cookies(cj=None):
             pass
         else:
             cj = requester.cookies
-        cj.make_cookies(response, response.request)
+        cj.extract_cookies(response, response.request)
 
     csrf = get_csrf(cj)
     assert csrf, 'CSRF missed while processing'
@@ -310,7 +310,7 @@ def fetch_cookies_manually():
     if not requester.cookies:
         requester.load_local_cookies()
     with requester.get('https://www.bilibili.com/') as resp:
-        requester.cookies.make_cookies(resp, resp.request)
+        requester.cookies.extract_cookies(resp, resp.request)
         
 
 

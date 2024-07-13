@@ -142,6 +142,9 @@ def get(url, headers=fake_headers_get):
     response = opener.open(req, None, timeout=timeout)
     response.request = req
     logging.debug('Get: '+url)
+    set_cookie = dict(response.headers).get("Set-Cookie")
+    if set_cookie:
+        logging.debug('Set Cookies: '+str(set_cookie))
     return response
 
 @auto_retry(retry_time)
@@ -150,17 +153,21 @@ def post(url,data,headers=fake_headers_post):
     req = request.Request(url,data=params,headers=headers)
     response = opener.open(req, timeout=timeout)
     response.request = req
-    if len(params) <= 100:
-        logging.debug('Post: {} with {}'.format(url,str(params)))
-    else:
-        logging.debug('Post: {}'.format(url))
+    logging.debug('Post: {} with {}'.format(url,str(params)))
+    # if len(params) <= 100:
+    #     logging.debug('Post: {} with {}'.format(url,str(params)))
+    # else:
+    #     logging.debug('Post: {}'.format(url))
+    set_cookie = dict(response.headers).get("Set-Cookie")
+    if set_cookie:
+        logging.debug('Set Cookies: '+str(set_cookie))
     return response
 
 # @auto_retry(retry_time)
 def post_data_bytes(url,data,headers=fake_headers_post, update_cookie=True):
     with post(url,data,headers) as response:
         if cookies and update_cookie:
-            cookies.make_cookies(response, response.request)
+            cookies.extract_cookies(response, response.request)
         return read_and_decode_data(response)
 
 def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
@@ -174,7 +181,7 @@ def post_data_str(url,data,headers=fake_headers_post,encoding='utf-8'):
 def get_content_bytes(url, headers=fake_headers_get, update_cookie=True):
     with get(url, headers=headers) as response:
         if cookies and update_cookie:
-            cookies.make_cookies(response, response.request)
+            cookies.extract_cookies(response, response.request)
         return read_and_decode_data(response)
 
 def get_content_str(url, encoding='utf-8', headers=fake_headers_get):
