@@ -5,11 +5,31 @@
 **由于早年遗留的各种问题，此仓库停止更新，未来会尝试重写**  
 > 到时大概会新开一个仓库罢
 
-请注意，此程序有很多功能不完善，甚至可以说是简陋。而网上其实有很多已经成熟的同类工具，建议优先考虑他们。
+请注意，此程序有很多功能不完善，甚至可以说是简陋。而网上其实有很多已经成熟的同类工具 (e.g. [btjawa/BiliTools](https://github.com/btjawa/BiliTools)~~, 甚至相同名字~~)，建议优先考虑他们。
 
 此程序旨在满足自己的日常使用需求，嗯大概就是，早年的时候自嗨用的  
 
 此程序仅能用于学习交流用途，不允许用于任何非法用途
+
+### 食用方式
+
+Clone, 然后使用 [uv](https://docs.astral.sh/uv/) 安装依赖:
+
+```powershell
+git clone https://github.com/NingmengLemon/BiliTools.git
+cd BiliTools
+uv sync
+```
+
+然后运行:
+
+```powershell
+uv run bilitools.py
+```
+
+如果运行后什么事都没有发生 (甚至报错也没有), 那就将 `configuration.py` 中的 `development_mode` 值改为 `False`, 或者添加启动参数 `-debug`~~, 鬼知道我当时为什么要这么写 (~~
+
+或者去 Release 找打包好的可执行文件 (Windows only)
 
 ### 功能喵
 
@@ -23,7 +43,7 @@
 查询并下载普通视频 | 仅DASH方式
 查询并下载番剧 | 仅DASH方式
 批量下载普通视频 | 仅DASH方式
-下载漫画 | /
+~~下载漫画~~ | /
 搜索普通视频 | /
 解析合集 | /
 解析频道 | 或者说是系列？
@@ -65,7 +85,7 @@
   
   ![主程序里BeLike](./images/indescribable_code_xd.png)
 
-  Mypy & Pylint：蒸乌鱼😅
+  Mypy & Pylint & Ruff：蒸乌鱼😅
 </details><br />
 
 ~~啊啊尽管如此，但是它居然能跑，太神奇了jrm~~

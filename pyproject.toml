@@ -1,0 +1,15 @@
+[project]
+name = "bilitools"
+version = "2.0.0_dev17"
+description = "大概是一个Bilibili工具箱"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "beautifulsoup4>=4.13.4",
+    "brotli>=1.1.0",
+    "colorama>=0.4.6",
+    "lxml>=5.4.0",
+    "pillow>=11.2.1",
+    "pycryptodome>=3.23.0",
+    "qrcode>=8.2",
+]

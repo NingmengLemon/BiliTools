@@ -1,0 +1,16 @@
+{
+    "explorer.excludeGitIgnore": false,
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*_cache": true,
+        "**/.venv": true
+    },
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportShadowedImports": "none"
+    },
+}
